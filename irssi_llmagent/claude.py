@@ -33,33 +33,47 @@ class AnthropicClient:
             await self.session.close()
 
     async def call_claude(
-        self, context: list[dict[str, str]], system_prompt: str, model: str
+        self, context: list[dict], system_prompt: str, model: str
     ) -> str | None:
+        """Call Claude API with context and system prompt, returning cleaned text response."""
+        raw_response = await self.call_claude_raw(context, system_prompt, model)
+        return self._extract_text_from_response(raw_response)
+
+    async def call_claude_raw(
+        self, context: list[dict], system_prompt: str, model: str, tools: list | None = None
+    ) -> dict | None:
         """Call Claude API with context and system prompt."""
         if not self.session:
             raise RuntimeError("AnthropicClient not initialized as async context manager")
 
-        # Coalesce consecutive user messages
+        # Coalesce consecutive user messages (only for simple string content)
         messages = []
         for msg in context:
-            if msg["role"] == "user":
-                if messages and messages[-1]["role"] == "user":
+            if msg["role"] == "user" and isinstance(msg["content"], str):
+                if messages and messages[-1]["role"] == "user" and isinstance(messages[-1]["content"], str):
                     messages[-1]["content"] += "\n" + msg["content"]
                 else:
                     messages.append(msg)
             else:
                 messages.append(msg)
 
-        # Ensure first message is from user
+        # Ensure first message is from user (only for simple text messages)
         if messages and messages[0]["role"] != "user":
             messages.insert(0, {"role": "user", "content": "..."})
 
+        # Ensure we have at least one message
+        if not messages:
+            messages.append({"role": "user", "content": "..."})
+
         payload = {
             "model": model,
-            "max_tokens": 256,
+            "max_tokens": 1024 if tools else 256,
             "messages": messages,
             "system": system_prompt,
         }
+
+        if tools:
+            payload["tools"] = tools
 
         logger.info(f"Calling Anthropic API with model: {model}")
         logger.info(f"Anthropic request payload: {json.dumps(payload, indent=2)}")
@@ -70,24 +84,38 @@ class AnthropicClient:
                 data = await response.json()
 
             logger.info(f"Anthropic response: {json.dumps(data, indent=2)}")
-
-            # Check for refusal
-            if data.get("stop_reason") == "refusal":
-                logger.warning("Claude refusal detected")
-                return "refusal, rip"
-
-            if "content" in data and data["content"]:
-                text = data["content"][0]["text"]
-                logger.info(f"Claude response text: {text}")
-                # Clean up response - single line only
-                text = text.strip()
-                text = re.sub(r"\n.*", "", text)
-                text = re.sub(r"^<[^>]+>\s*", "", text)  # Remove IRC nick prefix
-                logger.info(f"Cleaned Claude response: {text}")
-                return text
+            return data
 
         except aiohttp.ClientError as e:
             logger.error(f"Anthropic API error: {e}")
-            return f"API error: {e}"
+            return {"error": f"API error: {e}"}
+
+        return None
+
+    def _extract_text_from_response(self, response: dict | None) -> str | None:
+        """Extract cleaned text from raw Claude response."""
+        if not response:
+            return None
+
+        if "error" in response:
+            return response["error"]
+
+        # Check for refusal
+        if response.get("stop_reason") == "refusal":
+            logger.warning("Claude refusal detected")
+            return "refusal, rip"
+
+        if "content" in response and response["content"]:
+            # Find text content
+            for content_block in response["content"]:
+                if content_block.get("type") == "text":
+                    text = content_block["text"]
+                    logger.info(f"Claude response text: {text}")
+                    # Clean up response - single line only
+                    text = text.strip()
+                    text = re.sub(r"\n.*", "", text)
+                    text = re.sub(r"^<[^>]+>\s*", "", text)  # Remove IRC nick prefix
+                    logger.info(f"Cleaned Claude response: {text}")
+                    return text
 
         return None

@@ -1,10 +1,12 @@
 """Main application entry point for irssi-llmagent."""
 
+import argparse
 import asyncio
 import json
 import logging
 import re
 import sys
+from pathlib import Path
 from typing import Any
 
 from .claude import AnthropicClient
@@ -141,7 +143,7 @@ class IRSSILLMAgent:
         """Handle IRC commands and generate responses."""
         if message.startswith("!h") or message == "!h":
             logger.info(f"Sending help message to {nick}")
-            help_msg = "default is sarcastic Claude, !s is serious Claude, !p is Perplexity (prefer English!)"
+            help_msg = "default is sarcastic Claude, !s is serious agentic Claude with web tools, !p is Perplexity (prefer English!)"
             await self.varlink_sender.send_message(target, help_msg, server)
             return
 
@@ -178,25 +180,39 @@ class IRSSILLMAgent:
             if is_serious:
                 message = message[3:].strip()
                 logger.info(f"Processing serious Claude request from {nick}: {message}")
-            else:
-                logger.info(f"Processing sarcastic Claude request from {nick}: {message}")
 
-            if is_serious:
-                system_prompt = self.config["prompts"]["serious"].format(mynick=mynick)
-                model = self.config["anthropic"]["serious_model"]
+                # Use agent for serious mode
+                from .agent import ClaudeAgent
+
+                context = await self.history.get_context(server, chan_name)
+                async with ClaudeAgent(self.config, mynick) as agent:
+                    response = await agent.run_agent(context)
+
+                if response:
+                    logger.info(f"Sending agent response to {target}: {response}")
+                    await self.varlink_sender.send_message(target, f"{nick}: {response}", server)
+                    # Update context with response
+                    await self.history.add_message(
+                        server, chan_name, response, mynick, mynick, True
+                    )
+
             else:
+                # Default sarcastic Claude (unchanged)
+                logger.info(f"Processing sarcastic Claude request from {nick}: {message}")
                 system_prompt = self.config["prompts"]["sarcastic"].format(mynick=mynick)
                 model = self.config["anthropic"]["model"]
 
-            context = await self.history.get_context(server, chan_name)
-            async with AnthropicClient(self.config) as anthropic:
-                response = await anthropic.call_claude(context, system_prompt, model)
+                context = await self.history.get_context(server, chan_name)
+                async with AnthropicClient(self.config) as anthropic:
+                    response = await anthropic.call_claude(context, system_prompt, model)
 
-            if response:
-                logger.info(f"Sending Claude response to {target}: {response}")
-                await self.varlink_sender.send_message(target, response, server)
-                # Update context with response
-                await self.history.add_message(server, chan_name, response, mynick, mynick, True)
+                if response:
+                    logger.info(f"Sending Claude response to {target}: {response}")
+                    await self.varlink_sender.send_message(target, response, server)
+                    # Update context with response
+                    await self.history.add_message(
+                        server, chan_name, response, mynick, mynick, True
+                    )
 
     async def _connect_with_retry(self, max_retries: int = 5) -> bool:
         """Connect to varlink sockets with exponential backoff retry."""
@@ -267,10 +283,75 @@ class IRSSILLMAgent:
             logger.info("irssi-llmagent stopped")
 
 
+async def cli_mode(message: str, config_path: str | None = None) -> None:
+    """CLI mode for testing message handling including command parsing."""
+    # Load configuration
+    config_file = Path(config_path) if config_path else Path(__file__).parent.parent / "config.json"
+
+    if not config_file.exists():
+        print(f"Error: Config file not found at {config_file}")
+        print("Please create config.json from config.json.example")
+        sys.exit(1)
+
+    print(f"🤖 Simulating IRC message: {message}")
+    print("=" * 60)
+
+    try:
+        # Create agent instance
+        agent = IRSSILLMAgent(str(config_file))
+
+        # Mock the varlink sender and history
+        class MockSender:
+            async def send_message(self, target: str, message: str, server: str):
+                print(f"📤 Bot response: {message}")
+
+        class MockHistory:
+            async def add_message(self, server: str, channel: str, content: str, nick: str, mynick: str, is_bot: bool):
+                pass
+
+            async def get_context(self, server: str, channel: str):
+                # Include the current message in context for CLI mode
+                return [{"role": "user", "content": message}]
+
+        agent.varlink_sender = MockSender()  # type: ignore
+        agent.history = MockHistory()  # type: ignore
+
+        # Simulate message handling
+        await agent.handle_command(
+            server="testserver",
+            chan_name="#testchannel",
+            target="#testchannel",
+            nick="testuser",
+            message=message,
+            mynick="testbot"
+        )
+
+    except Exception as e:
+        print(f"❌ Error handling message: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
 def main() -> None:
     """Main entry point."""
-    agent = IRSSILLMAgent()
-    asyncio.run(agent.run())
+    parser = argparse.ArgumentParser(
+        description="irssi-llmagent - IRC chatbot with Claude and tools"
+    )
+    parser.add_argument(
+        "--message", type=str, help="Run in CLI mode to simulate handling an IRC message"
+    )
+    parser.add_argument(
+        "--config", type=str, help="Path to config file (default: config.json in project root)"
+    )
+
+    args = parser.parse_args()
+
+    if args.message:
+        asyncio.run(cli_mode(args.message, args.config))
+    else:
+        agent = IRSSILLMAgent()
+        asyncio.run(agent.run())
 
 
 if __name__ == "__main__":

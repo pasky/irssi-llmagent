@@ -54,9 +54,32 @@ Edit `config.json` to set:
 ## Commands
 
 - `mynick: message` - Default sarcastic Claude response
-- `mynick: !s message` - Serious Claude response
+- `mynick: !s message` - Serious agentic Claude with web search and URL tools
 - `mynick: !p message` - Perplexity search response
 - `mynick: !h` - Show help
+
+## CLI Testing Mode
+
+You can test the bot's message handling including command parsing from the command line:
+
+```bash
+# Test regular sarcastic mode
+uv run irssi-llmagent --message "tell me a joke"
+
+# Test serious agentic mode with web search
+uv run irssi-llmagent --message "!s search for latest Python news"
+
+# Test Perplexity mode
+uv run irssi-llmagent --message "!p what's the weather in Paris?"
+
+# Test help command
+uv run irssi-llmagent --message "!h"
+
+# Test with a specific config file
+uv run irssi-llmagent --message "!s summarize https://python.org" --config /path/to/config.json
+```
+
+This simulates full IRC message handling including command parsing, useful for testing your configuration and API keys without setting up the full IRC bot.
 
 ## Architecture
 

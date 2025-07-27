@@ -8,6 +8,7 @@
 - Run formatting: `uv run ruff format .`
 - Run type checking: `uv run pyright`
 - Install pre-commit hooks: `uv run pre-commit install`
+- Test CLI mode: `uv run irssi-llmagent --message "your message here"`
 
 ## Architecture
 - **Main Service**: `irssi_llmagent/main.py` - Async Python chatbot connecting via varlink to irssi
