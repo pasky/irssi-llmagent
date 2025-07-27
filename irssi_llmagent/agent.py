@@ -63,7 +63,9 @@ class ClaudeAgent:
                 elif result["type"] == "tool_use":
                     # Add Claude's tool request to conversation
                     if response and isinstance(response, dict) and "content" in response:
-                        messages.append({"role": "assistant", "content": response["content"]})
+                        content = response["content"]
+                        if isinstance(content, list):  # Claude returns list of content blocks
+                            messages.append({"role": "assistant", "content": content})
 
                     # Execute all tools and collect results
                     tool_results = []

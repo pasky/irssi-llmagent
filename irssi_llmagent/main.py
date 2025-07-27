@@ -265,7 +265,8 @@ class IRSSILLMAgent:
                     if "parameters" in response and "event" in response["parameters"]:
                         event = response["parameters"]["event"]
                         # Process events concurrently
-                        asyncio.create_task(self.process_message_event(event))
+                        task = asyncio.create_task(self.process_message_event(event))
+                        task.add_done_callback(lambda t: t.exception() and logger.error(f"Event processing task failed: {t.exception()}"))
                     elif "error" in response:
                         logger.error(f"Varlink error: {response['error']}")
                         break
