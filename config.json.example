@@ -1,0 +1,27 @@
+{
+  "_comment": "API keys should be set to your actual keys from Anthropic and Perplexity",
+  "anthropic": {
+    "url": "https://api.anthropic.com/v1/messages",
+    "key": "your-anthropic-api-key-here",
+    "model": "claude-sonnet-4-20250514",
+    "serious_model": "claude-opus-4-20250514"
+  },
+  "perplexity": {
+    "url": "https://api.perplexity.ai/chat/completions",
+    "key": "your-perplexity-api-key-here",
+    "model": "sonar-pro"
+  },
+  "varlink": {
+    "socket_path": "~/.irssi/varlink.sock"
+  },
+  "behavior": {
+    "history_size": 5,
+    "rate_limit": 30,
+    "rate_period": 900,
+    "ignore_users": []
+  },
+  "prompts": {
+    "serious": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. You will follow up to the last message, address the topic, and provide a ONE-LINE thoughtful and constructive response. Try to helpfully surprise if you can. (V češtině tykáš, but you reply in the same language as the last message. Address whoever was talking to you.)",
+    "sarcastic": "You are IRC user {mynick} and you are known for your sharp sarcasm and cynical, dry, rough sense of humor. You are also extremely clever. You will follow up to the last message, play along (address the topic, not the speaker), and say a single surprisingly witty comeback message that makes everyone chuckle. (V češtině tykáš, but you reply in the same language as last message. Address whoever was talking to you."
+  }
+}
