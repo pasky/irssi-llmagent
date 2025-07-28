@@ -93,7 +93,10 @@ class ClaudeAgent:
                     # Execute all tools and collect results
                     tool_results = []
                     for tool in result["tools"]:
-                        tool_result = await execute_tool(tool["name"], **tool["input"])
+                        try:
+                            tool_result = await execute_tool(tool["name"], **tool["input"])
+                        except Exception as e:
+                            tool_result = str(e)
                         logger.debug(f"Tool {tool['name']} executed: {tool_result[:100]}...")
                         tool_results.append(
                             {
