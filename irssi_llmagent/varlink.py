@@ -89,11 +89,16 @@ class VarlinkClient(BaseVarlinkClient):
 class VarlinkSender(BaseVarlinkClient):
     """Async varlink client for sending messages to IRC."""
 
+    def __init__(self, socket_path: str):
+        super().__init__(socket_path)
+        self._send_lock = asyncio.Lock()
+
     async def send_call(
         self, method: str, parameters: dict[str, Any] | None = None
     ) -> dict[str, Any] | None:
         """Send a varlink method call and wait for response."""
-        return await super().send_call(method, parameters, more=False)
+        async with self._send_lock:
+            return await super().send_call(method, parameters, more=False)
 
     async def send_message(self, target: str, message: str, server: str) -> bool:
         """Send a message to IRC."""
