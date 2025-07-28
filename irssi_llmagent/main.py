@@ -6,7 +6,6 @@ import json
 import logging
 import re
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -220,33 +219,30 @@ class IRSSILLMAgent:
                     )
                     is_test_channel = test_channels and chan_name in test_channels
 
+                    target = chan_name  # For proactive interjections, target is the channel
+
                     if is_test_channel:
-                        # Test mode: generate response but don't send it
+                        # Test mode: use the same method as live mode but don't send messages
                         logger.info(
                             f"[TEST MODE] Would interject proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
                         )
-                        # Generate the response to test the full pipeline
-                        test_context = await self.history.get_context(server, chan_name)
-                        system_prompt = self.config["prompts"]["serious"].format(
-                            mynick=mynick, current_time=time.strftime("%Y-%m-%d %H:%M:%S")
-                        )
-                        model = self.config["anthropic"]["serious_model"]
-                        async with AnthropicClient(self.config) as anthropic:
-                            test_response = await anthropic.call_claude(
-                                test_context, system_prompt, model
-                            )
-                        logger.info(
-                            f"[TEST MODE] Generated response for {chan_name}: {test_response}"
+                        await self._handle_serious_mode(
+                            server,
+                            chan_name,
+                            target,
+                            nick,
+                            message,
+                            mynick,
+                            is_proactive=True,
+                            send_message=False,
                         )
                     else:
                         # Live mode: actually send the response
                         logger.info(
                             f"Interjecting proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
                         )
-                        # Process as if it was a serious mode command
-                        target = chan_name  # For proactive interjections, target is the channel
                         await self._handle_serious_mode(
-                            server, chan_name, target, nick, message, mynick
+                            server, chan_name, target, nick, message, mynick, is_proactive=True
                         )
                 else:
                     # Check if this is a test channel for logging
@@ -387,18 +383,42 @@ class IRSSILLMAgent:
                 await self._handle_sarcastic_mode(server, chan_name, target, nick, message, mynick)
 
     async def _handle_serious_mode(
-        self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
-    ) -> None:
+        self,
+        server: str,
+        chan_name: str,
+        target: str,
+        nick: str,
+        message: str,
+        mynick: str,
+        is_proactive: bool = False,
+        send_message: bool = True,
+    ) -> str | None:
         """Handle serious mode using ClaudeAgent with tools."""
         context = await self.history.get_context(server, chan_name)
-        async with ClaudeAgent(self.config, mynick) as agent:
+
+        # Add extra prompt for proactive interjections to allow null response
+        extra_prompt = ""
+        if is_proactive:
+            extra_prompt = " NOTE: This is a proactive interjection. If upon reflection you decide your contribution wouldn't add significant value or would interrupt the conversation flow, respond with exactly 'NULL' instead of a message."
+
+        async with ClaudeAgent(self.config, mynick, extra_prompt) as agent:
             response = await agent.run_agent(context)
 
+        # For proactive interjections, check for NULL response
+        if is_proactive and response and response.strip().upper() == "NULL":
+            logger.info(f"Agent decided not to interject proactively for {target}")
+            return None
+
         if response:
-            logger.info(f"Sending agent response to {target}: {response}")
-            await self.varlink_sender.send_message(target, response, server)
-            # Update context with response
-            await self.history.add_message(server, chan_name, response, mynick, mynick, True)
+            if send_message:
+                logger.info(f"Sending agent response to {target}: {response}")
+                await self.varlink_sender.send_message(target, response, server)
+                # Update context with response
+                await self.history.add_message(server, chan_name, response, mynick, mynick, True)
+            else:
+                logger.info(f"[TEST MODE] Generated response for {target}: {response}")
+
+        return response
 
     async def _handle_sarcastic_mode(
         self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str

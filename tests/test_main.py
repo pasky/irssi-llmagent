@@ -143,7 +143,7 @@ class TestIRSSILLMAgent:
             )
 
             # Should create and use agent
-            mock_agent_class.assert_called_once_with(agent.config, "mybot")
+            mock_agent_class.assert_called_once_with(agent.config, "mybot", "")
             # Should call run_agent with context only
             mock_agent.run_agent.assert_called_once()
             call_args = mock_agent.run_agent.call_args
@@ -258,10 +258,16 @@ class TestIRSSILLMAgent:
                 # Wait for debounce to complete
                 await asyncio.sleep(0.15)
 
-                # Should call proactive decision, classification, and generate test response
-                assert mock_claude.call_claude.call_count == 3
-                # Should NOT call agent in test mode (generates response with Claude directly)
-                mock_agent.run_agent.assert_not_called()
+                # Should call proactive decision and classification (agent call is separate)
+                assert mock_claude.call_claude.call_count == 2
+                # Should call agent in test mode (consistent with live mode)
+                mock_agent.run_agent.assert_called_once()
+                # Should pass the extra proactive prompt to the agent
+                mock_agent_class.assert_called_once_with(
+                    agent.config,
+                    "mybot",
+                    " NOTE: This is a proactive interjection. If upon reflection you decide your contribution wouldn't add significant value or would interrupt the conversation flow, respond with exactly 'NULL' instead of a message.",
+                )
 
 
 class TestCLIMode:

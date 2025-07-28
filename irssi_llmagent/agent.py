@@ -14,19 +14,21 @@ logger = logging.getLogger(__name__)
 class ClaudeAgent:
     """Claude agent with web search and webpage visiting capabilities."""
 
-    def __init__(self, config: dict[str, Any], mynick: str):
+    def __init__(self, config: dict[str, Any], mynick: str, extra_prompt: str = ""):
         self.config = config
         self.mynick = mynick
         self.claude_client = AnthropicClient(config)
         self.max_iterations = 5
+        self.extra_prompt = extra_prompt
         self.system_prompt = self._get_system_prompt()
 
     def _get_system_prompt(self) -> str:
         """Get the system prompt for the agent based on serious mode prompt."""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        return self.config["prompts"]["serious"].format(
+        base_prompt = self.config["prompts"]["serious"].format(
             mynick=self.mynick, current_time=current_time
         )
+        return base_prompt + self.extra_prompt
 
     async def __aenter__(self):
         """Async context manager entry."""
