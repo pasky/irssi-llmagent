@@ -2,6 +2,7 @@
 
 import copy
 import logging
+from datetime import datetime
 from typing import Any
 
 from .claude import AnthropicClient
@@ -22,7 +23,10 @@ class ClaudeAgent:
 
     def _get_system_prompt(self) -> str:
         """Get the system prompt for the agent based on serious mode prompt."""
-        return self.config["prompts"]["serious"].format(mynick=self.mynick)
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return self.config["prompts"]["serious"].format(
+            mynick=self.mynick, current_time=current_time
+        )
 
     async def __aenter__(self):
         """Async context manager entry."""
@@ -41,15 +45,33 @@ class ClaudeAgent:
         for iteration in range(self.max_iterations):
             logger.info(f"Agent iteration {iteration + 1}/{self.max_iterations}")
 
+            # Use serious_model for first iteration only, then default model
+            model = (
+                self.config["anthropic"]["serious_model"]
+                if iteration == 0
+                else self.config["anthropic"]["model"]
+            )
+
             # Don't pass tools on final iteration
-            extra_prompt = " THIS WAS YOUR LAST TOOL TURN, YOU MUST NOT USE ANY FURTHER TOOLS" if iteration == self.max_iterations - 1 else ""
+            extra_prompt = (
+                " THIS WAS YOUR LAST TOOL TURN, YOU MUST NOT USE ANY FURTHER TOOLS"
+                if iteration == self.max_iterations - 1
+                else ""
+            )
+
+            # Add thinking encouragement for first iteration only
+            thinking_prompt = (
+                " First, think in <thinking> tags: review your knowledge and decide whether a search must be done. If so, plan your research; if not, think through your reply."
+                if iteration == 0
+                else ""
+            )
 
             try:
                 # Call Claude with or without tools based on iteration
                 response = await self.claude_client.call_claude_raw(
                     messages,  # Pass messages in proper API format
-                    self.system_prompt + extra_prompt,
-                    self.config["anthropic"]["serious_model"],
+                    self.system_prompt + thinking_prompt + extra_prompt,
+                    model,
                     tools=TOOLS,
                 )
 

@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -199,7 +200,10 @@ class IRSSILLMAgent:
             else:
                 # Default sarcastic Claude (unchanged)
                 logger.info(f"Processing sarcastic Claude request from {nick}: {message}")
-                system_prompt = self.config["prompts"]["sarcastic"].format(mynick=mynick)
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                system_prompt = self.config["prompts"]["sarcastic"].format(
+                    mynick=mynick, current_time=current_time
+                )
                 model = self.config["anthropic"]["model"]
 
                 context = await self.history.get_context(server, chan_name)

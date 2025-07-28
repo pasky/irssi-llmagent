@@ -113,10 +113,19 @@ class AnthropicClient:
                 if content_block.get("type") == "text":
                     text = content_block["text"]
                     logger.info(f"Claude response text: {text}")
-                    # Clean up response - single line only
+
+                    # Clean up response
                     text = text.strip()
-                    text = re.sub(r"\n.*", "", text)
-                    text = re.sub(r"^<[^>]+>\s*", "", text)  # Remove IRC nick prefix
+
+                    # Remove thinking tags and content if present
+                    text = re.sub(r"<thinking>.*?</thinking>\s*", "", text, flags=re.DOTALL)
+
+                    # For IRC: single line only, take first line of remaining content
+                    text = text.split("\n")[0].strip()
+
+                    # Remove IRC nick prefix
+                    text = re.sub(r"^<[^>]+>\s*", "", text)
+
                     logger.info(f"Cleaned Claude response: {text}")
                     return text
 
