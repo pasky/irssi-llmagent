@@ -396,7 +396,7 @@ class IRSSILLMAgent:
 
         if response:
             logger.info(f"Sending agent response to {target}: {response}")
-            await self.varlink_sender.send_message(target, f"{nick}: {response}", server)
+            await self.varlink_sender.send_message(target, response, server)
             # Update context with response
             await self.history.add_message(server, chan_name, response, mynick, mynick, True)
 
