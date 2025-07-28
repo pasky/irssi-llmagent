@@ -62,7 +62,7 @@ class ClaudeAgent:
                     return result["text"]
                 elif result["type"] == "tool_use":
                     # Add Claude's tool request to conversation
-                    if response and isinstance(response, dict):
+                    if response and isinstance(response, dict) and "content" in response:
                         messages.append({"role": "assistant", "content": response["content"]})
 
                     # Execute all tools and collect results
@@ -109,13 +109,11 @@ class ClaudeAgent:
             return {"type": "tool_use", "tools": tool_uses}
 
         # Extract final text response using claude.py's logic
-        text_response = self.claude_client._extract_text_from_response(response)
+        text_response = self.claude_client.extract_text_from_response(response)
         if text_response:
             return {"type": "final_text", "text": text_response}
 
         return {"type": "error", "message": "No valid text or tool use found in response"}
-
-
 
     def _extract_tool_uses(self, response: dict) -> list[dict] | None:
         """Extract all tool use information from Claude's response."""

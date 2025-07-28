@@ -7,6 +7,7 @@ import time
 from typing import TypedDict
 
 import aiohttp
+from ddgs import DDGS
 
 logger = logging.getLogger(__name__)
 
@@ -74,15 +75,13 @@ class RateLimiter:
 class WebSearchExecutor:
     """Async DuckDuckGo web search executor."""
 
-    def __init__(self, max_results: int = 5, rate_limit: float = 1.0):
+    def __init__(self, max_results: int = 5, max_calls_per_second: float = 1.0):
         self.max_results = max_results
-        self.rate_limiter = RateLimiter(rate_limit)
+        self.rate_limiter = RateLimiter(max_calls_per_second)
 
     async def execute(self, query: str) -> str:
         """Execute web search and return formatted results."""
         await self.rate_limiter.wait_if_needed()
-
-        from ddgs import DDGS
 
         # Note: DDGS is not async, so we run it in executor
         loop = asyncio.get_event_loop()
@@ -139,12 +138,8 @@ class WebpageVisitorExecutor:
 
         # Truncate if too long
         if len(markdown_content) > self.max_content_length:
-            half_length = self.max_content_length // 2
-            markdown_content = (
-                markdown_content[:half_length]
-                + f"\n\n..._Content truncated to stay below {self.max_content_length} characters_...\n\n"
-                + markdown_content[-half_length:]
-            )
+            truncated_content = markdown_content[:self.max_content_length - 100]  # Leave room for message
+            markdown_content = truncated_content + "\n\n..._Content truncated_..."
 
         return f"## Content from {url}\n\n{markdown_content}"
 

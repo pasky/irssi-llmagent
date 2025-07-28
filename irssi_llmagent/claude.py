@@ -37,7 +37,7 @@ class AnthropicClient:
     ) -> str | None:
         """Call Claude API with context and system prompt, returning cleaned text response."""
         raw_response = await self.call_claude_raw(context, system_prompt, model)
-        return self._extract_text_from_response(raw_response)
+        return self.extract_text_from_response(raw_response)
 
     async def call_claude_raw(
         self, context: list[dict], system_prompt: str, model: str, tools: list | None = None
@@ -92,7 +92,7 @@ class AnthropicClient:
 
         return None
 
-    def _extract_text_from_response(self, response: dict | None) -> str | None:
+    def extract_text_from_response(self, response: dict | None) -> str | None:
         """Extract cleaned text from raw Claude response."""
         if not response:
             return None

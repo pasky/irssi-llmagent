@@ -4,11 +4,11 @@
 - Install dependencies: `uv sync --dev`
 - Run service: `uv run irssi-llmagent` or `uv run python -m irssi_llmagent.main`
 - Run tests: `uv run pytest`
+- Full e2e test in CLI mode: `uv run irssi-llmagent --message "your message here"`
 - Run linting: `uv run ruff check .`
 - Run formatting: `uv run ruff format .`
 - Run type checking: `uv run pyright`
 - Install pre-commit hooks: `uv run pre-commit install`
-- Test CLI mode: `uv run irssi-llmagent --message "your message here"`
 
 ## Architecture
 - **Main Service**: `irssi_llmagent/main.py` - Async Python chatbot connecting via varlink to irssi

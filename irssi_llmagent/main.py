@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .agent import ClaudeAgent
 from .claude import AnthropicClient
 from .history import ChatHistory
 from .perplexity import PerplexityClient
@@ -182,7 +183,6 @@ class IRSSILLMAgent:
                 logger.info(f"Processing serious Claude request from {nick}: {message}")
 
                 # Use agent for serious mode
-                from .agent import ClaudeAgent
 
                 context = await self.history.get_context(server, chan_name)
                 async with ClaudeAgent(self.config, mynick) as agent:
