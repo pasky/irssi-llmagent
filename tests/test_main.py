@@ -126,9 +126,11 @@ class TestIRSSILLMAgent:
         agent.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
         agent.history.add_message = AsyncMock()
-        agent.history.get_context = AsyncMock(return_value=[{"role": "user", "content": "user search for Python news"}])
+        agent.history.get_context = AsyncMock(
+            return_value=[{"role": "user", "content": "user search for Python news"}]
+        )
 
-        with patch("irssi_llmagent.agent.ClaudeAgent") as mock_agent_class:
+        with patch("irssi_llmagent.main.ClaudeAgent") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Agent response")
             mock_agent_class.return_value.__aenter__.return_value = mock_agent
@@ -227,14 +229,17 @@ class TestCLIMode:
 
                 # Verify output
                 print_calls = [call[0][0] for call in mock_print.call_args_list]
-                assert any("Simulating IRC message: !p what is the weather?" in call for call in print_calls)
+                assert any(
+                    "Simulating IRC message: !p what is the weather?" in call
+                    for call in print_calls
+                )
                 assert any("Weather is sunny" in call for call in print_calls)
 
     @pytest.mark.asyncio
     async def test_cli_mode_agent_message(self, temp_config_file):
         """Test CLI mode with agent message."""
         with patch("builtins.print") as mock_print:
-            with patch("irssi_llmagent.agent.ClaudeAgent") as mock_agent_class:
+            with patch("irssi_llmagent.main.ClaudeAgent") as mock_agent_class:
                 mock_agent = AsyncMock()
                 mock_agent.run_agent = AsyncMock(return_value="Agent response")
                 mock_agent_class.return_value.__aenter__.return_value = mock_agent
@@ -250,7 +255,10 @@ class TestCLIMode:
 
                 # Verify output
                 print_calls = [call[0][0] for call in mock_print.call_args_list]
-                assert any("Simulating IRC message: !s search for Python news" in call for call in print_calls)
+                assert any(
+                    "Simulating IRC message: !s search for Python news" in call
+                    for call in print_calls
+                )
                 assert any("Agent response" in call for call in print_calls)
 
     @pytest.mark.asyncio

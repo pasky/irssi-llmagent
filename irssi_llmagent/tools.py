@@ -119,16 +119,15 @@ class WebpageVisitorExecutor:
         if not url.startswith(("http://", "https://")):
             raise ValueError("Invalid URL. Must start with http:// or https://")
 
-        async with (
-            aiohttp.ClientSession() as session,
-            session.get(
+        # Use separate context managers to avoid UnboundLocalError bug
+        async with aiohttp.ClientSession() as session:  # noqa: SIM117
+            async with session.get(
                 url,
                 timeout=aiohttp.ClientTimeout(total=self.timeout),
                 headers={"User-Agent": "irssi-llmagent/1.0"},
-            ) as response,
-        ):
-            response.raise_for_status()
-            html_content = await response.text()
+            ) as response:
+                response.raise_for_status()
+                html_content = await response.text()
 
         # Convert HTML to markdown
         markdown_content = markdownify(html_content).strip()
@@ -138,7 +137,9 @@ class WebpageVisitorExecutor:
 
         # Truncate if too long
         if len(markdown_content) > self.max_content_length:
-            truncated_content = markdown_content[:self.max_content_length - 100]  # Leave room for message
+            truncated_content = markdown_content[
+                : self.max_content_length - 100
+            ]  # Leave room for message
             markdown_content = truncated_content + "\n\n..._Content truncated_..."
 
         return f"## Content from {url}\n\n{markdown_content}"

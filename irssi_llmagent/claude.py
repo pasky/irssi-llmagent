@@ -32,9 +32,7 @@ class AnthropicClient:
         if self.session:
             await self.session.close()
 
-    async def call_claude(
-        self, context: list[dict], system_prompt: str, model: str
-    ) -> str | None:
+    async def call_claude(self, context: list[dict], system_prompt: str, model: str) -> str | None:
         """Call Claude API with context and system prompt, returning cleaned text response."""
         raw_response = await self.call_claude_raw(context, system_prompt, model)
         return self.extract_text_from_response(raw_response)
@@ -50,7 +48,11 @@ class AnthropicClient:
         messages = []
         for msg in context:
             if msg["role"] == "user" and isinstance(msg["content"], str):
-                if messages and messages[-1]["role"] == "user" and isinstance(messages[-1]["content"], str):
+                if (
+                    messages
+                    and messages[-1]["role"] == "user"
+                    and isinstance(messages[-1]["content"], str)
+                ):
                     messages[-1]["content"] += "\n" + msg["content"]
                 else:
                     messages.append(msg)

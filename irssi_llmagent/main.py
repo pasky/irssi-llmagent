@@ -266,7 +266,10 @@ class IRSSILLMAgent:
                         event = response["parameters"]["event"]
                         # Process events concurrently
                         task = asyncio.create_task(self.process_message_event(event))
-                        task.add_done_callback(lambda t: t.exception() and logger.error(f"Event processing task failed: {t.exception()}"))
+                        task.add_done_callback(
+                            lambda t: t.exception()
+                            and logger.error(f"Event processing task failed: {t.exception()}")
+                        )
                     elif "error" in response:
                         logger.error(f"Varlink error: {response['error']}")
                         break
@@ -307,7 +310,9 @@ async def cli_mode(message: str, config_path: str | None = None) -> None:
                 print(f"📤 Bot response: {message}")
 
         class MockHistory:
-            async def add_message(self, server: str, channel: str, content: str, nick: str, mynick: str, is_bot: bool):
+            async def add_message(
+                self, server: str, channel: str, content: str, nick: str, mynick: str, is_bot: bool
+            ):
                 pass
 
             async def get_context(self, server: str, channel: str):
@@ -324,12 +329,13 @@ async def cli_mode(message: str, config_path: str | None = None) -> None:
             target="#testchannel",
             nick="testuser",
             message=message,
-            mynick="testbot"
+            mynick="testbot",
         )
 
     except Exception as e:
         print(f"❌ Error handling message: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

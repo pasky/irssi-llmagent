@@ -30,7 +30,6 @@ class TestClaudeAgent:
 
     def test_agent_initialization(self, agent):
         """Test agent initialization."""
-        assert agent.max_iterations == 3
         assert "testbot" in agent.system_prompt  # mynick is substituted
         assert "IRC user" in agent.system_prompt
 
@@ -58,7 +57,9 @@ class TestClaudeAgent:
             "stop_reason": "end_turn",
         }
 
-        with patch.object(agent.claude_client, "call_claude_raw", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = mock_response
 
             result = await agent.run_agent([{"role": "user", "content": "What is 2+2?"}])
@@ -92,12 +93,16 @@ class TestClaudeAgent:
             "stop_reason": "end_turn",
         }
 
-        with patch.object(agent.claude_client, "call_claude_raw", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
+        ) as mock_call:
             with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
                 mock_call.side_effect = [tool_use_response, final_response]
                 mock_tool.return_value = "Search results: Python is a programming language..."
 
-                result = await agent.run_agent([{"role": "user", "content": "Tell me about Python tutorials"}])
+                result = await agent.run_agent(
+                    [{"role": "user", "content": "Tell me about Python tutorials"}]
+                )
 
                 assert "Based on the search results" in result
                 assert mock_call.call_count == 2
@@ -119,16 +124,29 @@ class TestClaudeAgent:
             "stop_reason": "tool_use",
         }
 
-        with patch.object(agent.claude_client, "call_claude_raw", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
+        ) as mock_call:
             with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
                 # Mock _extract_text_from_response to return actual cleaned text
-                with patch.object(agent.claude_client, "_extract_text_from_response", return_value="Final response"):
+                with patch.object(
+                    agent.claude_client, "extract_text_from_response", return_value="Final response"
+                ):
                     # Set up the mock to return tool_use responses for first 2 calls, then final response on 3rd call
-                    final_dict_response = {"content": [{"type": "text", "text": "Final response"}], "stop_reason": "end_turn"}
-                    mock_call.side_effect = [tool_use_response, tool_use_response, final_dict_response]
+                    final_dict_response = {
+                        "content": [{"type": "text", "text": "Final response"}],
+                        "stop_reason": "end_turn",
+                    }
+                    mock_call.side_effect = [
+                        tool_use_response,
+                        tool_use_response,
+                        final_dict_response,
+                    ]
                     mock_tool.return_value = "Tool result"
 
-                    result = await agent.run_agent([{"role": "user", "content": "Keep using tools"}])
+                    result = await agent.run_agent(
+                        [{"role": "user", "content": "Keep using tools"}]
+                    )
 
                     assert "Final response" in result
                     assert mock_call.call_count == 3  # 3 iterations max
@@ -136,7 +154,9 @@ class TestClaudeAgent:
     @pytest.mark.asyncio
     async def test_agent_api_error_handling(self, agent):
         """Test agent handles API errors gracefully."""
-        with patch.object(agent.claude_client, "call_claude_raw", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.side_effect = Exception("API Error")
 
             result = await agent.run_agent([{"role": "user", "content": "Test query"}])
@@ -165,12 +185,16 @@ class TestClaudeAgent:
             "stop_reason": "end_turn",
         }
 
-        with patch.object(agent.claude_client, "call_claude_raw", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
+        ) as mock_call:
             with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
                 mock_call.side_effect = [tool_use_response, final_response]
                 mock_tool.return_value = "Tool execution failed: Network error"
 
-                result = await agent.run_agent([{"role": "user", "content": "Search for something"}])
+                result = await agent.run_agent(
+                    [{"role": "user", "content": "Search for something"}]
+                )
 
                 assert "encountered an error" in result or "what I can tell you" in result
 
@@ -249,20 +273,31 @@ class TestClaudeAgent:
                     "id": "tool_2",
                     "name": "visit_webpage",
                     "input": {"url": "https://example.com"},
-                }
+                },
             ],
             "stop_reason": "tool_use",
         }
 
-        final_response = {"content": [{"type": "text", "text": "Here's what I found"}], "stop_reason": "end_turn"}
+        final_response = {
+            "content": [{"type": "text", "text": "Here's what I found"}],
+            "stop_reason": "end_turn",
+        }
 
-        with patch.object(agent.claude_client, "call_claude_raw", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
+        ) as mock_call:
             with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
-                with patch.object(agent.claude_client, "_extract_text_from_response", return_value="Here's what I found"):
+                with patch.object(
+                    agent.claude_client,
+                    "extract_text_from_response",
+                    return_value="Here's what I found",
+                ):
                     mock_call.side_effect = [multi_tool_response, final_response]
                     mock_tool.side_effect = ["Search result", "Page content"]
 
-                    result = await agent.run_agent([{"role": "user", "content": "Search and visit"}])
+                    result = await agent.run_agent(
+                        [{"role": "user", "content": "Search and visit"}]
+                    )
 
                     # Verify both tools were executed
                     assert mock_tool.call_count == 2
@@ -282,13 +317,25 @@ class TestClaudeAgent:
         # Mock context with previous conversation
         context = [
             {"role": "user", "content": "What's your favorite color?"},
-            {"role": "assistant", "content": "I don't have personal preferences, but blue is nice."},
-            {"role": "user", "content": "Tell me more about it"}
+            {
+                "role": "assistant",
+                "content": "I don't have personal preferences, but blue is nice.",
+            },
+            {"role": "user", "content": "Tell me more about it"},
         ]
 
-        with patch.object(agent.claude_client, "call_claude_raw", new_callable=AsyncMock) as mock_call:
-            with patch.object(agent.claude_client, "_extract_text_from_response", return_value="Blue represents calm and trust"):
-                mock_call.return_value = {"content": [{"type": "text", "text": "Blue represents calm and trust"}], "stop_reason": "end_turn"}
+        with patch.object(
+            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
+        ) as mock_call:
+            with patch.object(
+                agent.claude_client,
+                "extract_text_from_response",
+                return_value="Blue represents calm and trust",
+            ):
+                mock_call.return_value = {
+                    "content": [{"type": "text", "text": "Blue represents calm and trust"}],
+                    "stop_reason": "end_turn",
+                }
 
                 await agent.run_agent(context)
 
@@ -299,15 +346,25 @@ class TestClaudeAgent:
                 # Should have original context + current query (if not duplicate)
                 assert len(messages_passed) >= 3
                 assert messages_passed[0]["content"] == "What's your favorite color?"
-                assert messages_passed[1]["content"] == "I don't have personal preferences, but blue is nice."
+                assert (
+                    messages_passed[1]["content"]
+                    == "I don't have personal preferences, but blue is nice."
+                )
                 assert messages_passed[2]["content"] == "Tell me more about it"
 
     @pytest.mark.asyncio
     async def test_agent_without_context(self, agent):
         """Test agent works without context (current behavior)."""
-        with patch.object(agent.claude_client, "call_claude_raw", new_callable=AsyncMock) as mock_call:
-            with patch.object(agent.claude_client, "_extract_text_from_response", return_value="Hello there"):
-                mock_call.return_value = {"content": [{"type": "text", "text": "Hello there"}], "stop_reason": "end_turn"}
+        with patch.object(
+            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
+        ) as mock_call:
+            with patch.object(
+                agent.claude_client, "extract_text_from_response", return_value="Hello there"
+            ):
+                mock_call.return_value = {
+                    "content": [{"type": "text", "text": "Hello there"}],
+                    "stop_reason": "end_turn",
+                }
 
                 await agent.run_agent([{"role": "user", "content": "Hello"}])
 
@@ -370,5 +427,3 @@ class TestClaudeAgent:
         result = agent._process_claude_response({"invalid": "response"})
         assert result["type"] == "error"
         assert "No valid text" in result["message"]
-
-

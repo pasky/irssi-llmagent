@@ -1,5 +1,6 @@
 """Claude agent with tool-calling capabilities."""
 
+import copy
 import logging
 from typing import Any
 
@@ -34,7 +35,7 @@ class ClaudeAgent:
 
     async def run_agent(self, context: list[dict]) -> str:
         """Run the agent with tool-calling loop."""
-        messages: list[dict[str, Any]] = context.copy()
+        messages: list[dict[str, Any]] = copy.deepcopy(context)
 
         # Tool execution loop
         for iteration in range(self.max_iterations):
@@ -49,7 +50,7 @@ class ClaudeAgent:
                     messages,  # Pass messages in proper API format
                     self.system_prompt + extra_prompt,
                     self.config["anthropic"]["serious_model"],
-                    tools=TOOLS
+                    tools=TOOLS,
                 )
 
                 # Process response using unified handler
@@ -72,17 +73,21 @@ class ClaudeAgent:
                     for tool in result["tools"]:
                         tool_result = await execute_tool(tool["name"], **tool["input"])
                         logger.info(f"Tool {tool['name']} executed: {tool_result[:100]}...")
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": tool["id"],
-                            "content": tool_result,
-                        })
+                        tool_results.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool["id"],
+                                "content": tool_result,
+                            }
+                        )
 
                     # Add all tool results to conversation in a single message
-                    messages.append({
-                        "role": "user",
-                        "content": tool_results,
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": tool_results,
+                        }
+                    )
                     continue
 
             except Exception as e:
@@ -123,5 +128,7 @@ class ClaudeAgent:
         tool_uses = []
         for block in content:
             if block.get("type") == "tool_use":
-                tool_uses.append({"id": block["id"], "name": block["name"], "input": block["input"]})
+                tool_uses.append(
+                    {"id": block["id"], "name": block["name"], "input": block["input"]}
+                )
         return tool_uses if tool_uses else None
