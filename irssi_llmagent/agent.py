@@ -43,7 +43,7 @@ class ClaudeAgent:
 
         # Tool execution loop
         for iteration in range(self.max_iterations):
-            logger.info(f"Agent iteration {iteration + 1}/{self.max_iterations}")
+            logger.debug(f"Agent iteration {iteration + 1}/{self.max_iterations}")
 
             # Use serious_model for first iteration only, then default model
             model = (
@@ -94,7 +94,7 @@ class ClaudeAgent:
                     tool_results = []
                     for tool in result["tools"]:
                         tool_result = await execute_tool(tool["name"], **tool["input"])
-                        logger.info(f"Tool {tool['name']} executed: {tool_result[:100]}...")
+                        logger.debug(f"Tool {tool['name']} executed: {tool_result[:100]}...")
                         tool_results.append(
                             {
                                 "type": "tool_result",

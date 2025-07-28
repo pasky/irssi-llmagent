@@ -19,11 +19,23 @@ from .rate_limiter import RateLimiter
 from .varlink import VarlinkClient, VarlinkSender
 
 # Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)
+
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+# Console handler for INFO and above
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(formatter)
+
+# File handler for DEBUG and above
+file_handler = logging.FileHandler("debug.log")
+file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(formatter)
+
+root_logger.addHandler(console_handler)
+root_logger.addHandler(file_handler)
 
 # Suppress aiosqlite DEBUG messages
 logging.getLogger("aiosqlite").setLevel(logging.INFO)
@@ -56,7 +68,7 @@ class IRSSILLMAgent:
         try:
             with open(config_path) as f:
                 config = json.load(f)
-                logger.info(f"Loaded configuration from {config_path}")
+                logger.debug(f"Loaded configuration from {config_path}")
                 return config
         except FileNotFoundError:
             logger.error(
@@ -80,7 +92,7 @@ class IRSSILLMAgent:
                 nick = await self.varlink_sender.get_server_nick(server)
                 if nick:
                     self.server_nicks[server] = nick
-                    logger.info(f"Got nick for {server}: {nick}")
+                    logger.debug(f"Got nick for {server}: {nick}")
                 return nick
             except Exception as e:
                 logger.error(f"Failed to get nick for server {server}: {e}")
@@ -111,7 +123,7 @@ class IRSSILLMAgent:
             model = self.config["anthropic"]["classifier_model"]
 
             async with AnthropicClient(self.config) as anthropic:
-                response = await anthropic.call_claude(context, prompt, model)
+                response = await anthropic.call_claude(context, prompt, model, quiet=True)
 
             if response and response.strip().upper() in ["SARCASTIC", "SERIOUS"]:
                 return response.strip().upper()
@@ -148,7 +160,7 @@ class IRSSILLMAgent:
             model = self.config["anthropic"]["proactive_model"]
 
             async with AnthropicClient(self.config) as anthropic:
-                response = await anthropic.call_claude(context, prompt, model)
+                response = await anthropic.call_claude(context, prompt, model, quiet=True)
 
             if response:
                 response = response.strip()
@@ -249,7 +261,7 @@ class IRSSILLMAgent:
                                 test_response = await anthropic.call_claude(
                                     test_context, system_prompt, model
                                 )
-                            logger.info(
+                            logger.debug(
                                 f"[TEST MODE] Generated response for {chan_name}: {test_response}"
                             )
                         else:
@@ -263,7 +275,7 @@ class IRSSILLMAgent:
                             )
                     else:
                         mode_desc = "[TEST MODE] " if is_test_channel else ""
-                        logger.debug(
+                        logger.warning(
                             f"{mode_desc}Proactive interjection suggested but not serious mode: {classified_mode}. Reason: {reason}"
                         )
             return
@@ -287,13 +299,13 @@ class IRSSILLMAgent:
     ) -> None:
         """Handle IRC commands and generate responses."""
         if message.startswith("!h") or message == "!h":
-            logger.info(f"Sending help message to {nick}")
+            logger.debug(f"Sending help message to {nick}")
             help_msg = "default is automatic mode (AI decides), !S is explicit sarcastic Claude, !s is serious agentic Claude with web tools, !p is Perplexity (prefer English!)"
             await self.varlink_sender.send_message(target, help_msg, server)
 
         elif message.startswith("!p ") or message == "!p":
             # Perplexity call
-            logger.info(f"Processing Perplexity request from {nick}: {message}")
+            logger.debug(f"Processing Perplexity request from {nick}: {message}")
             context = await self.history.get_context(server, chan_name)
             async with PerplexityClient(self.config) as perplexity:
                 response = await perplexity.call_perplexity(context)
@@ -302,7 +314,7 @@ class IRSSILLMAgent:
                 lines = response.split("\n")
                 for line in lines:
                     if line.strip():
-                        logger.info(f"Sending Perplexity response to {target}: {line.strip()}")
+                        logger.debug(f"Sending Perplexity response to {target}: {line.strip()}")
                         await self.varlink_sender.send_message(
                             target, f"{nick}: {line.strip()}", server
                         )
@@ -312,12 +324,12 @@ class IRSSILLMAgent:
 
         elif message.startswith("!S "):
             message = message[3:].strip()
-            logger.info(f"Processing explicit sarcastic Claude request from {nick}: {message}")
+            logger.debug(f"Processing explicit sarcastic Claude request from {nick}: {message}")
             await self._handle_sarcastic_mode(server, chan_name, target, nick, message, mynick)
 
         elif message.startswith("!s "):
             message = message[3:].strip()
-            logger.info(f"Processing explicit serious Claude request from {nick}: {message}")
+            logger.debug(f"Processing explicit serious Claude request from {nick}: {message}")
             await self._handle_serious_mode(server, chan_name, target, nick, message, mynick)
 
         elif re.match(r"^!.", message):
@@ -327,10 +339,10 @@ class IRSSILLMAgent:
             )
 
         else:
-            logger.info(f"Processing automatic mode request from {nick}: {message}")
+            logger.debug(f"Processing automatic mode request from {nick}: {message}")
             context = await self.history.get_context(server, chan_name)
             classified_mode = await self.classify_mode(context)
-            logger.info(f"Auto-classified message as {classified_mode} mode")
+            logger.debug(f"Auto-classified message as {classified_mode} mode")
 
             if classified_mode == "SERIOUS":
                 await self._handle_serious_mode(server, chan_name, target, nick, message, mynick)
@@ -346,7 +358,7 @@ class IRSSILLMAgent:
             response = await agent.run_agent(context)
 
         if response:
-            logger.info(f"Sending agent response to {target}: {response}")
+            logger.debug(f"Sending agent response to {target}: {response}")
             await self.varlink_sender.send_message(target, f"{nick}: {response}", server)
             # Update context with response
             await self.history.add_message(server, chan_name, response, mynick, mynick, True)

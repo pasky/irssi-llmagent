@@ -20,7 +20,7 @@ class BaseVarlinkClient:
     async def connect(self) -> None:
         """Connect to varlink socket."""
         self.reader, self.writer = await asyncio.open_unix_connection(self.socket_path)
-        logger.info(f"Connected to varlink socket: {self.socket_path}")
+        logger.debug(f"Connected to varlink socket: {self.socket_path}")
 
     async def disconnect(self) -> None:
         """Disconnect from varlink socket."""

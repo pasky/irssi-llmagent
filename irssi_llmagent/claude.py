@@ -32,10 +32,12 @@ class AnthropicClient:
         if self.session:
             await self.session.close()
 
-    async def call_claude(self, context: list[dict], system_prompt: str, model: str) -> str | None:
+    async def call_claude(
+        self, context: list[dict], system_prompt: str, model: str, quiet: bool = False
+    ) -> str | None:
         """Call Claude API with context and system prompt, returning cleaned text response."""
         raw_response = await self.call_claude_raw(context, system_prompt, model)
-        return self.extract_text_from_response(raw_response)
+        return self.extract_text_from_response(raw_response, quiet)
 
     async def call_claude_raw(
         self, context: list[dict], system_prompt: str, model: str, tools: list | None = None
@@ -77,15 +79,15 @@ class AnthropicClient:
         if tools:
             payload["tools"] = tools
 
-        logger.info(f"Calling Anthropic API with model: {model}")
-        logger.info(f"Anthropic request payload: {json.dumps(payload, indent=2)}")
+        logger.debug(f"Calling Anthropic API with model: {model}")
+        logger.debug(f"Anthropic request payload: {json.dumps(payload, indent=2)}")
 
         try:
             async with self.session.post(self.config["url"], json=payload) as response:
                 response.raise_for_status()
                 data = await response.json()
 
-            logger.info(f"Anthropic response: {json.dumps(data, indent=2)}")
+            logger.debug(f"Anthropic response: {json.dumps(data, indent=2)}")
             return data
 
         except aiohttp.ClientError as e:
@@ -94,7 +96,7 @@ class AnthropicClient:
 
         return None
 
-    def extract_text_from_response(self, response: dict | None) -> str | None:
+    def extract_text_from_response(self, response: dict | None, quiet: bool = False) -> str | None:
         """Extract cleaned text from raw Claude response."""
         if not response:
             return None
@@ -112,7 +114,7 @@ class AnthropicClient:
             for content_block in response["content"]:
                 if content_block.get("type") == "text":
                     text = content_block["text"]
-                    logger.info(f"Claude response text: {text}")
+                    logger.debug(f"Claude response text: {text}")
 
                     # Clean up response
                     text = text.strip()
@@ -126,7 +128,10 @@ class AnthropicClient:
                     # Remove IRC nick prefix
                     text = re.sub(r"^<[^>]+>\s*", "", text)
 
-                    logger.info(f"Cleaned Claude response: {text}")
+                    if not quiet:
+                        logger.info(f"Cleaned Claude response: {text}")
+                    else:
+                        logger.debug(f"Cleaned Claude response: {text}")
                     return text
 
         return None

@@ -41,7 +41,7 @@ class ChatHistory:
             """
             )
             await db.commit()
-            logger.info(f"Initialized chat history database: {self.db_path}")
+            logger.debug(f"Initialized chat history database: {self.db_path}")
 
     async def add_message(
         self,

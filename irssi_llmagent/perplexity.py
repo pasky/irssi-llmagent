@@ -52,19 +52,19 @@ class PerplexityClient:
             "temperature": 0.7,
         }
 
-        logger.info(f"Calling Perplexity API with model: {self.config['model']}")
-        logger.info(f"Perplexity request payload: {json.dumps(payload, indent=2)}")
+        logger.debug(f"Calling Perplexity API with model: {self.config['model']}")
+        logger.debug(f"Perplexity request payload: {json.dumps(payload, indent=2)}")
 
         try:
             async with self.session.post(self.config["url"], json=payload) as response:
                 response.raise_for_status()
                 data = await response.json()
 
-            logger.info(f"Perplexity response: {json.dumps(data, indent=2)}")
+            logger.debug(f"Perplexity response: {json.dumps(data, indent=2)}")
 
             if "choices" in data and data["choices"]:
                 text = data["choices"][0]["message"]["content"]
-                logger.info(f"Perplexity response text: {text}")
+                logger.debug(f"Perplexity response text: {text}")
                 # Clean up response
                 text = text.strip()
                 text = re.sub(r"\n", "  ", text)
@@ -76,10 +76,10 @@ class PerplexityClient:
                 # Handle citations if present
                 if "citations" in data and data["citations"]:
                     citations = "  ".join(data["citations"])
-                    logger.info(f"Perplexity citations: {citations}")
+                    logger.debug(f"Perplexity citations: {citations}")
                     return f"{result}\n{citations}"  # Return with newline to send as two messages
 
-                logger.info(f"Cleaned Perplexity response: {result}")
+                logger.debug(f"Cleaned Perplexity response: {result}")
                 return result
 
         except aiohttp.ClientError as e:
