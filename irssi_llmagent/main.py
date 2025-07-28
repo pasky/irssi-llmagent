@@ -128,11 +128,16 @@ class IRSSILLMAgent:
             async with AnthropicClient(self.config) as anthropic:
                 response = await anthropic.call_claude(context, prompt, model)
 
-            if response and response.strip().upper() in ["SARCASTIC", "SERIOUS"]:
-                return response.strip().upper()
-            else:
+            serious_count = response.count("SERIOUS")
+            sarcastic_count = response.count("SARCASTIC")
+
+            if serious_count == 0 and sarcastic_count == 0:
                 logger.warning(f"Invalid mode classification response: {response}")
-                return "SARCASTIC"  # Default to sarcastic
+                return "SARCASTIC"
+            elif serious_count <= sarcastic_count:
+                return "SARCASTIC"
+            else:
+                return "SERIOUS"
         except Exception as e:
             logger.error(f"Error classifying mode: {e}")
             return "SARCASTIC"  # Default to sarcastic on error

@@ -144,7 +144,7 @@ class ClaudeAgent:
 
         # Extract final text response using claude.py's logic
         text_response = self.claude_client.extract_text_from_response(response)
-        if text_response:
+        if text_response and text_response != "...":
             return {"type": "final_text", "text": text_response}
 
         return {"type": "error", "message": "No valid text or tool use found in response"}

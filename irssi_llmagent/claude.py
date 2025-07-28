@@ -32,14 +32,14 @@ class AnthropicClient:
         if self.session:
             await self.session.close()
 
-    async def call_claude(self, context: list[dict], system_prompt: str, model: str) -> str | None:
+    async def call_claude(self, context: list[dict], system_prompt: str, model: str) -> str:
         """Call Claude API with context and system prompt, returning cleaned text response."""
         raw_response = await self.call_claude_raw(context, system_prompt, model)
         return self.extract_text_from_response(raw_response)
 
     async def call_claude_raw(
         self, context: list[dict], system_prompt: str, model: str, tools: list | None = None
-    ) -> dict | None:
+    ) -> dict:
         """Call Claude API with context and system prompt."""
         if not self.session:
             raise RuntimeError("AnthropicClient not initialized as async context manager")
@@ -92,12 +92,8 @@ class AnthropicClient:
             logger.error(f"Anthropic API error: {e}")
             return {"error": f"API error: {e}"}
 
-        return None
-
-    def extract_text_from_response(self, response: dict | None) -> str | None:
+    def extract_text_from_response(self, response: dict) -> str:
         """Extract cleaned text from raw Claude response."""
-        if not response:
-            return None
 
         if "error" in response:
             return response["error"]
@@ -129,4 +125,4 @@ class AnthropicClient:
                     logger.debug(f"Cleaned Claude response: {text}")
                     return text
 
-        return None
+        return "..."
