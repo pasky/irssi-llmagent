@@ -5,16 +5,21 @@
 - Run service: `uv run irssi-llmagent` or `uv run python -m irssi_llmagent.main`
 - Run tests: `uv run pytest`
 - Full e2e test in CLI mode: `uv run irssi-llmagent --message "your message here"`
+- Test automatic mode: `uv run irssi-llmagent --message "tell me a joke"`
+- Test explicit sarcastic: `uv run irssi-llmagent --message "!S tell me a joke"`
+- Test explicit serious: `uv run irssi-llmagent --message "!s search for Python news"`
+- Analyze classifier: `uv run python analyze_classifier.py --db chat_history.db`
 - Run linting: `uv run ruff check .`
 - Run formatting: `uv run ruff format .`
 - Run type checking: `uv run pyright`
 - Install pre-commit hooks: `uv run pre-commit install`
+- NEVER use `git add -A` blindly, there may be untracked files that must not be committed
 
 ## Architecture
 - **Main Service**: `irssi_llmagent/main.py` - Async Python chatbot connecting via varlink to irssi
 - **Modular Structure**: Split into separate modules for Claude, Perplexity, varlink, and history
 - **Varlink Protocol**: Dual async socket architecture (events + sender) over UNIX socket at `~/.irssi/varlink.sock`
-- **APIs**: Anthropic Claude (sarcastic/serious modes), Perplexity AI
+- **APIs**: Anthropic Claude (sarcastic/serious modes with automatic classification), Perplexity AI
 - **Config**: JSON-based configuration in `config.json` (copy from `config.json.example`)
 - **Database**: SQLite persistent chat history with configurable inference limits
 - **Key Modules**:

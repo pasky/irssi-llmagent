@@ -82,6 +82,41 @@ class IRSSILLMAgent:
                 return None
         return self.server_nicks[server]
 
+    async def classify_mode(self, context: list[dict[str, str]]) -> str:
+        """Use preprocessing model to classify whether message should use sarcastic or serious mode.
+
+        Args:
+            context: Conversation context including the current message as the last entry
+        """
+        try:
+            if not context:
+                raise ValueError(
+                    "Context cannot be empty - must include at least the current message"
+                )
+
+            # Extract the current message from context (should be the last message)
+            current_message = context[-1]["content"]
+
+            # Clean message content if it has IRC nick formatting like "<nick> message"
+            message_match = re.search(r"<[^>]+>\s*(.*)", current_message)
+            if message_match:
+                current_message = message_match.group(1).strip()
+
+            prompt = self.config["prompts"]["mode_classifier"].format(message=current_message)
+            model = self.config["anthropic"]["preprocessing_model"]
+
+            async with AnthropicClient(self.config) as anthropic:
+                response = await anthropic.call_claude(context, prompt, model)
+
+            if response and response.strip().upper() in ["SARCASTIC", "SERIOUS"]:
+                return response.strip().upper()
+            else:
+                logger.warning(f"Invalid mode classification response: {response}")
+                return "SARCASTIC"  # Default to sarcastic
+        except Exception as e:
+            logger.error(f"Error classifying mode: {e}")
+            return "SARCASTIC"  # Default to sarcastic on error
+
     async def process_message_event(self, event: dict[str, Any]) -> None:
         """Process incoming IRC message events."""
         msg_type = event.get("type")
@@ -145,9 +180,8 @@ class IRSSILLMAgent:
         """Handle IRC commands and generate responses."""
         if message.startswith("!h") or message == "!h":
             logger.info(f"Sending help message to {nick}")
-            help_msg = "default is sarcastic Claude, !s is serious agentic Claude with web tools, !p is Perplexity (prefer English!)"
+            help_msg = "default is automatic mode (AI decides), !S is explicit sarcastic Claude, !s is serious agentic Claude with web tools, !p is Perplexity (prefer English!)"
             await self.varlink_sender.send_message(target, help_msg, server)
-            return
 
         elif message.startswith("!p ") or message == "!p":
             # Perplexity call
@@ -168,55 +202,66 @@ class IRSSILLMAgent:
                 # Update context with response
                 await self.history.add_message(server, chan_name, lines[0], mynick, mynick, True)
 
-        elif re.match(r"^![^s]+", message):
-            # Unknown command
+        elif message.startswith("!S "):
+            message = message[3:].strip()
+            logger.info(f"Processing explicit sarcastic Claude request from {nick}: {message}")
+            await self._handle_sarcastic_mode(server, chan_name, target, nick, message, mynick)
+
+        elif message.startswith("!s "):
+            message = message[3:].strip()
+            logger.info(f"Processing explicit serious Claude request from {nick}: {message}")
+            await self._handle_serious_mode(server, chan_name, target, nick, message, mynick)
+
+        elif re.match(r"^!.", message):
             logger.warning(f"Unknown command from {nick}: {message}")
             await self.varlink_sender.send_message(
                 target, f"{nick}: Unknown command. Use !h for help.", server
             )
-            return
 
         else:
-            # Claude call (default or serious)
-            is_serious = message.startswith("!s ")
-            if is_serious:
-                message = message[3:].strip()
-                logger.info(f"Processing serious Claude request from {nick}: {message}")
+            logger.info(f"Processing automatic mode request from {nick}: {message}")
+            context = await self.history.get_context(server, chan_name)
+            classified_mode = await self.classify_mode(context)
+            logger.info(f"Auto-classified message as {classified_mode} mode")
 
-                # Use agent for serious mode
-
-                context = await self.history.get_context(server, chan_name)
-                async with ClaudeAgent(self.config, mynick) as agent:
-                    response = await agent.run_agent(context)
-
-                if response:
-                    logger.info(f"Sending agent response to {target}: {response}")
-                    await self.varlink_sender.send_message(target, f"{nick}: {response}", server)
-                    # Update context with response
-                    await self.history.add_message(
-                        server, chan_name, response, mynick, mynick, True
-                    )
-
+            if classified_mode == "SERIOUS":
+                await self._handle_serious_mode(server, chan_name, target, nick, message, mynick)
             else:
-                # Default sarcastic Claude (unchanged)
-                logger.info(f"Processing sarcastic Claude request from {nick}: {message}")
-                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                system_prompt = self.config["prompts"]["sarcastic"].format(
-                    mynick=mynick, current_time=current_time
-                )
-                model = self.config["anthropic"]["model"]
+                await self._handle_sarcastic_mode(server, chan_name, target, nick, message, mynick)
 
-                context = await self.history.get_context(server, chan_name)
-                async with AnthropicClient(self.config) as anthropic:
-                    response = await anthropic.call_claude(context, system_prompt, model)
+    async def _handle_serious_mode(
+        self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
+    ) -> None:
+        """Handle serious mode using ClaudeAgent with tools."""
+        context = await self.history.get_context(server, chan_name)
+        async with ClaudeAgent(self.config, mynick) as agent:
+            response = await agent.run_agent(context)
 
-                if response:
-                    logger.info(f"Sending Claude response to {target}: {response}")
-                    await self.varlink_sender.send_message(target, response, server)
-                    # Update context with response
-                    await self.history.add_message(
-                        server, chan_name, response, mynick, mynick, True
-                    )
+        if response:
+            logger.info(f"Sending agent response to {target}: {response}")
+            await self.varlink_sender.send_message(target, f"{nick}: {response}", server)
+            # Update context with response
+            await self.history.add_message(server, chan_name, response, mynick, mynick, True)
+
+    async def _handle_sarcastic_mode(
+        self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
+    ) -> None:
+        """Handle sarcastic mode using direct Claude calls."""
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        system_prompt = self.config["prompts"]["sarcastic"].format(
+            mynick=mynick, current_time=current_time
+        )
+        model = self.config["anthropic"]["model"]
+
+        context = await self.history.get_context(server, chan_name)
+        async with AnthropicClient(self.config) as anthropic:
+            response = await anthropic.call_claude(context, system_prompt, model)
+
+        if response:
+            logger.info(f"Sending Claude response to {target}: {response}")
+            await self.varlink_sender.send_message(target, response, server)
+            # Update context with response
+            await self.history.add_message(server, chan_name, response, mynick, mynick, True)
 
     async def _connect_with_retry(self, max_retries: int = 5) -> bool:
         """Connect to varlink sockets with exponential backoff retry."""

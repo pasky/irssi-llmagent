@@ -7,8 +7,9 @@ A modern Python-based chatbot service that connects to irssi via varlink protoco
 - **Async Architecture**: Non-blocking message processing with concurrent handling
 - **Persistent History**: SQLite database with unlimited storage and configurable inference limits
 - **AI Integrations**:
-  - Anthropic Claude (sarcastic and serious modes)
+  - Anthropic Claude (sarcastic and serious modes with automatic mode selection)
   - Perplexity AI for web search
+  - Haiku 3 preprocessing model for intelligent mode classification
 - **Modern Python**: Built with uv, type safety, and comprehensive testing
 - **Rate Limiting**: Configurable rate limiting and user management
 - **Command System**: Extensible command-based interaction (!h, !s, !p)
@@ -53,20 +54,30 @@ Edit `config.json` to set:
 
 ## Commands
 
-- `mynick: message` - Default sarcastic Claude response
-- `mynick: !s message` - Serious agentic Claude with web search and URL tools
+- `mynick: message` - Automatic mode (Haiku 3 classifier chooses sarcastic or serious)
+- `mynick: !S message` - Explicit sarcastic Claude response
+- `mynick: !s message` - Explicit serious agentic Claude with web search and URL tools
 - `mynick: !p message` - Perplexity search response
 - `mynick: !h` - Show help
+
+### Mode Selection
+
+The bot now features intelligent mode selection:
+- **Automatic Mode**: Default behavior uses Haiku 3 to analyze the message context and automatically choose between sarcastic and serious modes
+- **Explicit Modes**: Use `!S` for sarcastic or `!s` for serious mode to override automatic selection
 
 ## CLI Testing Mode
 
 You can test the bot's message handling including command parsing from the command line:
 
 ```bash
-# Test regular sarcastic mode
+# Test automatic mode (classifier chooses sarcastic or serious)
 uv run irssi-llmagent --message "tell me a joke"
 
-# Test serious agentic mode with web search
+# Test explicit sarcastic mode
+uv run irssi-llmagent --message "!S tell me a joke"
+
+# Test explicit serious agentic mode with web search
 uv run irssi-llmagent --message "!s search for latest Python news"
 
 # Test Perplexity mode
@@ -79,7 +90,24 @@ uv run irssi-llmagent --message "!h"
 uv run irssi-llmagent --message "!s summarize https://python.org" --config /path/to/config.json
 ```
 
-This simulates full IRC message handling including command parsing, useful for testing your configuration and API keys without setting up the full IRC bot.
+This simulates full IRC message handling including command parsing and automatic mode classification, useful for testing your configuration and API keys without setting up the full IRC bot.
+
+## Classifier Analysis
+
+Evaluate the performance of the automatic mode classifier on historical data:
+
+```bash
+# Analyze classifier performance on database history
+uv run python analyze_classifier.py --db chat_history.db
+
+# Analyze classifier performance on IRC log files
+uv run python analyze_classifier.py --logs ~/.irssi/logs/freenode/*.log
+
+# Combine both sources with custom config
+uv run python analyze_classifier.py --db chat_history.db --logs ~/.irssi/logs/ --config config.json
+```
+
+Results are saved to `classifier_analysis.csv` with detailed metrics and misclassification analysis.
 
 ## Architecture
 
