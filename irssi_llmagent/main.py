@@ -164,19 +164,26 @@ class IRSSILLMAgent:
 
             if response:
                 response = response.strip()
-                # Parse response format: "reason: YES" or "reason: NO"
-                if response.upper().endswith(": YES"):
-                    reason = response[:-5].strip() if len(response) > 5 else "Would interject"
-                    logger.info(
-                        f"Proactive interjection triggered for message: {current_message[:50]}... Reason: {reason}"
+
+                # Count uppercase YES and NO occurrences
+                yes_count = response.count("YES")
+                no_count = response.count("NO")
+
+                # Error if no YES or NO detected
+                if yes_count == 0 and no_count == 0:
+                    logger.warning(
+                        f"No YES or NO found in proactive interject response: {response}"
                     )
-                    return True, reason
-                elif response.upper().endswith(": NO"):
-                    reason = response[:-4].strip() if len(response) > 4 else "Would not interject"
-                    return False, reason
+                    return False, f"No YES/NO found in response: {response}"
+
+                # Interject if at least one YES and zero NO
+                if yes_count >= 1 and no_count == 0:
+                    logger.info(
+                        f"Proactive interjection triggered for message: {current_message[:50]}... (YES count: {yes_count}, NO count: {no_count})"
+                    )
+                    return True, f"Interjection decision (YES: {yes_count}, NO: {no_count})"
                 else:
-                    logger.warning(f"Invalid proactive interject response format: {response}")
-                    return False, f"Invalid response format: {response}"
+                    return False, f"No interjection (YES: {yes_count}, NO: {no_count})"
             else:
                 return False, "No response from model"
         except Exception as e:
