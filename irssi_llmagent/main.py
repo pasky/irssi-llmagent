@@ -178,8 +178,8 @@ class IRSSILLMAgent:
 
                 # Interject if at least one YES and zero NO
                 if yes_count >= 1 and no_count == 0:
-                    logger.info(
-                        f"Proactive interjection triggered for message: {current_message[:50]}... (YES count: {yes_count}, NO count: {no_count})"
+                    logger.debug(
+                        f"Proactive interjection triggered for message: {current_message[:150]}... (YES count: {yes_count}, NO count: {no_count})"
                     )
                     return True, f"Interjection decision (YES: {yes_count}, NO: {no_count})"
                 else:
@@ -256,7 +256,7 @@ class IRSSILLMAgent:
                         if is_test_channel:
                             # Test mode: generate response but don't send it
                             logger.info(
-                                f"[TEST MODE] Would interject proactively for message from {nick} in {chan_name}: {message[:50]}... Reason: {reason}"
+                                f"[TEST MODE] Would interject proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
                             )
                             # Generate the response to test the full pipeline
                             test_context = await self.history.get_context(server, chan_name)
@@ -268,13 +268,13 @@ class IRSSILLMAgent:
                                 test_response = await anthropic.call_claude(
                                     test_context, system_prompt, model
                                 )
-                            logger.debug(
+                            logger.info(
                                 f"[TEST MODE] Generated response for {chan_name}: {test_response}"
                             )
                         else:
                             # Live mode: actually send the response
                             logger.info(
-                                f"Interjecting proactively for message from {nick}: {message[:50]}... Reason: {reason}"
+                                f"Interjecting proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
                             )
                             # Process as if it was a serious mode command
                             await self._handle_serious_mode(
