@@ -14,12 +14,19 @@ logger = logging.getLogger(__name__)
 class ClaudeAgent:
     """Claude agent with web search and webpage visiting capabilities."""
 
-    def __init__(self, config: dict[str, Any], mynick: str, extra_prompt: str = ""):
+    def __init__(
+        self,
+        config: dict[str, Any],
+        mynick: str,
+        extra_prompt: str = "",
+        model_override: str | None = None,
+    ):
         self.config = config
         self.mynick = mynick
         self.claude_client = AnthropicClient(config)
         self.max_iterations = 5
         self.extra_prompt = extra_prompt
+        self.model_override = model_override
         self.system_prompt = self._get_system_prompt()
 
     def _get_system_prompt(self) -> str:
@@ -48,11 +55,15 @@ class ClaudeAgent:
             logger.debug(f"Agent iteration {iteration + 1}/{self.max_iterations}")
 
             # Use serious_model for first iteration only, then default model
-            model = (
-                self.config["anthropic"]["serious_model"]
-                if iteration == 0
-                else self.config["anthropic"]["model"]
-            )
+            # Override with specific model if provided
+            if self.model_override:
+                model = self.model_override
+            else:
+                model = (
+                    self.config["anthropic"]["serious_model"]
+                    if iteration == 0
+                    else self.config["anthropic"]["model"]
+                )
 
             # Don't pass tools on final iteration
             extra_prompt = (

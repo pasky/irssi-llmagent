@@ -406,7 +406,11 @@ class IRSSILLMAgent:
         if is_proactive:
             extra_prompt = " NOTE: This is a proactive interjection. If upon reflection you decide your contribution wouldn't add significant value or would interrupt the conversation flow, respond with exactly 'NULL' instead of a message."
 
-        async with ClaudeAgent(self.config, mynick, extra_prompt) as agent:
+        # Use default model for proactive interjections to avoid expensive opus model
+        model_override = self.config["anthropic"]["model"] if is_proactive else None
+        async with ClaudeAgent(
+            self.config, mynick, extra_prompt, model_override=model_override
+        ) as agent:
             response = await agent.run_agent(context)
 
         # For proactive interjections, check for NULL response
