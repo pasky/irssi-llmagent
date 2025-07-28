@@ -16,7 +16,7 @@ class ClaudeAgent:
         self.config = config
         self.mynick = mynick
         self.claude_client = AnthropicClient(config)
-        self.max_iterations = 3
+        self.max_iterations = 5
         self.system_prompt = self._get_system_prompt()
 
     def _get_system_prompt(self) -> str:
@@ -41,15 +41,15 @@ class ClaudeAgent:
             logger.info(f"Agent iteration {iteration + 1}/{self.max_iterations}")
 
             # Don't pass tools on final iteration
-            tools = TOOLS if iteration < self.max_iterations - 1 else None
+            extra_prompt = " THIS WAS YOUR LAST TOOL TURN, YOU MUST NOT USE ANY FURTHER TOOLS" if iteration == self.max_iterations - 1 else ""
 
             try:
                 # Call Claude with or without tools based on iteration
                 response = await self.claude_client.call_claude_raw(
                     messages,  # Pass messages in proper API format
-                    self.system_prompt,
+                    self.system_prompt + extra_prompt,
                     self.config["anthropic"]["serious_model"],
-                    tools=tools
+                    tools=TOOLS
                 )
 
                 # Process response using unified handler
