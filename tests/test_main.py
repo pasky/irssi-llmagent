@@ -268,7 +268,7 @@ class TestCLIMode:
                 mock_claude.call_claude = AsyncMock(return_value="Sarcastic response")
                 mock_claude_class.return_value.__aenter__.return_value = mock_claude
 
-                await cli_mode("tell me a joke", temp_config_file)
+                await cli_mode("!S tell me a joke", temp_config_file)
 
                 # Verify Claude was called with the actual message
                 mock_claude.call_claude.assert_called_once()
@@ -278,11 +278,13 @@ class TestCLIMode:
                 # Verify the user message is in the context
                 assert len(context) == 1
                 assert context[0]["role"] == "user"
-                assert context[0]["content"] == "tell me a joke"
+                assert context[0]["content"] == "!S tell me a joke"
 
                 # Verify output
                 print_calls = [call[0][0] for call in mock_print.call_args_list]
-                assert any("Simulating IRC message: tell me a joke" in call for call in print_calls)
+                assert any(
+                    "Simulating IRC message: !S tell me a joke" in call for call in print_calls
+                )
                 assert any("Sarcastic response" in call for call in print_calls)
 
     @pytest.mark.asyncio
@@ -344,20 +346,20 @@ class TestCLIMode:
     async def test_cli_mode_message_content_validation(self, temp_config_file):
         """Test that CLI mode passes actual message content, not placeholder text."""
         with patch("builtins.print"):
-            with patch("irssi_llmagent.main.AnthropicClient") as mock_claude_class:
-                mock_claude = AsyncMock()
-                mock_claude.call_claude = AsyncMock(return_value="Response")
-                mock_claude_class.return_value.__aenter__.return_value = mock_claude
+            with patch("irssi_llmagent.main.ClaudeAgent") as mock_agent_class:
+                mock_agent = AsyncMock()
+                mock_agent.run_agent = AsyncMock(return_value="Agent response")
+                mock_agent_class.return_value.__aenter__.return_value = mock_agent
 
-                await cli_mode("specific test message", temp_config_file)
+                await cli_mode("!s specific test message", temp_config_file)
 
-                # Verify Claude received the EXACT message content
-                mock_claude.call_claude.assert_called_once()
-                call_args = mock_claude.call_claude.call_args
+                # Verify agent was called once for serious mode
+                mock_agent.run_agent.assert_called_once()
+                call_args = mock_agent.run_agent.call_args
                 context = call_args[0][0]
 
                 # This test would catch the bug where empty context resulted in "..." placeholder
-                assert context[0]["content"] == "specific test message"
+                assert context[0]["content"] == "!s specific test message"
                 assert context[0]["content"] != "..."  # Explicitly check it's not placeholder
 
     @pytest.mark.asyncio
