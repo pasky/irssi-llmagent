@@ -121,7 +121,7 @@ class AnthropicClient:
                     text = re.sub(r"<thinking>.*?</thinking>\s*", "", text, flags=re.DOTALL)
 
                     # For IRC: single line only, take first line of remaining content
-                    text = text.split("\n")[0].strip()
+                    text = text.replace("\n", "; ").strip()
 
                     # Remove IRC nick prefix
                     text = re.sub(r"^<[^>]+>\s*", "", text)

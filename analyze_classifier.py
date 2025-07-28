@@ -259,7 +259,7 @@ Examples:
         batch_size = 5
 
         for i, inv in enumerate(invocations):
-            print(f"Processing {i+1}/{len(invocations)}: {inv['user_message'][:50]}...")
+            print(f"Processing {i + 1}/{len(invocations)}: {inv['user_message'][:50]}...")
 
             predicted_mode = await classify_message_with_agent(
                 agent, inv["user_message"], inv.get("context", [])

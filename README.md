@@ -13,6 +13,7 @@ A modern Python-based chatbot service that connects to irssi via varlink protoco
 - **Modern Python**: Built with uv, type safety, and comprehensive testing
 - **Rate Limiting**: Configurable rate limiting and user management
 - **Command System**: Extensible command-based interaction (!h, !s, !p)
+- **Proactive Interjecting**: Channel-based whitelist system for automatic participation in relevant conversations
 - **Developer Tools**: Pre-commit hooks, linting, formatting, and type checking
 
 ## Installation
@@ -51,6 +52,7 @@ Edit `config.json` to set:
 - History size (for inference)
 - Database path
 - Ignored users
+- Proactive interjecting settings (channel whitelist, rate limits, test mode)
 
 ## Commands
 
@@ -108,6 +110,23 @@ uv run python analyze_classifier.py --db chat_history.db --logs ~/.irssi/logs/ -
 ```
 
 Results are saved to `classifier_analysis.csv` with detailed metrics and misclassification analysis.
+
+## Proactive Interjecting Analysis
+
+Evaluate the performance of the proactive interjecting feature on historical data:
+
+```bash
+# Analyze proactive interjecting performance on database history
+uv run python analyze_proactive.py --limit 20
+
+# Analyze proactive interjecting on IRC log files with channel exclusions
+uv run python analyze_proactive.py --logs ~/.irssi/logs/ --limit 50 --exclude-news
+
+# Combine both sources with custom config
+uv run python analyze_proactive.py --db chat_history.db --logs ~/.irssi/logs/ --config config.json
+```
+
+Results are saved to `proactive_analysis.csv` with detailed interjection decisions and reasoning.
 
 ## Architecture
 

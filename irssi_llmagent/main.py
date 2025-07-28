@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -43,6 +44,10 @@ class IRSSILLMAgent:
         )
         self.rate_limiter = RateLimiter(
             self.config["behavior"]["rate_limit"], self.config["behavior"]["rate_period"]
+        )
+        self.proactive_rate_limiter = RateLimiter(
+            self.config["behavior"].get("proactive_rate_limit", 10),
+            self.config["behavior"].get("proactive_rate_period", 60),
         )
         self.server_nicks: dict[str, str] = {}  # Cache of nicks per server
 
@@ -103,7 +108,7 @@ class IRSSILLMAgent:
                 current_message = message_match.group(1).strip()
 
             prompt = self.config["prompts"]["mode_classifier"].format(message=current_message)
-            model = self.config["anthropic"]["preprocessing_model"]
+            model = self.config["anthropic"]["classifier_model"]
 
             async with AnthropicClient(self.config) as anthropic:
                 response = await anthropic.call_claude(context, prompt, model)
@@ -116,6 +121,55 @@ class IRSSILLMAgent:
         except Exception as e:
             logger.error(f"Error classifying mode: {e}")
             return "SARCASTIC"  # Default to sarcastic on error
+
+    async def should_interject_proactively(self, context: list[dict[str, str]]) -> tuple[bool, str]:
+        """Use preprocessing model to decide if bot should interject in conversation proactively.
+
+        Args:
+            context: Conversation context including the current message as the last entry
+
+        Returns:
+            (should_interject, reason): Tuple of decision and reasoning
+        """
+        try:
+            if not context:
+                return False, "No context provided"
+
+            # Extract the current message from context (should be the last message)
+            current_message = context[-1]["content"]
+
+            # Clean message content if it has IRC nick formatting like "<nick> message"
+            message_match = re.search(r"<[^>]+>\s*(.*)", current_message)
+            if message_match:
+                current_message = message_match.group(1).strip()
+
+            # Use full context for better decision making, but specify the current message in prompt
+            prompt = self.config["prompts"]["proactive_interject"].format(message=current_message)
+            model = self.config["anthropic"]["proactive_model"]
+
+            async with AnthropicClient(self.config) as anthropic:
+                response = await anthropic.call_claude(context, prompt, model)
+
+            if response:
+                response = response.strip()
+                # Parse response format: "reason: YES" or "reason: NO"
+                if response.upper().endswith(": YES"):
+                    reason = response[:-5].strip() if len(response) > 5 else "Would interject"
+                    logger.info(
+                        f"Proactive interjection triggered for message: {current_message[:50]}... Reason: {reason}"
+                    )
+                    return True, reason
+                elif response.upper().endswith(": NO"):
+                    reason = response[:-4].strip() if len(response) > 4 else "Would not interject"
+                    return False, reason
+                else:
+                    logger.warning(f"Invalid proactive interject response format: {response}")
+                    return False, f"Invalid response format: {response}"
+            else:
+                return False, "No response from model"
+        except Exception as e:
+            logger.error(f"Error checking proactive interject: {e}")
+            return False, f"Error: {str(e)}"
 
     async def process_message_event(self, event: dict[str, Any]) -> None:
         """Process incoming IRC message events."""
@@ -154,10 +208,64 @@ class IRSSILLMAgent:
         # Update history before checking if we should respond
         await self.history.add_message(server, chan_name, message, nick, mynick)
 
-        # Check if message is addressing us
+        # Check if message is addressing us directly
         pattern = rf"^\s*{re.escape(mynick)}[,:]\s*(.*?)$"
         match = re.match(pattern, message, re.IGNORECASE)
+
+        # If not directly addressed, check for proactive interjecting
         if not match:
+            # Check both live and test channels for proactive interjecting
+            proactive_channels = self.config.get("behavior", {}).get("proactive_interjecting", [])
+            test_channels = self.config.get("behavior", {}).get("proactive_interjecting_test", [])
+            is_live_channel = proactive_channels and chan_name in proactive_channels
+            is_test_channel = test_channels and chan_name in test_channels
+
+            if is_live_channel or is_test_channel:
+                # Check proactive rate limit first
+                if not self.proactive_rate_limiter.check_limit():
+                    logger.debug(
+                        f"Proactive interjection rate limit exceeded, skipping message from {nick}"
+                    )
+                    return
+
+                context = await self.history.get_context(server, chan_name)
+                should_interject, reason = await self.should_interject_proactively(context)
+                if should_interject:
+                    # Classify the mode for proactive response (should be serious mode only)
+                    classified_mode = await self.classify_mode(context)
+                    if classified_mode == "SERIOUS":
+                        if is_test_channel:
+                            # Test mode: generate response but don't send it
+                            logger.info(
+                                f"[TEST MODE] Would interject proactively for message from {nick} in {chan_name}: {message[:50]}... Reason: {reason}"
+                            )
+                            # Generate the response to test the full pipeline
+                            test_context = await self.history.get_context(server, chan_name)
+                            system_prompt = self.config["prompts"]["serious"].format(
+                                mynick=mynick, current_time=time.strftime("%Y-%m-%d %H:%M:%S")
+                            )
+                            model = self.config["anthropic"]["serious_model"]
+                            async with AnthropicClient(self.config) as anthropic:
+                                test_response = await anthropic.call_claude(
+                                    test_context, system_prompt, model
+                                )
+                            logger.info(
+                                f"[TEST MODE] Generated response for {chan_name}: {test_response}"
+                            )
+                        else:
+                            # Live mode: actually send the response
+                            logger.info(
+                                f"Interjecting proactively for message from {nick}: {message[:50]}... Reason: {reason}"
+                            )
+                            # Process as if it was a serious mode command
+                            await self._handle_serious_mode(
+                                server, chan_name, target, nick, message, mynick
+                            )
+                    else:
+                        mode_desc = "[TEST MODE] " if is_test_channel else ""
+                        logger.debug(
+                            f"{mode_desc}Proactive interjection suggested but not serious mode: {classified_mode}. Reason: {reason}"
+                        )
             return
 
         cleaned_msg = match.group(1)

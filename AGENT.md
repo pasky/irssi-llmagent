@@ -9,6 +9,8 @@
 - Test explicit sarcastic: `uv run irssi-llmagent --message "!S tell me a joke"`
 - Test explicit serious: `uv run irssi-llmagent --message "!s search for Python news"`
 - Analyze classifier: `uv run python analyze_classifier.py --db chat_history.db`
+- Analyze proactive interjecting: `uv run python analyze_proactive.py --limit 20`
+- Analyze proactive with logs: `uv run python analyze_proactive.py --logs ~/.irssi/logs/ --limit 50 --exclude-news`
 - Run linting: `uv run ruff check .`
 - Run formatting: `uv run ruff format .`
 - Run type checking: `uv run pyright`
@@ -19,9 +21,10 @@
 - **Main Service**: `irssi_llmagent/main.py` - Async Python chatbot connecting via varlink to irssi
 - **Modular Structure**: Split into separate modules for Claude, Perplexity, varlink, and history
 - **Varlink Protocol**: Dual async socket architecture (events + sender) over UNIX socket at `~/.irssi/varlink.sock`
-- **APIs**: Anthropic Claude (sarcastic/serious modes with automatic classification), Perplexity AI
+- **APIs**: Anthropic Claude (sarcastic/serious modes with automatic classification using claude-3-5-haiku), Perplexity AI
 - **Config**: JSON-based configuration in `config.json` (copy from `config.json.example`)
 - **Database**: SQLite persistent chat history with configurable inference limits
+- **Proactive Interjecting**: Channel-based whitelist feature using claude-3-haiku to scan non-directed messages and interject in serious conversations when useful. Includes rate limiting, test mode, and channel whitelisting
 - **Key Modules**:
   - `varlink.py` - VarlinkClient (events), VarlinkSender (messages)
   - `history.py` - ChatHistory (persistent SQLite storage)
