@@ -32,12 +32,10 @@ class AnthropicClient:
         if self.session:
             await self.session.close()
 
-    async def call_claude(
-        self, context: list[dict], system_prompt: str, model: str, quiet: bool = False
-    ) -> str | None:
+    async def call_claude(self, context: list[dict], system_prompt: str, model: str) -> str | None:
         """Call Claude API with context and system prompt, returning cleaned text response."""
         raw_response = await self.call_claude_raw(context, system_prompt, model)
-        return self.extract_text_from_response(raw_response, quiet)
+        return self.extract_text_from_response(raw_response)
 
     async def call_claude_raw(
         self, context: list[dict], system_prompt: str, model: str, tools: list | None = None
@@ -96,7 +94,7 @@ class AnthropicClient:
 
         return None
 
-    def extract_text_from_response(self, response: dict | None, quiet: bool = False) -> str | None:
+    def extract_text_from_response(self, response: dict | None) -> str | None:
         """Extract cleaned text from raw Claude response."""
         if not response:
             return None
@@ -128,10 +126,7 @@ class AnthropicClient:
                     # Remove IRC nick prefix
                     text = re.sub(r"^<[^>]+>\s*", "", text)
 
-                    if not quiet:
-                        logger.info(f"Cleaned Claude response: {text}")
-                    else:
-                        logger.debug(f"Cleaned Claude response: {text}")
+                    logger.debug(f"Cleaned Claude response: {text}")
                     return text
 
         return None

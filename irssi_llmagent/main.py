@@ -123,7 +123,7 @@ class IRSSILLMAgent:
             model = self.config["anthropic"]["classifier_model"]
 
             async with AnthropicClient(self.config) as anthropic:
-                response = await anthropic.call_claude(context, prompt, model, quiet=True)
+                response = await anthropic.call_claude(context, prompt, model)
 
             if response and response.strip().upper() in ["SARCASTIC", "SERIOUS"]:
                 return response.strip().upper()
@@ -160,7 +160,7 @@ class IRSSILLMAgent:
             model = self.config["anthropic"]["proactive_model"]
 
             async with AnthropicClient(self.config) as anthropic:
-                response = await anthropic.call_claude(context, prompt, model, quiet=True)
+                response = await anthropic.call_claude(context, prompt, model)
 
             if response:
                 response = response.strip()
@@ -314,7 +314,7 @@ class IRSSILLMAgent:
                 lines = response.split("\n")
                 for line in lines:
                     if line.strip():
-                        logger.debug(f"Sending Perplexity response to {target}: {line.strip()}")
+                        logger.info(f"Sending Perplexity response to {target}: {line.strip()}")
                         await self.varlink_sender.send_message(
                             target, f"{nick}: {line.strip()}", server
                         )
@@ -358,7 +358,7 @@ class IRSSILLMAgent:
             response = await agent.run_agent(context)
 
         if response:
-            logger.debug(f"Sending agent response to {target}: {response}")
+            logger.info(f"Sending agent response to {target}: {response}")
             await self.varlink_sender.send_message(target, f"{nick}: {response}", server)
             # Update context with response
             await self.history.add_message(server, chan_name, response, mynick, mynick, True)
