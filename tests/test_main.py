@@ -176,6 +176,85 @@ class TestIRSSILLMAgent:
             assert "sarcasm" in system_prompt.lower()
             assert model == agent.config["anthropic"]["model"]
 
+    @pytest.mark.asyncio
+    async def test_mode_classification(self, temp_config_file):
+        """Test that mode classification works in automatic mode."""
+        agent = IRSSILLMAgent(temp_config_file)
+
+        # Mock dependencies
+        agent.varlink_sender = AsyncMock()
+        agent.history = AsyncMock()
+        agent.history.add_message = AsyncMock()
+        agent.history.get_context = AsyncMock(
+            return_value=[{"role": "user", "content": "how do I install Python?"}]
+        )
+
+        with patch("irssi_llmagent.main.AnthropicClient") as mock_claude_class:
+            mock_claude = AsyncMock()
+            # First call for classification returns SERIOUS
+            mock_claude.call_claude = AsyncMock(return_value="SERIOUS")
+            mock_claude_class.return_value.__aenter__.return_value = mock_claude
+
+            with patch("irssi_llmagent.main.ClaudeAgent") as mock_agent_class:
+                mock_agent = AsyncMock()
+                mock_agent.run_agent = AsyncMock(return_value="Agent response")
+                mock_agent_class.return_value.__aenter__.return_value = mock_agent
+
+                # Test automatic mode message that should be classified as serious
+                await agent.handle_command(
+                    "test", "#test", "#test", "user", "how do I install Python?", "mybot"
+                )
+
+                # Should call classify_mode first, then use serious mode (agent)
+                mock_claude.call_claude.assert_called_once()
+                mock_agent.run_agent.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_proactive_interjection_detection(self, temp_config_file):
+        """Test proactive interjection detection in whitelisted channels."""
+        agent = IRSSILLMAgent(temp_config_file)
+        # Configure proactive interjection test channel
+        agent.config["behavior"]["proactive_interjecting_test"] = ["#testchannel"]
+
+        # Mock dependencies
+        agent.varlink_sender = AsyncMock()
+        agent.history = AsyncMock()
+        agent.history.add_message = AsyncMock()
+        agent.history.get_context = AsyncMock(
+            return_value=[{"role": "user", "content": "I need help with Python imports"}]
+        )
+        agent.server_nicks["test"] = "mybot"
+
+        with patch("irssi_llmagent.main.AnthropicClient") as mock_claude_class:
+            mock_claude = AsyncMock()
+            # Mock proactive decision (YES), mode classification (SERIOUS), and test response
+            mock_claude.call_claude = AsyncMock(
+                side_effect=["Should help with this: YES", "SERIOUS", "Test response"]
+            )
+            mock_claude_class.return_value.__aenter__.return_value = mock_claude
+
+            with patch("irssi_llmagent.main.ClaudeAgent") as mock_agent_class:
+                mock_agent = AsyncMock()
+                mock_agent.run_agent = AsyncMock(return_value="Test response")
+                mock_agent_class.return_value.__aenter__.return_value = mock_agent
+
+                # Test message NOT addressing bot in whitelisted test channel
+                event = {
+                    "type": "message",
+                    "subtype": "public",
+                    "server": "test",
+                    "target": "#testchannel",
+                    "nick": "user",
+                    "message": "I need help with Python imports",
+                }
+
+                await agent.process_message_event(event)
+
+                # Should call proactive decision, classification, and generate test response
+                assert mock_claude.call_claude.call_count == 3
+                # Should NOT call agent in test mode (generates response with Claude directly)
+                mock_agent.run_agent.assert_not_called()
+
 
 class TestCLIMode:
     """Test CLI mode functionality."""

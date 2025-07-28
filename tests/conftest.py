@@ -18,6 +18,8 @@ def test_config() -> dict[str, Any]:
             "key": "test-key",
             "model": "claude-3-haiku-20240307",
             "serious_model": "claude-3-sonnet-20240229",
+            "classifier_model": "claude-3-5-haiku-20241022",
+            "proactive_model": "claude-3-haiku-20240307",
         },
         "perplexity": {
             "url": "https://api.perplexity.ai/chat/completions",
@@ -29,6 +31,8 @@ def test_config() -> dict[str, Any]:
         "prompts": {
             "serious": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. Test serious prompt.",
             "sarcastic": "You are IRC user {mynick} and you are known for your sharp sarcasm and cynical, dry, rough sense of humor. Test sarcastic prompt.",
+            "mode_classifier": "Analyze this IRC message and decide whether it should be handled with SARCASTIC or SERIOUS mode. Respond with only one word: 'SARCASTIC' or 'SERIOUS'. Message: {message}",
+            "proactive_interject": "Decide if AI should interject. Respond with '[reason]: YES' or '[reason]: NO'. Message: {message}",
         },
     }
 
