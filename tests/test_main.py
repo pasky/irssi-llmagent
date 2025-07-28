@@ -1,10 +1,12 @@
 """Tests for main application functionality."""
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from irssi_llmagent.main import IRSSILLMAgent, cli_mode
+from irssi_llmagent.proactive_debouncer import ProactiveDebouncer
 
 
 class TestIRSSILLMAgent:
@@ -213,8 +215,11 @@ class TestIRSSILLMAgent:
     async def test_proactive_interjection_detection(self, temp_config_file):
         """Test proactive interjection detection in whitelisted channels."""
         agent = IRSSILLMAgent(temp_config_file)
-        # Configure proactive interjection test channel
+        # Configure proactive interjection test channel with short debounce
         agent.config["behavior"]["proactive_interjecting_test"] = ["#testchannel"]
+        agent.config["behavior"]["proactive_debounce_seconds"] = 0.1
+        # Recreate debouncer with updated config
+        agent.proactive_debouncer = ProactiveDebouncer(0.1)
 
         # Mock dependencies
         agent.varlink_sender = AsyncMock()
@@ -249,6 +254,9 @@ class TestIRSSILLMAgent:
                 }
 
                 await agent.process_message_event(event)
+
+                # Wait for debounce to complete
+                await asyncio.sleep(0.15)
 
                 # Should call proactive decision, classification, and generate test response
                 assert mock_claude.call_claude.call_count == 3

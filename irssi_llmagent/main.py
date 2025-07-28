@@ -15,6 +15,7 @@ from .agent import ClaudeAgent
 from .claude import AnthropicClient
 from .history import ChatHistory
 from .perplexity import PerplexityClient
+from .proactive_debouncer import ProactiveDebouncer
 from .rate_limiter import RateLimiter
 from .varlink import VarlinkClient, VarlinkSender
 
@@ -60,6 +61,9 @@ class IRSSILLMAgent:
         self.proactive_rate_limiter = RateLimiter(
             self.config["behavior"].get("proactive_rate_limit", 10),
             self.config["behavior"].get("proactive_rate_period", 60),
+        )
+        self.proactive_debouncer = ProactiveDebouncer(
+            self.config["behavior"].get("proactive_debounce_seconds", 15.0)
         )
         self.server_nicks: dict[str, str] = {}  # Cache of nicks per server
 
@@ -190,6 +194,73 @@ class IRSSILLMAgent:
             logger.error(f"Error checking proactive interject: {e}")
             return False, f"Error: {str(e)}"
 
+    async def _handle_debounced_proactive_check(
+        self, server: str, chan_name: str, nick: str, message: str, mynick: str
+    ) -> None:
+        """Handle a debounced proactive check with fresh context and rate limiting."""
+        try:
+            # Check proactive rate limit at execution time
+            if not self.proactive_rate_limiter.check_limit():
+                logger.debug(
+                    f"Proactive interjection rate limit exceeded during debounced check, skipping message from {nick}"
+                )
+                return
+
+            # Get fresh context at check time
+            context = await self.history.get_context(server, chan_name)
+            should_interject, reason = await self.should_interject_proactively(context)
+
+            if should_interject:
+                # Classify the mode for proactive response (should be serious mode only)
+                classified_mode = await self.classify_mode(context)
+                if classified_mode == "SERIOUS":
+                    # Check if this is a test channel
+                    test_channels = self.config.get("behavior", {}).get(
+                        "proactive_interjecting_test", []
+                    )
+                    is_test_channel = test_channels and chan_name in test_channels
+
+                    if is_test_channel:
+                        # Test mode: generate response but don't send it
+                        logger.info(
+                            f"[TEST MODE] Would interject proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
+                        )
+                        # Generate the response to test the full pipeline
+                        test_context = await self.history.get_context(server, chan_name)
+                        system_prompt = self.config["prompts"]["serious"].format(
+                            mynick=mynick, current_time=time.strftime("%Y-%m-%d %H:%M:%S")
+                        )
+                        model = self.config["anthropic"]["serious_model"]
+                        async with AnthropicClient(self.config) as anthropic:
+                            test_response = await anthropic.call_claude(
+                                test_context, system_prompt, model
+                            )
+                        logger.info(
+                            f"[TEST MODE] Generated response for {chan_name}: {test_response}"
+                        )
+                    else:
+                        # Live mode: actually send the response
+                        logger.info(
+                            f"Interjecting proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
+                        )
+                        # Process as if it was a serious mode command
+                        target = chan_name  # For proactive interjections, target is the channel
+                        await self._handle_serious_mode(
+                            server, chan_name, target, nick, message, mynick
+                        )
+                else:
+                    # Check if this is a test channel for logging
+                    test_channels = self.config.get("behavior", {}).get(
+                        "proactive_interjecting_test", []
+                    )
+                    is_test_channel = test_channels and chan_name in test_channels
+                    mode_desc = "[TEST MODE] " if is_test_channel else ""
+                    logger.warning(
+                        f"{mode_desc}Proactive interjection suggested but not serious mode: {classified_mode}. Reason: {reason}"
+                    )
+        except Exception as e:
+            logger.error(f"Error in debounced proactive check for {chan_name}: {e}")
+
     async def process_message_event(self, event: dict[str, Any]) -> None:
         """Process incoming IRC message events."""
         msg_type = event.get("type")
@@ -240,51 +311,10 @@ class IRSSILLMAgent:
             is_test_channel = test_channels and chan_name in test_channels
 
             if is_live_channel or is_test_channel:
-                # Check proactive rate limit first
-                if not self.proactive_rate_limiter.check_limit():
-                    logger.debug(
-                        f"Proactive interjection rate limit exceeded, skipping message from {nick}"
-                    )
-                    return
-
-                context = await self.history.get_context(server, chan_name)
-                should_interject, reason = await self.should_interject_proactively(context)
-                if should_interject:
-                    # Classify the mode for proactive response (should be serious mode only)
-                    classified_mode = await self.classify_mode(context)
-                    if classified_mode == "SERIOUS":
-                        if is_test_channel:
-                            # Test mode: generate response but don't send it
-                            logger.info(
-                                f"[TEST MODE] Would interject proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
-                            )
-                            # Generate the response to test the full pipeline
-                            test_context = await self.history.get_context(server, chan_name)
-                            system_prompt = self.config["prompts"]["serious"].format(
-                                mynick=mynick, current_time=time.strftime("%Y-%m-%d %H:%M:%S")
-                            )
-                            model = self.config["anthropic"]["serious_model"]
-                            async with AnthropicClient(self.config) as anthropic:
-                                test_response = await anthropic.call_claude(
-                                    test_context, system_prompt, model
-                                )
-                            logger.info(
-                                f"[TEST MODE] Generated response for {chan_name}: {test_response}"
-                            )
-                        else:
-                            # Live mode: actually send the response
-                            logger.info(
-                                f"Interjecting proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
-                            )
-                            # Process as if it was a serious mode command
-                            await self._handle_serious_mode(
-                                server, chan_name, target, nick, message, mynick
-                            )
-                    else:
-                        mode_desc = "[TEST MODE] " if is_test_channel else ""
-                        logger.warning(
-                            f"{mode_desc}Proactive interjection suggested but not serious mode: {classified_mode}. Reason: {reason}"
-                        )
+                # Schedule debounced proactive check
+                await self.proactive_debouncer.schedule_check(
+                    server, chan_name, nick, message, mynick, self._handle_debounced_proactive_check
+                )
             return
 
         cleaned_msg = match.group(1)
@@ -459,6 +489,7 @@ class IRSSILLMAgent:
             logger.info("Disconnecting from varlink sockets...")
             await self.varlink_events.disconnect()
             await self.varlink_sender.disconnect()
+            await self.proactive_debouncer.cancel_all()
             await self.history.close()
             logger.info("irssi-llmagent stopped")
 
