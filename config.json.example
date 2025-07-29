@@ -23,7 +23,7 @@
     "ignore_users": [],
     "proactive_interjecting": ["#programming", "#tech"],
     "proactive_interjecting_test": ["#test-channel"],
-    "proactive_interject_threshold": 9,
+    "proactive_interject_threshold": 8,
     "proactive_rate_limit": 10,
     "proactive_rate_period": 60,
     "proactive_debounce_seconds": 15.0

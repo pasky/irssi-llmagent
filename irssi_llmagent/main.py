@@ -187,6 +187,10 @@ class IRSSILLMAgent:
                         )
                         return True, f"Interjection decision (Score: {score})"
                     else:
+                        if score >= threshold - 2:
+                            logger.info(
+                                f"Proactive interjection BARELY triggered for message: {current_message[:150]}... (Score: {score})"
+                            )
                         return False, f"No interjection (Score: {score})"
                 else:
                     logger.warning(
