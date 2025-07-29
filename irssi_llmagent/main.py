@@ -170,7 +170,7 @@ class IRSSILLMAgent:
             async with AnthropicClient(self.config) as anthropic:
                 response = await anthropic.call_claude(context, prompt, model)
 
-            if response:
+            if response and not response.startswith("API error:"):
                 response = response.strip()
 
                 # Extract the score from the response
@@ -419,7 +419,11 @@ class IRSSILLMAgent:
             response = await agent.run_agent(context)
 
         # For proactive interjections, check for NULL response
-        if is_proactive and response and response.strip().upper() == "NULL":
+        if (
+            is_proactive
+            and response
+            and (response.strip().upper() == "NULL" or response.startswith("API error:"))
+        ):
             logger.info(f"Agent decided not to interject proactively for {target}")
             return None
 
