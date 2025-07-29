@@ -34,11 +34,11 @@ class TestChatHistory:
         context = await history.get_context(server, channel)
 
         assert len(context) == 3
-        assert context[0]["content"] == "<user1> Hello world"
+        assert context[0]["content"].endswith("<user1> Hello world")
         assert context[0]["role"] == "user"
-        assert context[1]["content"] == "<testbot> Hi there!"
+        assert context[1]["content"].endswith("<testbot> Hi there!")
         assert context[1]["role"] == "assistant"
-        assert context[2]["content"] == "<user2> How are you?"
+        assert context[2]["content"].endswith("<user2> How are you?")
         assert context[2]["role"] == "user"
 
     @pytest.mark.asyncio

@@ -120,7 +120,7 @@ class AnthropicClient:
                     text = text.replace("\n", "; ").strip()
 
                     # Remove IRC nick prefix
-                    text = re.sub(r"^<[^>]+>\s*", "", text)
+                    text = re.sub(r"^(\[..:..\]\s*)?<[^>]+>\s*", "", text)
 
                     logger.debug(f"Cleaned Claude response: {text}")
                     return text

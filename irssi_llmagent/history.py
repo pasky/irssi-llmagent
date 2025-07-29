@@ -74,7 +74,7 @@ class ChatHistory:
         async with self._lock, aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 """
-                    SELECT message, role FROM chat_messages
+                    SELECT message, role, strftime('%H:%M', timestamp) as time_only FROM chat_messages
                     WHERE server_tag = ? AND channel_name = ?
                     ORDER BY timestamp DESC
                     LIMIT ?
@@ -86,7 +86,7 @@ class ChatHistory:
         # Reverse to get chronological order
         rows_list = list(rows)
         rows_list.reverse()
-        context = [{"role": str(row[1]), "content": str(row[0])} for row in rows_list]
+        context = [{"role": str(row[1]), "content": f"[{row[2]}] {row[0]}"} for row in rows_list]
         logger.debug(f"Retrieved {len(context)} messages for context: {server_tag}/{channel_name}")
         return context
 
