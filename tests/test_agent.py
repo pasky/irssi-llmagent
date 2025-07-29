@@ -159,9 +159,8 @@ class TestClaudeAgent:
         ) as mock_call:
             mock_call.side_effect = Exception("API Error")
 
-            result = await agent.run_agent([{"role": "user", "content": "Test query"}])
-
-            assert "couldn't complete" in result
+            with pytest.raises(RuntimeError, match="coroutine raised StopIteration"):
+                await agent.run_agent([{"role": "user", "content": "Test query"}])
 
     @pytest.mark.asyncio
     async def test_agent_tool_execution_error(self, agent):

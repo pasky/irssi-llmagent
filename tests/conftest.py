@@ -27,12 +27,19 @@ def test_config() -> dict[str, Any]:
             "model": "sonar-pro",
         },
         "varlink": {"socket_path": "/tmp/test_varlink.sock"},
-        "behavior": {"history_size": 5, "rate_limit": 30, "rate_period": 900, "ignore_users": []},
+        "behavior": {
+            "history_size": 5,
+            "rate_limit": 30,
+            "rate_period": 900,
+            "ignore_users": [],
+            "proactive_interject_threshold": 9,
+        },
         "prompts": {
             "serious": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. Test serious prompt.",
             "sarcastic": "You are IRC user {mynick} and you are known for your sharp sarcasm and cynical, dry, rough sense of humor. Test sarcastic prompt.",
             "mode_classifier": "Analyze this IRC message and decide whether it should be handled with SARCASTIC or SERIOUS mode. Respond with only one word: 'SARCASTIC' or 'SERIOUS'. Message: {message}",
-            "proactive_interject": "Decide if AI should interject. Respond with '[reason]: YES' or '[reason]: NO'. Message: {message}",
+            "proactive_interject": "Decide if AI should interject. Respond with '[reason]: X/10' where X is 1-10. Message: {message}",
+            "proactive_serious_extra": "NOTE: This is a proactive interjection. If upon reflection you decide your contribution wouldn't add significant factual value (e.g. just an encouragement or general statement), respond with exactly 'NULL' instead of a message.",
         },
     }
 

@@ -173,25 +173,26 @@ class IRSSILLMAgent:
             if response:
                 response = response.strip()
 
-                # Count uppercase YES and NO occurrences
-                yes_count = response.count("YES")
-                no_count = response.count("NO")
+                # Extract the score from the response
+                score_match = re.search(r"(\d+)/10", response)
 
-                # Error if no YES or NO detected
-                if yes_count == 0 and no_count == 0:
-                    logger.warning(
-                        f"No YES or NO found in proactive interject response: {response}"
-                    )
-                    return False, f"No YES/NO found in response: {response}"
+                if score_match:
+                    score = int(score_match.group(1))
+                    threshold = self.config["behavior"].get("proactive_interject_threshold", 9)
 
-                # Interject if at least one YES and zero NO
-                if yes_count >= 1 and no_count == 0:
-                    logger.debug(
-                        f"Proactive interjection triggered for message: {current_message[:150]}... (YES count: {yes_count}, NO count: {no_count})"
-                    )
-                    return True, f"Interjection decision (YES: {yes_count}, NO: {no_count})"
+                    # Only interject for scores at or above threshold
+                    if score >= threshold:
+                        logger.debug(
+                            f"Proactive interjection triggered for message: {current_message[:150]}... (Score: {score})"
+                        )
+                        return True, f"Interjection decision (Score: {score})"
+                    else:
+                        return False, f"No interjection (Score: {score})"
                 else:
-                    return False, f"No interjection (YES: {yes_count}, NO: {no_count})"
+                    logger.warning(
+                        f"No valid score found in proactive interject response: {response}"
+                    )
+                    return False, f"No score found in response: {response}"
             else:
                 return False, "No response from model"
         except Exception as e:
@@ -404,7 +405,7 @@ class IRSSILLMAgent:
         # Add extra prompt for proactive interjections to allow null response
         extra_prompt = ""
         if is_proactive:
-            extra_prompt = " NOTE: This is a proactive interjection. If upon reflection you decide your contribution wouldn't add significant value or would interrupt the conversation flow, respond with exactly 'NULL' instead of a message."
+            extra_prompt = " " + self.config["prompts"]["proactive_serious_extra"]
 
         # Use default model for proactive interjections to avoid expensive opus model
         model_override = self.config["anthropic"]["model"] if is_proactive else None

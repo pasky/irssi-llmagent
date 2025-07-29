@@ -68,7 +68,7 @@ class ClaudeAgent:
             # Don't pass tools on final iteration
             extra_prompt = (
                 " THIS WAS YOUR LAST TOOL TURN, YOU MUST NOT USE ANY FURTHER TOOLS"
-                if iteration == self.max_iterations - 1
+                if iteration >= self.max_iterations - 2
                 else ""
             )
 
@@ -132,7 +132,7 @@ class ClaudeAgent:
                 logger.error(f"Agent iteration {iteration + 1} failed: {e}")
                 break
 
-        return "Sorry, I couldn't complete your request."
+        raise StopIteration("Agent took too many turns to research")
 
     def _process_claude_response(self, response: dict | str | None) -> dict[str, Any]:
         """Unified processing of Claude responses, returning structured result."""

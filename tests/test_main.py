@@ -143,7 +143,7 @@ class TestIRSSILLMAgent:
             )
 
             # Should create and use agent
-            mock_agent_class.assert_called_once_with(agent.config, "mybot", "")
+            mock_agent_class.assert_called_once_with(agent.config, "mybot", "", model_override=None)
             # Should call run_agent with context only
             mock_agent.run_agent.assert_called_once()
             call_args = mock_agent.run_agent.call_args
@@ -232,9 +232,9 @@ class TestIRSSILLMAgent:
 
         with patch("irssi_llmagent.main.AnthropicClient") as mock_claude_class:
             mock_claude = AsyncMock()
-            # Mock proactive decision (YES), mode classification (SERIOUS), and test response
+            # Mock proactive decision (score 9), mode classification (SERIOUS), and test response
             mock_claude.call_claude = AsyncMock(
-                side_effect=["Should help with this: YES", "SERIOUS", "Test response"]
+                side_effect=["Should help with this: 9/10", "SERIOUS", "Test response"]
             )
             mock_claude_class.return_value.__aenter__.return_value = mock_claude
 
@@ -266,8 +266,42 @@ class TestIRSSILLMAgent:
                 mock_agent_class.assert_called_once_with(
                     agent.config,
                     "mybot",
-                    " NOTE: This is a proactive interjection. If upon reflection you decide your contribution wouldn't add significant value or would interrupt the conversation flow, respond with exactly 'NULL' instead of a message.",
+                    " NOTE: This is a proactive interjection. If upon reflection you decide your contribution wouldn't add significant factual value (e.g. just an encouragement or general statement), respond with exactly 'NULL' instead of a message.",
+                    model_override="claude-3-haiku-20240307",
                 )
+
+    @pytest.mark.asyncio
+    async def test_proactive_interjection_configurable_threshold(self, temp_config_file):
+        """Test proactive interjection with configurable threshold."""
+        agent = IRSSILLMAgent(temp_config_file)
+
+        # Test with threshold 8 - score 8 should trigger
+        agent.config["behavior"]["proactive_interject_threshold"] = 8
+
+        with patch("irssi_llmagent.main.AnthropicClient") as mock_claude_class:
+            mock_claude = AsyncMock()
+            mock_claude.call_claude = AsyncMock(return_value="Testing threshold: 8/10")
+            mock_claude_class.return_value.__aenter__.return_value = mock_claude
+
+            context = [{"role": "user", "content": "Test message"}]
+            should_interject, reason = await agent.should_interject_proactively(context)
+
+            assert should_interject is True
+            assert "Score: 8" in reason
+
+        # Test with threshold 9 - score 8 should NOT trigger
+        agent.config["behavior"]["proactive_interject_threshold"] = 9
+
+        with patch("irssi_llmagent.main.AnthropicClient") as mock_claude_class:
+            mock_claude = AsyncMock()
+            mock_claude.call_claude = AsyncMock(return_value="Testing threshold: 8/10")
+            mock_claude_class.return_value.__aenter__.return_value = mock_claude
+
+            context = [{"role": "user", "content": "Test message"}]
+            should_interject, reason = await agent.should_interject_proactively(context)
+
+            assert should_interject is False
+            assert "Score: 8" in reason
 
 
 class TestCLIMode:
