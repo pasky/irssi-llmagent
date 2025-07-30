@@ -96,7 +96,7 @@ class AnthropicClient:
         """Extract cleaned text from raw Claude response."""
 
         if "error" in response:
-            return response["error"]
+            return ""  # response["error"]
 
         # Check for refusal
         if response.get("stop_reason") == "refusal":
