@@ -216,3 +216,67 @@ class TestProactiveDebouncer:
         assert len(callback_tracker.calls) == 1
         assert callback_tracker.calls[0]["message"] == "message4"
         assert callback_tracker.calls[0]["nick"] == "user4"
+
+    @pytest.mark.asyncio
+    async def test_cancel_channel_specific(self, debouncer, callback_tracker):
+        """Test cancelling a specific channel's debounced check."""
+        # Schedule checks for multiple channels
+        await debouncer.schedule_check(
+            "freenode", "#test1", "alice", "message1", "bot", callback_tracker
+        )
+        await debouncer.schedule_check(
+            "freenode", "#test2", "bob", "message2", "bot", callback_tracker
+        )
+
+        # Both should be pending
+        assert debouncer.is_pending("#test1")
+        assert debouncer.is_pending("#test2")
+        assert len(debouncer.get_pending_channels()) == 2
+
+        # Cancel only one channel
+        await debouncer.cancel_channel("#test1")
+
+        # Only test1 should be cancelled
+        assert not debouncer.is_pending("#test1")
+        assert debouncer.is_pending("#test2")
+        assert len(debouncer.get_pending_channels()) == 1
+
+        # Wait for remaining debounce
+        await asyncio.sleep(0.15)
+
+        # Only message2 should have been processed
+        assert len(callback_tracker.calls) == 1
+        assert callback_tracker.calls[0]["message"] == "message2"
+        assert callback_tracker.calls[0]["chan_name"] == "#test2"
+
+    @pytest.mark.asyncio
+    async def test_cancel_channel_no_pending(self, debouncer):
+        """Test cancelling a channel with no pending check."""
+        # Should not raise exception
+        await debouncer.cancel_channel("#nonexistent")
+        assert not debouncer.is_pending("#nonexistent")
+
+    @pytest.mark.asyncio
+    async def test_cancel_channel_during_debounce(self, debouncer, callback_tracker):
+        """Test cancelling a channel while its debounce is in progress."""
+        # Schedule a check
+        await debouncer.schedule_check(
+            "freenode", "#test", "alice", "message", "bot", callback_tracker
+        )
+
+        assert debouncer.is_pending("#test")
+
+        # Wait partway through debounce
+        await asyncio.sleep(0.05)
+
+        # Cancel the channel
+        await debouncer.cancel_channel("#test")
+
+        # Should be cancelled immediately
+        assert not debouncer.is_pending("#test")
+
+        # Wait for original debounce time to complete
+        await asyncio.sleep(0.1)
+
+        # No callback should have been invoked
+        assert len(callback_tracker.calls) == 0

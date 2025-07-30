@@ -1,6 +1,7 @@
 """Debounce proactive interjections per channel."""
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -144,3 +145,25 @@ class ProactiveDebouncer:
     def is_pending(self, chan_name: str) -> bool:
         """Check if a channel has a pending debounced check."""
         return chan_name in self._pending_messages
+
+    async def cancel_channel(self, chan_name: str) -> None:
+        """Cancel pending debounced check for a specific channel.
+
+        Args:
+            chan_name: Channel name to cancel check for
+        """
+        channel_lock = self._get_channel_lock(chan_name)
+
+        async with channel_lock:
+            if chan_name in self._pending_timers:
+                self._pending_timers[chan_name].cancel()
+                logger.debug(f"Cancelled debounced check for {chan_name} due to command processing")
+
+                # Wait for the task to complete cancellation
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._pending_timers[chan_name]
+
+                # Cleanup
+                del self._pending_timers[chan_name]
+                if chan_name in self._pending_messages:
+                    del self._pending_messages[chan_name]

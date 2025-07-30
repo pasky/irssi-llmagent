@@ -326,6 +326,9 @@ class IRSSILLMAgent:
         cleaned_msg = match.group(1)
         logger.info(f"Received command from {nick} on {server}/{chan_name}: {cleaned_msg}")
 
+        # Cancel any pending proactive interjection for this channel since we're processing a command
+        await self.proactive_debouncer.cancel_channel(chan_name)
+
         # Check rate limiting
         if not self.rate_limiter.check_limit():
             logger.warning(f"Rate limiting triggered for {nick}")

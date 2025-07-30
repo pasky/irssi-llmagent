@@ -122,6 +122,51 @@ class TestIRSSILLMAgent:
         assert "rate limiting" in call_args[1].lower()
 
     @pytest.mark.asyncio
+    async def test_command_cancels_proactive_interjection(self, temp_config_file):
+        """Test that command processing cancels pending proactive interjection for the same channel."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.varlink_sender = AsyncMock()
+        agent.history = AsyncMock()
+        agent.history.add_message = AsyncMock()
+        agent.proactive_debouncer = AsyncMock(spec=ProactiveDebouncer)
+        agent.rate_limiter.check_limit = lambda: True
+        agent.server_nicks["test"] = "mybot"
+
+        # Configure for proactive interjecting
+        agent.config["behavior"]["proactive_interjecting"] = ["#test"]
+
+        # First, send a non-command message to trigger proactive interjection scheduling
+        non_command_event = {
+            "type": "message",
+            "subtype": "public",
+            "server": "test",
+            "target": "#test",
+            "nick": "alice",
+            "message": "some random message",
+        }
+        await agent.process_message_event(non_command_event)
+
+        # Verify proactive interjection was scheduled
+        agent.proactive_debouncer.schedule_check.assert_called_once()
+
+        # Now send a command message to the same channel
+        command_event = {
+            "type": "message",
+            "subtype": "public",
+            "server": "test",
+            "target": "#test",
+            "nick": "bob",
+            "message": "mybot: !h",
+        }
+
+        # Mock handle_command to prevent actual command processing
+        with patch.object(agent, "handle_command", new_callable=AsyncMock):
+            await agent.process_message_event(command_event)
+
+        # Verify that proactive interjection was cancelled for the channel
+        agent.proactive_debouncer.cancel_channel.assert_called_once_with("#test")
+
+    @pytest.mark.asyncio
     async def test_serious_agent_mode(self, temp_config_file):
         """Test serious mode now uses agent."""
         agent = IRSSILLMAgent(temp_config_file)
