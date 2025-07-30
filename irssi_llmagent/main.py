@@ -436,6 +436,11 @@ class IRSSILLMAgent:
             else:
                 await self._handle_sarcastic_mode(server, chan_name, target, nick, message, mynick)
 
+        # Cancel any pending proactive interjection for this channel AGAIN, as
+        # we might have queued up another one if we received a message while
+        # the last command was being processed.
+        await self.proactive_debouncer.cancel_channel(chan_name)
+
     async def _handle_serious_mode(
         self,
         server: str,
