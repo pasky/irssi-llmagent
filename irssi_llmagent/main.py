@@ -179,44 +179,42 @@ class IRSSILLMAgent:
                 async with AnthropicClient(self.config) as anthropic:
                     response = await anthropic.call_claude(context, prompt, model)
 
-                if response and not response.startswith("API error:"):
-                    response = response.strip()
-                    all_responses.append(f"Model {i+1} ({model}): {response}")
-
-                    # Extract the score from the response
-                    score_match = re.search(r"(\d+)/10", response)
-
-                    if score_match:
-                        score = int(score_match.group(1))
-                        final_score = score
-
-                        logger.debug(
-                            f"Proactive validation step {i+1}/{len(validation_models)} - Model: {model}, Score: {score}"
-                        )
-
-                        # If any model gives a low score, short-circuit and don't interject
-                        threshold = self.config["behavior"].get("proactive_interject_threshold", 9)
-                        if score < threshold - 1:  # Changed from threshold - 2 to threshold - 1
-                            if i > 0:
-                                logger.info(
-                                    f"Proactive interjection rejected at step {i+1}/{len(validation_models)} (Score: {score})"
-                                )
-                            else:
-                                logger.debug(
-                                    f"Proactive interjection rejected at step {i+1}/{len(validation_models)} ({current_message[:150]}... Score: {score})"
-                                )
-                            return (
-                                False,
-                                f"Rejected at validation step {i+1} (Score: {score})",
-                                False,
-                            )
-                    else:
-                        logger.warning(
-                            f"No valid score found in proactive interject response from model {i+1}: {response}"
-                        )
-                        return False, f"No score found in validation step {i+1}", False
-                else:
+                if not response or response.startswith("API error:"):
                     return False, f"No response from validation model {i+1}", False
+
+                response = response.strip()
+                all_responses.append(f"Model {i+1} ({model}): {response}")
+
+                # Extract the score from the response
+                score_match = re.search(r"(\d+)/10", response)
+                if not score_match:
+                    logger.warning(
+                        f"No valid score found in proactive interject response from model {i+1}: {response}"
+                    )
+                    return False, f"No score found in validation step {i+1}", False
+
+                score = int(score_match.group(1))
+                final_score = score
+
+                logger.debug(
+                    f"Proactive validation step {i+1}/{len(validation_models)} - Model: {model}, Score: {score}"
+                )
+
+                threshold = self.config["behavior"].get("proactive_interject_threshold", 9)
+                if score < threshold - 1:
+                    if i > 0:
+                        logger.info(
+                            f"Proactive interjection rejected at step {i+1}/{len(validation_models)} ({current_message[:150]}... Score: {score})"
+                        )
+                    else:
+                        logger.debug(
+                            f"Proactive interjection rejected at step {i+1}/{len(validation_models)} (Score: {score})"
+                        )
+                    return (
+                        False,
+                        f"Rejected at validation step {i+1} (Score: {score})",
+                        False,
+                    )
 
             if final_score is not None:
                 threshold = self.config["behavior"].get("proactive_interject_threshold", 9)
