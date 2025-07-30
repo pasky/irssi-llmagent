@@ -142,18 +142,20 @@ class IRSSILLMAgent:
             logger.error(f"Error classifying mode: {e}")
             return "SARCASTIC"  # Default to sarcastic on error
 
-    async def should_interject_proactively(self, context: list[dict[str, str]]) -> tuple[bool, str]:
-        """Use preprocessing model to decide if bot should interject in conversation proactively.
+    async def should_interject_proactively(
+        self, context: list[dict[str, str]]
+    ) -> tuple[bool, str, bool]:
+        """Use preprocessing models to decide if bot should interject in conversation proactively.
 
         Args:
             context: Conversation context including the current message as the last entry
 
         Returns:
-            (should_interject, reason): Tuple of decision and reasoning
+            (should_interject, reason, is_test_mode): Tuple of decision, reasoning, and test mode flag
         """
         try:
             if not context:
-                return False, "No context provided"
+                return False, "No context provided", False
 
             # Extract the current message from context (should be the last message)
             current_message = context[-1]["content"]
@@ -165,43 +167,78 @@ class IRSSILLMAgent:
 
             # Use full context for better decision making, but specify the current message in prompt
             prompt = self.config["prompts"]["proactive_interject"].format(message=current_message)
-            model = self.config["anthropic"]["proactive_model"]
 
-            async with AnthropicClient(self.config) as anthropic:
-                response = await anthropic.call_claude(context, prompt, model)
+            # Get validation models list
+            validation_models = self.config["anthropic"]["proactive_validation_models"]
 
-            if response and not response.startswith("API error:"):
-                response = response.strip()
+            final_score = None
+            all_responses = []
 
-                # Extract the score from the response
-                score_match = re.search(r"(\d+)/10", response)
+            # Run iterative validation through all models
+            for i, model in enumerate(validation_models):
+                async with AnthropicClient(self.config) as anthropic:
+                    response = await anthropic.call_claude(context, prompt, model)
 
-                if score_match:
-                    score = int(score_match.group(1))
-                    threshold = self.config["behavior"].get("proactive_interject_threshold", 9)
+                if response and not response.startswith("API error:"):
+                    response = response.strip()
+                    all_responses.append(f"Model {i+1} ({model}): {response}")
 
-                    # Only interject for scores at or above threshold
-                    if score >= threshold:
+                    # Extract the score from the response
+                    score_match = re.search(r"(\d+)/10", response)
+
+                    if score_match:
+                        score = int(score_match.group(1))
+                        final_score = score
+
                         logger.debug(
-                            f"Proactive interjection triggered for message: {current_message[:150]}... (Score: {score})"
+                            f"Proactive validation step {i+1}/{len(validation_models)} - Model: {model}, Score: {score}"
                         )
-                        return True, f"Interjection decision (Score: {score})"
-                    else:
-                        if score >= threshold - 2:
-                            logger.info(
-                                f"Proactive interjection BARELY triggered for message: {current_message[:150]}... (Score: {score})"
+
+                        # If any model gives a low score, short-circuit and don't interject
+                        threshold = self.config["behavior"].get("proactive_interject_threshold", 9)
+                        if score < threshold - 1:  # Changed from threshold - 2 to threshold - 1
+                            if i > 0:
+                                logger.info(
+                                    f"Proactive interjection rejected at step {i+1}/{len(validation_models)} (Score: {score})"
+                                )
+                            else:
+                                logger.debug(
+                                    f"Proactive interjection rejected at step {i+1}/{len(validation_models)} ({current_message[:150]}... Score: {score})"
+                                )
+                            return (
+                                False,
+                                f"Rejected at validation step {i+1} (Score: {score})",
+                                False,
                             )
-                        return False, f"No interjection (Score: {score})"
+                    else:
+                        logger.warning(
+                            f"No valid score found in proactive interject response from model {i+1}: {response}"
+                        )
+                        return False, f"No score found in validation step {i+1}", False
                 else:
-                    logger.warning(
-                        f"No valid score found in proactive interject response: {response}"
+                    return False, f"No response from validation model {i+1}", False
+
+            if final_score is not None:
+                threshold = self.config["behavior"].get("proactive_interject_threshold", 9)
+
+                if final_score >= threshold:
+                    logger.debug(
+                        f"Proactive interjection triggered for message: {current_message[:150]}... (Final Score: {final_score})"
                     )
-                    return False, f"No score found in response: {response}"
+                    return True, f"Interjection decision (Final Score: {final_score})", False
+                elif final_score >= threshold - 1:
+                    logger.debug(
+                        f"Proactive interjection BARELY triggered for message: {current_message[:150]}... (Final Score: {final_score}) - SWITCHING TO TEST MODE"
+                    )
+                    return True, f"Barely triggered - test mode (Final Score: {final_score})", True
+                else:
+                    return False, f"No interjection (Final Score: {final_score})", False
             else:
-                return False, "No response from model"
+                return False, "No valid final score", False
+
         except Exception as e:
             logger.error(f"Error checking proactive interject: {e}")
-            return False, f"Error: {str(e)}"
+            return False, f"Error: {str(e)}", False
 
     async def _handle_debounced_proactive_check(
         self, server: str, chan_name: str, nick: str, message: str, mynick: str
@@ -217,24 +254,30 @@ class IRSSILLMAgent:
 
             # Get fresh context at check time
             context = await self.history.get_context(server, chan_name)
-            should_interject, reason = await self.should_interject_proactively(context)
+            should_interject, reason, forced_test_mode = await self.should_interject_proactively(
+                context
+            )
 
             if should_interject:
                 # Classify the mode for proactive response (should be serious mode only)
                 classified_mode = await self.classify_mode(context)
                 if classified_mode == "SERIOUS":
-                    # Check if this is a test channel
+                    # Check if this is a test channel or forced test mode due to low score
                     test_channels = self.config.get("behavior", {}).get(
                         "proactive_interjecting_test", []
                     )
                     is_test_channel = test_channels and chan_name in test_channels
 
+                    # Combine test channel check with forced test mode
+                    should_use_test_mode = is_test_channel or forced_test_mode
+
                     target = chan_name  # For proactive interjections, target is the channel
 
-                    if is_test_channel:
+                    if should_use_test_mode:
                         # Test mode: use the same method as live mode but don't send messages
+                        test_reason = "[BARELY TRIGGERED]" if forced_test_mode else "[TEST CHANNEL]"
                         logger.info(
-                            f"[TEST MODE] Would interject proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
+                            f"[TEST MODE] {test_reason} Would interject proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
                         )
                         await self._handle_serious_mode(
                             server,

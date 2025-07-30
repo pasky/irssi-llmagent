@@ -329,10 +329,11 @@ class TestIRSSILLMAgent:
             mock_claude_class.return_value.__aenter__.return_value = mock_claude
 
             context = [{"role": "user", "content": "Test message"}]
-            should_interject, reason = await agent.should_interject_proactively(context)
+            should_interject, reason, test_mode = await agent.should_interject_proactively(context)
 
             assert should_interject is True
             assert "Score: 8" in reason
+            assert test_mode is False
 
         # Test with threshold 9 - score 8 should NOT trigger
         agent.config["behavior"]["proactive_interject_threshold"] = 9
@@ -343,10 +344,24 @@ class TestIRSSILLMAgent:
             mock_claude_class.return_value.__aenter__.return_value = mock_claude
 
             context = [{"role": "user", "content": "Test message"}]
-            should_interject, reason = await agent.should_interject_proactively(context)
+            should_interject, reason, test_mode = await agent.should_interject_proactively(context)
 
-            assert should_interject is False
+            assert should_interject is True  # Now should trigger test mode
             assert "Score: 8" in reason
+            assert test_mode is True  # Should be in test mode due to barely threshold
+
+        # Test with threshold 9 - score 7 should NOT trigger at all
+        with patch("irssi_llmagent.main.AnthropicClient") as mock_claude_class:
+            mock_claude = AsyncMock()
+            mock_claude.call_claude = AsyncMock(return_value="Testing threshold: 7/10")
+            mock_claude_class.return_value.__aenter__.return_value = mock_claude
+
+            context = [{"role": "user", "content": "Test message"}]
+            should_interject, reason, test_mode = await agent.should_interject_proactively(context)
+
+            assert should_interject is False  # Should not trigger at all
+            assert "Score: 7" in reason
+            assert test_mode is False
 
 
 class TestCLIMode:

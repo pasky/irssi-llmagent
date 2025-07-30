@@ -19,7 +19,7 @@ def test_config() -> dict[str, Any]:
             "model": "claude-3-haiku-20240307",
             "serious_model": "claude-3-sonnet-20240229",
             "classifier_model": "claude-3-5-haiku-20241022",
-            "proactive_model": "claude-3-haiku-20240307",
+            "proactive_validation_models": ["claude-3-haiku-20240307"],
         },
         "perplexity": {
             "url": "https://api.perplexity.ai/chat/completions",
