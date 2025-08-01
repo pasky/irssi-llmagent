@@ -611,15 +611,22 @@ async def cli_mode(message: str, config_path: str | None = None) -> None:
             async def send_message(self, target: str, message: str, server: str):
                 print(f"📤 Bot response: {message}")
 
+        # Use real history for better testing
+        from irssi_llmagent.history import ChatHistory
+
+        history = ChatHistory("chat_history.db", inference_limit=20)
+
+        # Add the current message to history
+        await history.add_message("testserver", "#testchannel", message, "testuser", "testbot")
+
         class MockHistory:
             async def add_message(
                 self, server: str, channel: str, content: str, nick: str, mynick: str, is_bot: bool
             ):
-                pass
+                await history.add_message(server, channel, content, nick, mynick, is_bot)
 
             async def get_context(self, server: str, channel: str):
-                # Include the current message in context for CLI mode
-                return [{"role": "user", "content": message}]
+                return await history.get_context(server, channel)
 
         agent.varlink_sender = MockSender()  # type: ignore
         agent.history = MockHistory()  # type: ignore

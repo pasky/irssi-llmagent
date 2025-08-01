@@ -44,20 +44,8 @@ class AnthropicClient:
         if not self.session:
             raise RuntimeError("AnthropicClient not initialized as async context manager")
 
-        # Coalesce consecutive user messages (only for simple string content)
-        messages = []
-        for msg in context:
-            if msg["role"] == "user" and isinstance(msg["content"], str):
-                if (
-                    messages
-                    and messages[-1]["role"] == "user"
-                    and isinstance(messages[-1]["content"], str)
-                ):
-                    messages[-1]["content"] += "\n" + msg["content"]
-                else:
-                    messages.append(msg)
-            else:
-                messages.append(msg)
+        # Keep separate user turns - Claude API handles consecutive user messages fine
+        messages = context.copy()
 
         # Ensure first message is from user (only for simple text messages)
         if messages and messages[0]["role"] != "user":
