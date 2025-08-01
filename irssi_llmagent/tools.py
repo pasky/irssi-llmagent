@@ -4,7 +4,7 @@ import asyncio
 import logging
 import re
 import time
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import aiohttp
 from ddgs import DDGS
@@ -46,6 +46,20 @@ TOOLS: list[Tool] = [
                 }
             },
             "required": ["url"],
+        },
+    },
+    {
+        "name": "execute_python",
+        "description": "Execute Python code in a sandbox environment and return the output.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "The Python code to execute in the sandbox.",
+                }
+            },
+            "required": ["code"],
         },
     },
 ]
@@ -90,6 +104,8 @@ class WebSearchExecutor:
                 None, lambda: list(ddgs.text(query, max_results=self.max_results))
             )
 
+        logger.info(f"Searching '{query}': {len(results)} results")
+
         if not results:
             return "No search results found. Try a different query."
 
@@ -114,6 +130,8 @@ class WebpageVisitorExecutor:
     async def execute(self, url: str) -> str:
         """Visit webpage and return content as markdown."""
         from markdownify import markdownify
+
+        logger.info(f"Visiting {url}")
 
         # Basic URL validation
         if not url.startswith(("http://", "https://")):
@@ -141,21 +159,121 @@ class WebpageVisitorExecutor:
                 : self.max_content_length - 100
             ]  # Leave room for message
             markdown_content = truncated_content + "\n\n..._Content truncated_..."
+            logger.warning(
+                f"{url} truncated from {len(markdown_content)} to {len(truncated_content)}"
+            )
 
         return f"## Content from {url}\n\n{markdown_content}"
 
 
-# Tool executor registry
-TOOL_EXECUTORS = {
-    "web_search": WebSearchExecutor(),
-    "visit_webpage": WebpageVisitorExecutor(),
-}
+class PythonExecutorE2B:
+    """Python code executor using E2B sandbox."""
+
+    def __init__(self, api_key: str | None = None, timeout: int = 30):
+        self.api_key = api_key
+        self.timeout = timeout
+
+    async def execute(self, code: str) -> str:
+        """Execute Python code in E2B sandbox and return output."""
+        try:
+            from e2b_code_interpreter import Sandbox
+        except ImportError:
+            return "Error: e2b-code-interpreter package not installed. Install with: pip install e2b-code-interpreter"
+
+        try:
+            # Use run_in_executor for synchronous E2B sandbox
+            import asyncio
+
+            loop = asyncio.get_event_loop()
+
+            def run_sandbox_code():
+                # Use API key from config if available, otherwise fallback to environment variable
+                sandbox_args = {}
+                if self.api_key:
+                    sandbox_args["api_key"] = self.api_key
+                with Sandbox(**sandbox_args) as sandbox:
+                    result = sandbox.run_code(code)
+                    return result
+
+            result = await loop.run_in_executor(None, run_sandbox_code)
+            logger.debug(result)
+
+            # Collect output
+            output_parts = []
+
+            # Check logs for stdout/stderr (E2B stores them in logs.stdout/stderr as lists)
+            logs = getattr(result, "logs", None)
+            if logs:
+                stdout_list = getattr(logs, "stdout", None)
+                if stdout_list:
+                    stdout_text = "".join(stdout_list).strip()
+                    if stdout_text:
+                        output_parts.append(f"**Output:**\n```\n{stdout_text}\n```")
+
+                stderr_list = getattr(logs, "stderr", None)
+                if stderr_list:
+                    stderr_text = "".join(stderr_list).strip()
+                    if stderr_text:
+                        output_parts.append(f"**Errors:**\n```\n{stderr_text}\n```")
+
+            # Check for text result (final evaluation result) - only if no stdout to avoid duplicates
+            text = getattr(result, "text", None)
+            if text and text.strip() and not (logs and getattr(logs, "stdout", None)):
+                output_parts.append(f"**Result:**\n```\n{text.strip()}\n```")
+
+            # Check for rich results (plots, images, etc.)
+            results_list = getattr(result, "results", None)
+            if results_list:
+                for res in results_list:
+                    result_text = getattr(res, "text", None)
+                    if result_text and result_text.strip():
+                        output_parts.append(f"**Result:**\n```\n{result_text.strip()}\n```")
+                    # Check for images/plots
+                    if hasattr(res, "png") and getattr(res, "png", None):
+                        output_parts.append("**Result:** Generated plot/image (PNG data available)")
+                    if hasattr(res, "jpeg") and getattr(res, "jpeg", None):
+                        output_parts.append(
+                            "**Result:** Generated plot/image (JPEG data available)"
+                        )
+
+            if not output_parts:
+                output_parts.append("Code executed successfully with no output.")
+
+            logger.info(
+                f"Executed Python code in E2B sandbox: {code[:512]}... -> {output_parts[:512]}"
+            )
+
+            return "\n\n".join(output_parts)
+
+        except Exception as e:
+            logger.error(f"E2B sandbox execution failed: {e}")
+            return f"Error executing code: {e}"
 
 
-async def execute_tool(tool_name: str, **kwargs) -> str:
+def create_tool_executors(config: dict | None = None) -> dict[str, Any]:
+    """Create tool executors with configuration."""
+    e2b_config = config.get("e2b", {}) if config else {}
+    e2b_api_key = e2b_config.get("api_key")
+
+    return {
+        "web_search": WebSearchExecutor(),
+        "visit_webpage": WebpageVisitorExecutor(),
+        "execute_python": PythonExecutorE2B(api_key=e2b_api_key),
+    }
+
+
+# Default tool executor registry (for backwards compatibility)
+TOOL_EXECUTORS = create_tool_executors()
+
+
+async def execute_tool(
+    tool_name: str, tool_executors: dict[str, Any] | None = None, **kwargs
+) -> str:
     """Execute a tool by name with given arguments."""
-    if tool_name not in TOOL_EXECUTORS:
+    executors = tool_executors or TOOL_EXECUTORS
+
+    if tool_name not in executors:
         raise ValueError(f"Unknown tool '{tool_name}'")
 
-    executor = TOOL_EXECUTORS[tool_name]
+    executor = executors[tool_name]
     return await executor.execute(**kwargs)

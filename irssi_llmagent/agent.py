@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from .claude import AnthropicClient
-from .tools import TOOLS, execute_tool
+from .tools import TOOLS, create_tool_executors, execute_tool
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ class ClaudeAgent:
         self.extra_prompt = extra_prompt
         self.model_override = model_override
         self.system_prompt = self._get_system_prompt()
+        self.tool_executors = create_tool_executors(config)
 
     def _get_system_prompt(self) -> str:
         """Get the system prompt for the agent based on serious mode prompt."""
@@ -107,10 +108,13 @@ class ClaudeAgent:
                     tool_results = []
                     for tool in result["tools"]:
                         try:
-                            tool_result = await execute_tool(tool["name"], **tool["input"])
+                            tool_result = await execute_tool(
+                                tool["name"], self.tool_executors, **tool["input"]
+                            )
+                            logger.debug(f"Tool {tool['name']} executed: {tool_result[:100]}...")
                         except Exception as e:
                             tool_result = str(e)
-                        logger.debug(f"Tool {tool['name']} executed: {tool_result[:100]}...")
+                            logger.warning(f"Tool {tool['name']} failed: {e}")
                         tool_results.append(
                             {
                                 "type": "tool_result",

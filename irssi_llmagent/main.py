@@ -37,8 +37,14 @@ file_handler.setFormatter(formatter)
 root_logger.addHandler(console_handler)
 root_logger.addHandler(file_handler)
 
-# Suppress aiosqlite DEBUG messages
+# Suppress noisy third-party library messages
 logging.getLogger("aiosqlite").setLevel(logging.INFO)
+logging.getLogger("e2b.api").setLevel(logging.WARNING)
+logging.getLogger("e2b.sandbox_sync").setLevel(logging.WARNING)
+logging.getLogger("e2b.sandbox_sync.main").setLevel(logging.WARNING)
+logging.getLogger("e2b_code_interpreter.code_interpreter_sync").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 

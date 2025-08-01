@@ -13,6 +13,9 @@
     "key": "your-perplexity-api-key-here",
     "model": "sonar-pro"
   },
+  "e2b": {
+    "api_key": "your-e2b-api-key-here"
+  },
   "varlink": {
     "socket_path": "~/.irssi/varlink.sock"
   },

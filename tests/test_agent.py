@@ -303,10 +303,11 @@ class TestClaudeAgent:
 
                     # Verify correct tool calls
                     call_args_list = mock_tool.call_args_list
-                    assert call_args_list[0][0] == ("web_search",)
-                    assert call_args_list[0][1] == {"query": "test"}
-                    assert call_args_list[1][0] == ("visit_webpage",)
-                    assert call_args_list[1][1] == {"url": "https://example.com"}
+                    # Now expects (tool_name, tool_executors, **kwargs)
+                    assert call_args_list[0][0][0] == "web_search"  # first positional arg
+                    assert call_args_list[0][1] == {"query": "test"}  # kwargs
+                    assert call_args_list[1][0][0] == "visit_webpage"  # first positional arg
+                    assert call_args_list[1][1] == {"url": "https://example.com"}  # kwargs
 
                     assert "Here's what I found" in result
 

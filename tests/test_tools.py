@@ -4,7 +4,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from irssi_llmagent.tools import TOOLS, WebpageVisitorExecutor, WebSearchExecutor, execute_tool
+from irssi_llmagent.tools import (
+    TOOLS,
+    PythonExecutorE2B,
+    WebpageVisitorExecutor,
+    WebSearchExecutor,
+    create_tool_executors,
+    execute_tool,
+)
 
 
 class TestToolExecutors:
@@ -64,6 +71,47 @@ class TestToolExecutors:
         with pytest.raises(ValueError, match="Invalid URL"):
             await executor.execute("not-a-url")
 
+    @pytest.mark.asyncio
+    async def test_python_executor_e2b_success(self):
+        """Test Python executor with successful execution."""
+        executor = PythonExecutorE2B()
+
+        mock_execution = MagicMock()
+        mock_execution.text = None
+        mock_logs = MagicMock()
+        mock_logs.stdout = ["Hello, World!\n"]
+        mock_logs.stderr = []
+        mock_execution.logs = mock_logs
+        mock_execution.results = None
+
+        mock_sandbox = MagicMock()
+        mock_sandbox.run_code.return_value = mock_execution
+        mock_sandbox.__enter__ = MagicMock(return_value=mock_sandbox)
+        mock_sandbox.__exit__ = MagicMock(return_value=None)
+
+        with patch("e2b_code_interpreter.Sandbox", return_value=mock_sandbox):
+            with patch("asyncio.get_event_loop") as mock_loop:
+                mock_executor = AsyncMock()
+                mock_executor.return_value = mock_execution
+                mock_loop.return_value.run_in_executor = mock_executor
+
+                result = await executor.execute("print('Hello, World!')")
+
+                assert "**Output:**" in result
+                assert "Hello, World!" in result
+
+    @pytest.mark.asyncio
+    async def test_python_executor_e2b_import_error(self):
+        """Test Python executor when e2b package is not available."""
+        executor = PythonExecutorE2B()
+
+        with patch(
+            "builtins.__import__", side_effect=ImportError("No module named 'e2b_code_interpreter'")
+        ):
+            result = await executor.execute("print('test')")
+
+            assert "e2b-code-interpreter package not installed" in result
+
 
 class TestToolRegistry:
     """Test tool registry and execution."""
@@ -93,6 +141,17 @@ class TestToolRegistry:
             mock_execute.assert_called_once_with(url="https://example.com")
 
     @pytest.mark.asyncio
+    async def test_execute_tool_python_executor(self):
+        """Test executing Python code tool."""
+        with patch.object(PythonExecutorE2B, "execute", new_callable=AsyncMock) as mock_execute:
+            mock_execute.return_value = "Code output"
+
+            result = await execute_tool("execute_python", code="print('test')")
+
+            assert result == "Code output"
+            mock_execute.assert_called_once_with(code="print('test')")
+
+    @pytest.mark.asyncio
     async def test_execute_unknown_tool(self):
         """Test executing unknown tool."""
         with pytest.raises(ValueError, match="Unknown tool"):
@@ -105,7 +164,7 @@ class TestToolDefinitions:
     def test_tools_structure(self):
         """Test that tools have correct structure."""
         assert isinstance(TOOLS, list)
-        assert len(TOOLS) == 2
+        assert len(TOOLS) == 3
 
         # Check web_search tool
         web_search = next(tool for tool in TOOLS if tool["name"] == "web_search")
@@ -118,3 +177,29 @@ class TestToolDefinitions:
         assert "description" in visit_webpage
         assert "input_schema" in visit_webpage
         assert visit_webpage["input_schema"]["required"] == ["url"]
+
+        # Check execute_python tool
+        execute_python = next(tool for tool in TOOLS if tool["name"] == "execute_python")
+        assert "description" in execute_python
+        assert "input_schema" in execute_python
+        assert execute_python["input_schema"]["required"] == ["code"]
+
+    def test_create_tool_executors_with_config(self):
+        """Test that tool executors are created with configuration."""
+        config = {"e2b": {"api_key": "test-key-123"}}
+
+        executors = create_tool_executors(config)
+
+        assert "execute_python" in executors
+        python_executor = executors["execute_python"]
+        assert isinstance(python_executor, PythonExecutorE2B)
+        assert python_executor.api_key == "test-key-123"
+
+    def test_create_tool_executors_without_config(self):
+        """Test that tool executors are created without configuration."""
+        executors = create_tool_executors()
+
+        assert "execute_python" in executors
+        python_executor = executors["execute_python"]
+        assert isinstance(python_executor, PythonExecutorE2B)
+        assert python_executor.api_key is None
