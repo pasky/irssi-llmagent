@@ -67,6 +67,11 @@ class AnthropicClient:
         if not messages:
             messages.append({"role": "user", "content": "..."})
 
+        if messages[-1]["role"] == "assistant":
+            # may happen in some race conditions with proactive checks or
+            # multiple commands
+            return {"error": "(wait, I just replied)"}
+
         payload = {
             "model": model,
             "max_tokens": 1024 if tools else 256,
@@ -101,7 +106,7 @@ class AnthropicClient:
         # Check for refusal
         if response.get("stop_reason") == "refusal":
             logger.warning("Claude refusal detected")
-            return "refusal, rip"
+            return ""  # "refusal, rip"
 
         if "content" in response and response["content"]:
             # Find text content
