@@ -352,7 +352,7 @@ class IRSSILLMAgent:
         await self.history.add_message(server, chan_name, message, nick, mynick)
 
         # Check if message is addressing us directly
-        pattern = rf"^\s*{re.escape(mynick)}[,:]\s*(.*?)$"
+        pattern = rf"^\s*(<.*?>\s*)?{re.escape(mynick)}[,:]\s*(.*?)$"
         match = re.match(pattern, message, re.IGNORECASE)
 
         # If not directly addressed, check for proactive interjecting
@@ -370,7 +370,9 @@ class IRSSILLMAgent:
                 )
             return
 
-        cleaned_msg = match.group(1)
+        if match.group(1):
+            nick = match.group(1).strip("<> ")
+        cleaned_msg = match.group(2)
         logger.info(f"Received command from {nick} on {server}/{chan_name}: {cleaned_msg}")
 
         # Cancel any pending proactive interjection for this channel since we're processing a command
