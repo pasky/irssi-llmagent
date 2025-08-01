@@ -20,7 +20,7 @@
     "socket_path": "~/.irssi/varlink.sock"
   },
   "behavior": {
-    "history_size": 10,
+    "history_size": 15,
     "rate_limit": 30,
     "rate_period": 900,
     "ignore_users": [],
