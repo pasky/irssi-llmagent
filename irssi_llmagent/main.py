@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .agent import ClaudeAgent
+from .agent import AIAgent
 from .claude import AnthropicClient
 from .history import ChatHistory
 from .openai import OpenAIClient
@@ -439,12 +439,12 @@ class IRSSILLMAgent:
 
         elif message.startswith("!S "):
             message = message[3:].strip()
-            logger.debug(f"Processing explicit sarcastic Claude request from {nick}: {message}")
+            logger.debug(f"Processing explicit sarcastic request from {nick}: {message}")
             await self._handle_sarcastic_mode(server, chan_name, target, nick, message, mynick)
 
         elif message.startswith("!s "):
             message = message[3:].strip()
-            logger.debug(f"Processing explicit serious Claude request from {nick}: {message}")
+            logger.debug(f"Processing explicit serious request from {nick}: {message}")
             await self._handle_serious_mode(server, chan_name, target, nick, message, mynick)
 
         elif re.match(r"^!.", message):
@@ -488,11 +488,11 @@ class IRSSILLMAgent:
         if is_proactive:
             extra_prompt = " " + self.config["prompts"]["proactive_serious_extra"]
 
-        # Use configured API type (ClaudeAgent works for both anthropic and openai)
+        # Use configured API type (AIAgent works for both anthropic and openai)
         api_config = self._get_api_config_section()
         # Use default model for proactive interjections to avoid expensive models
         model_override = api_config["model"] if is_proactive else None
-        async with ClaudeAgent(
+        async with AIAgent(
             self.config, mynick, extra_prompt, model_override=model_override
         ) as agent:
             response = await agent.run_agent(context)
@@ -520,7 +520,7 @@ class IRSSILLMAgent:
     async def _handle_sarcastic_mode(
         self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
     ) -> None:
-        """Handle sarcastic mode using direct Claude calls."""
+        """Handle sarcastic mode using direct AI calls."""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         system_prompt = self.config["prompts"]["sarcastic"].format(
             mynick=mynick, current_time=current_time
@@ -675,9 +675,7 @@ async def cli_mode(message: str, config_path: str | None = None) -> None:
 
 def main() -> None:
     """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description="irssi-llmagent - IRC chatbot with Claude and tools"
-    )
+    parser = argparse.ArgumentParser(description="irssi-llmagent - IRC chatbot with AI and tools")
     parser.add_argument(
         "--message", type=str, help="Run in CLI mode to simulate handling an IRC message"
     )

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from irssi_llmagent.agent import ClaudeAgent
+from irssi_llmagent.agent import AIAgent
 
 
 class TestAPIAgent:
@@ -16,7 +16,7 @@ class TestAPIAgent:
         """Create agent instance for testing."""
         # Add missing prompts for agent tests
         test_config["prompts"]["serious"] = "You are IRC user {mynick}. Be helpful and informative."
-        return ClaudeAgent(test_config, "testbot")
+        return AIAgent(test_config, "testbot")
 
     def create_text_response(self, api_type: str, text: str) -> dict:
         """Create a text response in the appropriate format for the API type."""
@@ -354,7 +354,7 @@ class TestAPIAgent:
 
                 await agent.run_agent(context)
 
-                # Verify the full context was passed to Claude
+                # Verify the full context was passed to AI
                 call_args = mock_call.call_args[0]
                 messages_passed = call_args[0]
 
@@ -388,9 +388,9 @@ class TestAPIAgent:
                 assert len(messages_passed) == 1
                 assert messages_passed[0]["content"] == "Hello"
 
-    # Removed tests for _extract_text_response and _format_for_irc as they were unified with claude.py
+    # Removed tests for _extract_text_response and _format_for_irc as they were unified with client modules
 
-    def test_process_claude_response_text(self, agent, api_type):
+    def test_process_ai_response_text(self, agent, api_type):
         """Test unified response processing for text responses."""
         if api_type == "anthropic":
             response = {
@@ -404,12 +404,12 @@ class TestAPIAgent:
                 ]
             }
 
-        result = agent._process_claude_response(response)
+        result = agent._process_ai_response(response)
 
         assert result["type"] == "final_text"
         assert result["text"] == "This is a test response"
 
-    def test_process_claude_response_tool_use(self, agent, api_type):
+    def test_process_ai_response_tool_use(self, agent, api_type):
         """Test unified response processing for tool use responses."""
         if api_type == "anthropic":
             response = {
@@ -444,7 +444,7 @@ class TestAPIAgent:
                 ]
             }
 
-        result = agent._process_claude_response(response)
+        result = agent._process_ai_response(response)
 
         assert result["type"] == "tool_use"
         assert len(result["tools"]) == 1
@@ -452,19 +452,19 @@ class TestAPIAgent:
         assert result["tools"][0]["name"] == "web_search"
         assert result["tools"][0]["input"] == {"query": "test"}
 
-    def test_process_claude_response_errors(self, agent):
+    def test_process_ai_response_errors(self, agent):
         """Test unified response processing error cases."""
         # Test None response
-        result = agent._process_claude_response(None)
+        result = agent._process_ai_response(None)
         assert result["type"] == "error"
         assert "Empty response" in result["message"]
 
         # Test string response (fallback)
-        result = agent._process_claude_response("Text response")
+        result = agent._process_ai_response("Text response")
         assert result["type"] == "final_text"
         assert result["text"] == "Text response"
 
-        # Test invalid dict response (claude.py returns None, so we return error)
-        result = agent._process_claude_response({"invalid": "response"})
+        # Test invalid dict response (AI client returns None, so we return error)
+        result = agent._process_ai_response({"invalid": "response"})
         assert result["type"] == "error"
         assert "No valid text" in result["message"]

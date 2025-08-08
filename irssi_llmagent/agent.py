@@ -12,7 +12,7 @@ from .tools import TOOLS, create_tool_executors, execute_tool
 logger = logging.getLogger(__name__)
 
 
-class ClaudeAgent:
+class AIAgent:
     """API agent with web search and webpage visiting capabilities."""
 
     def __init__(
@@ -104,10 +104,10 @@ class ClaudeAgent:
                 )
 
                 # Process response using unified handler
-                result = self._process_claude_response(response)
+                result = self._process_ai_response(response)
 
                 if result["type"] == "error":
-                    logger.error(f"Invalid Claude response: {result['message']}")
+                    logger.error(f"Invalid AI response: {result['message']}")
                     break
                 elif result["type"] == "final_text":
                     return result["text"]
@@ -149,12 +149,12 @@ class ClaudeAgent:
 
         raise StopIteration("Agent took too many turns to research")
 
-    def _process_claude_response(self, response: dict | str | None) -> dict[str, Any]:
-        """Unified processing of Claude responses, returning structured result."""
+    def _process_ai_response(self, response: dict | str | None) -> dict[str, Any]:
+        """Unified processing of AI responses, returning structured result."""
         if not response:
-            return {"type": "error", "message": "Empty response from Claude"}
+            return {"type": "error", "message": "Empty response from AI"}
 
-        # Handle case where call_claude returns a string (shouldn't happen with raw_response=True)
+        # Handle case where AI client returns a string (shouldn't happen with raw_response=True)
         if isinstance(response, str):
             return {"type": "final_text", "text": response}
 

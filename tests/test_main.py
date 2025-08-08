@@ -180,7 +180,7 @@ class TestIRSSILLMAgent:
             return_value=[{"role": "user", "content": "user search for Python news"}]
         )
 
-        with patch("irssi_llmagent.main.ClaudeAgent") as mock_agent_class:
+        with patch("irssi_llmagent.main.AIAgent") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Agent response")
             mock_agent_class.return_value.__aenter__.return_value = mock_agent
@@ -253,7 +253,7 @@ class TestIRSSILLMAgent:
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_class.return_value = mock_client
 
-            with patch("irssi_llmagent.main.ClaudeAgent") as mock_agent_class:
+            with patch("irssi_llmagent.main.AIAgent") as mock_agent_class:
                 mock_agent = AsyncMock()
                 mock_agent.run_agent = AsyncMock(return_value="Agent response")
                 mock_agent_class.return_value.__aenter__.return_value = mock_agent
@@ -297,7 +297,7 @@ class TestIRSSILLMAgent:
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_class.return_value = mock_client
 
-            with patch("irssi_llmagent.main.ClaudeAgent") as mock_agent_class:
+            with patch("irssi_llmagent.main.AIAgent") as mock_agent_class:
                 mock_agent = AsyncMock()
                 mock_agent.run_agent = AsyncMock(return_value="Test response")
                 mock_agent_class.return_value.__aenter__.return_value = mock_agent
@@ -486,7 +486,7 @@ class TestCLIMode:
     async def test_cli_mode_agent_message(self, temp_config_file):
         """Test CLI mode with agent message."""
         with patch("builtins.print") as mock_print:
-            with patch("irssi_llmagent.main.ClaudeAgent") as mock_agent_class:
+            with patch("irssi_llmagent.main.AIAgent") as mock_agent_class:
                 with patch("irssi_llmagent.main.ChatHistory") as mock_history_class:
                     # Mock history to return only the current message
                     mock_history = AsyncMock()
@@ -530,7 +530,7 @@ class TestCLIMode:
     async def test_cli_mode_message_content_validation(self, temp_config_file):
         """Test that CLI mode passes actual message content, not placeholder text."""
         with patch("builtins.print"):
-            with patch("irssi_llmagent.main.ClaudeAgent") as mock_agent_class:
+            with patch("irssi_llmagent.main.AIAgent") as mock_agent_class:
                 with patch("irssi_llmagent.main.ChatHistory") as mock_history_class:
                     # Mock history to return only the current message
                     mock_history = AsyncMock()

@@ -1,4 +1,4 @@
-"""Tool definitions and executors for Claude agent."""
+"""Tool definitions and executors for AI agent."""
 
 import asyncio
 import logging
@@ -20,7 +20,7 @@ class Tool(TypedDict):
     input_schema: dict
 
 
-# Available tools for Claude agent
+# Available tools for AI agent
 TOOLS: list[Tool] = [
     {
         "name": "web_search",
