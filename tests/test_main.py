@@ -95,7 +95,7 @@ class TestIRSSILLMAgent:
         # Should send help message
         agent.varlink_sender.send_message.assert_called_once()
         call_args = agent.varlink_sender.send_message.call_args[0]
-        assert "Claude" in call_args[1]  # Help text should mention Claude
+        assert "automatic mode" in call_args[1]  # Help text should mention automatic mode
 
     @pytest.mark.asyncio
     async def test_rate_limiting_triggers(self, temp_config_file):
@@ -322,11 +322,13 @@ class TestIRSSILLMAgent:
                 # Should call agent in test mode (consistent with live mode)
                 mock_agent.run_agent.assert_called_once()
                 # Should pass the extra proactive prompt to the agent
+                api_config = agent._get_api_config_section()
+                expected_model = api_config["model"]
                 mock_agent_class.assert_called_once_with(
                     agent.config,
                     "mybot",
                     " NOTE: This is a proactive interjection. If upon reflection you decide your contribution wouldn't add significant factual value (e.g. just an encouragement or general statement), respond with exactly 'NULL' instead of a message.",
-                    model_override="claude-3-haiku-20240307",
+                    model_override=expected_model,
                 )
 
     @pytest.mark.asyncio

@@ -415,7 +415,7 @@ class IRSSILLMAgent:
         """Handle IRC commands and generate responses."""
         if message.startswith("!h") or message == "!h":
             logger.debug(f"Sending help message to {nick}")
-            help_msg = "default is automatic mode (AI decides), !S is explicit sarcastic Claude, !s is serious agentic Claude with web tools, !p is Perplexity (prefer English!)"
+            help_msg = "default is automatic mode (AI decides), !S is explicit sarcastic mode, !s is serious agentic mode with web tools, !p is Perplexity (prefer English!)"
             await self.varlink_sender.send_message(target, help_msg, server)
 
         elif message.startswith("!p ") or message == "!p":
@@ -480,7 +480,7 @@ class IRSSILLMAgent:
         is_proactive: bool = False,
         send_message: bool = True,
     ) -> str | None:
-        """Handle serious mode using ClaudeAgent with tools."""
+        """Handle serious mode using an agent with tools."""
         context = await self.history.get_context(server, chan_name)
 
         # Add extra prompt for proactive interjections to allow null response
@@ -488,8 +488,10 @@ class IRSSILLMAgent:
         if is_proactive:
             extra_prompt = " " + self.config["prompts"]["proactive_serious_extra"]
 
-        # Use default model for proactive interjections to avoid expensive opus model
-        model_override = self.config["anthropic"]["model"] if is_proactive else None
+        # Use configured API type (ClaudeAgent works for both anthropic and openai)
+        api_config = self._get_api_config_section()
+        # Use default model for proactive interjections to avoid expensive models
+        model_override = api_config["model"] if is_proactive else None
         async with ClaudeAgent(
             self.config, mynick, extra_prompt, model_override=model_override
         ) as agent:
