@@ -31,7 +31,7 @@ class OpenAIClient(BaseAPIClient):
         self.session: aiohttp.ClientSession | None = None
 
     async def __aenter__(self):
-        timeout = aiohttp.ClientTimeout(total=60.0)  # 60 second timeout
+        timeout = aiohttp.ClientTimeout(total=180.0)
         self.session = aiohttp.ClientSession(
             headers={
                 "Authorization": f"Bearer {self.config['key']}",
@@ -117,8 +117,11 @@ class OpenAIClient(BaseAPIClient):
             logger.error(f"OpenAI API HTTP error: {e}")
             return {"error": f"HTTP error: {e}"}
         except (aiohttp.ClientError, json.JSONDecodeError, asyncio.TimeoutError) as e:
-            logger.error(f"OpenAI API error: {e}")
-            return {"error": f"API error: {e}"}
+            logger.error(f"OpenAI API error: {repr(e)}")
+            import traceback
+
+            traceback.print_exc()
+            return {"error": f"API error: {repr(e)}"}
 
     def _extract_raw_text(self, response: dict) -> str:
         """Extract raw text content from OpenAI response format."""

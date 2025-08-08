@@ -46,6 +46,7 @@ logging.getLogger("e2b.sandbox_sync.main").setLevel(logging.WARNING)
 logging.getLogger("e2b_code_interpreter.code_interpreter_sync").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("primp").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 

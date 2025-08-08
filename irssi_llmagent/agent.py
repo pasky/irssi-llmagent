@@ -25,7 +25,7 @@ class AIAgent:
         self.config = config
         self.mynick = mynick
         self.api_client = self._get_api_client(config)
-        self.max_iterations = 5
+        self.max_iterations = 7
         self.extra_prompt = extra_prompt
         self.model_override = model_override
         self.system_prompt = self._get_system_prompt()
@@ -70,7 +70,8 @@ class AIAgent:
 
         # Tool execution loop
         for iteration in range(self.max_iterations):
-            logger.debug(f"Agent iteration {iteration + 1}/{self.max_iterations}")
+            if iteration > 0:
+                logger.info(f"Agent iteration {iteration + 1}/{self.max_iterations}")
 
             # Use serious_model for first iteration only, then default model
             # Override with specific model if provided
@@ -82,8 +83,8 @@ class AIAgent:
 
             # Don't pass tools on final iteration
             extra_prompt = (
-                " THIS WAS YOUR LAST TOOL TURN, YOU MUST NOT USE ANY FURTHER TOOLS"
-                if iteration >= self.max_iterations - 2
+                " THIS WAS YOUR LAST TOOL TURN, YOU MUST NOT CALL ANY FURTHER TOOLS OR FUNCTIONS !!!"
+                if iteration >= self.max_iterations - 3
                 else ""
             )
 
@@ -123,7 +124,7 @@ class AIAgent:
                             tool_result = await execute_tool(
                                 tool["name"], self.tool_executors, **tool["input"]
                             )
-                            logger.debug(f"Tool {tool['name']} executed: {tool_result[:100]}...")
+                            logger.info(f"Tool {tool['name']} executed: {tool_result[:100]}...")
                         except Exception as e:
                             tool_result = str(e)
                             logger.warning(f"Tool {tool['name']} failed: {e}")
