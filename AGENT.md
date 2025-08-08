@@ -30,10 +30,9 @@
 - **Key Modules**:
   - `varlink.py` - VarlinkClient (events), VarlinkSender (messages)
   - `history.py` - ChatHistory (persistent SQLite storage)
-  - `claude.py` - AnthropicClient (async API client)
-  - `perplexity.py` - PerplexityClient (async API client)
+  - `base_client.py` / `openai.py` / `claude.py` / `perplexity.py` - async API clients
   - `rate_limiter.py` - RateLimiter
-  - `tools.py` - Tool system with web search, webpage visiting, and Python code execution
+  - `agent.py` / `tools.py` - Agentic multi-turn mode with tool system for web search, webpage visiting, and Python code execution
 
 ## Code Style
 - **Language**: Python 3.11+ with modern type hints (`dict`, `list`, ...), following PEP8
