@@ -1,5 +1,6 @@
 {
-  "_comment": "API keys should be set to your actual keys from Anthropic and Perplexity",
+  "_comment": "API keys should be set to your actual keys from Anthropic, OpenAI and Perplexity",
+  "api_type": "anthropic",
   "anthropic": {
     "url": "https://api.anthropic.com/v1/messages",
     "key": "your-anthropic-api-key-here",
@@ -7,6 +8,14 @@
     "serious_model": "claude-opus-4-20250514",
     "classifier_model": "claude-3-5-haiku-20241022",
     "proactive_validation_models": ["claude-3-haiku-20240307", "claude-3-5-haiku-20241022"]
+  },
+  "openai": {
+    "url": "https://api.openai.com/v1/chat/completions",
+    "key": "your-openai-api-key-here",
+    "model": "gpt-5",
+    "serious_model": "gpt-5",
+    "classifier_model": "gpt-5-mini",
+    "proactive_validation_models": ["gpt-5-nano", "gpt-5-mini"],
   },
   "perplexity": {
     "url": "https://api.perplexity.ai/chat/completions",

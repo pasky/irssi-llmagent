@@ -13,6 +13,7 @@ from typing import Any
 from .agent import ClaudeAgent
 from .claude import AnthropicClient
 from .history import ChatHistory
+from .openai import OpenAIClient
 from .perplexity import PerplexityClient
 from .proactive_debouncer import ProactiveDebouncer
 from .rate_limiter import RateLimiter
@@ -54,6 +55,7 @@ class IRSSILLMAgent:
 
     def __init__(self, config_path: str = "config.json"):
         self.config = self.load_config(config_path)
+        self.api_client_class = self._get_api_client_class()
         self.varlink_events = VarlinkClient(self.config["varlink"]["socket_path"])
         self.varlink_sender = VarlinkSender(self.config["varlink"]["socket_path"])
         self.history = ChatHistory(
@@ -88,6 +90,22 @@ class IRSSILLMAgent:
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in config file: {e}")
             sys.exit(1)
+
+    def _get_api_client_class(self):
+        """Get the appropriate API client class based on config."""
+        api_type = self.config.get("api_type", "anthropic")
+        if api_type == "openai":
+            return OpenAIClient
+        elif api_type == "anthropic":
+            return AnthropicClient
+        else:
+            logger.error(f"Unknown api_type: {api_type}, defaulting to anthropic")
+            return AnthropicClient
+
+    def _get_api_config_section(self):
+        """Get the appropriate API config section."""
+        api_type = self.config.get("api_type", "anthropic")
+        return self.config[api_type]
 
     def should_ignore_user(self, nick: str) -> bool:
         """Check if user should be ignored."""
@@ -129,10 +147,11 @@ class IRSSILLMAgent:
                 current_message = message_match.group(1).strip()
 
             prompt = self.config["prompts"]["mode_classifier"].format(message=current_message)
-            model = self.config["anthropic"]["classifier_model"]
+            api_config = self._get_api_config_section()
+            model = api_config["classifier_model"]
 
-            async with AnthropicClient(self.config) as anthropic:
-                response = await anthropic.call_claude(context, prompt, model)
+            async with self.api_client_class(self.config) as client:
+                response = await client.call(context, prompt, model)
 
             serious_count = response.count("SERIOUS")
             sarcastic_count = response.count("SARCASTIC")
@@ -175,15 +194,16 @@ class IRSSILLMAgent:
             prompt = self.config["prompts"]["proactive_interject"].format(message=current_message)
 
             # Get validation models list
-            validation_models = self.config["anthropic"]["proactive_validation_models"]
+            api_config = self._get_api_config_section()
+            validation_models = api_config["proactive_validation_models"]
 
             final_score = None
             all_responses = []
 
             # Run iterative validation through all models
             for i, model in enumerate(validation_models):
-                async with AnthropicClient(self.config) as anthropic:
-                    response = await anthropic.call_claude(context, prompt, model)
+                async with self.api_client_class(self.config) as client:
+                    response = await client.call(context, prompt, model)
 
                 if not response or response.startswith("API error:"):
                     return False, f"No response from validation model {i + 1}", False
@@ -503,14 +523,16 @@ class IRSSILLMAgent:
         system_prompt = self.config["prompts"]["sarcastic"].format(
             mynick=mynick, current_time=current_time
         )
-        model = self.config["anthropic"]["model"]
+        api_config = self._get_api_config_section()
+        model = api_config["model"]
 
         context = await self.history.get_context(server, chan_name)
-        async with AnthropicClient(self.config) as anthropic:
-            response = await anthropic.call_claude(context, system_prompt, model)
+        async with self.api_client_class(self.config) as client:
+            response = await client.call(context, system_prompt, model)
 
         if response:
-            logger.info(f"Sending Claude response to {target}: {response}")
+            api_type = self.config.get("api_type", "anthropic")
+            logger.info(f"Sending {api_type} response to {target}: {response}")
             await self.varlink_sender.send_message(target, response, server)
             # Update context with response
             await self.history.add_message(server, chan_name, response, mynick, mynick, True)

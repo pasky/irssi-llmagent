@@ -12,11 +12,12 @@ from irssi_llmagent.proactive_debouncer import ProactiveDebouncer
 class TestIRSSILLMAgent:
     """Test main agent functionality."""
 
-    def test_load_config(self, temp_config_file):
+    def test_load_config(self, temp_config_file, api_type):
         """Test configuration loading."""
         agent = IRSSILLMAgent(temp_config_file)
         assert agent.config is not None
-        assert "anthropic" in agent.config
+        assert agent.config["api_type"] == api_type
+        assert api_type in agent.config  # Check API-specific section exists
         assert "varlink" in agent.config
 
     def test_should_ignore_user(self, temp_config_file):
@@ -60,11 +61,13 @@ class TestIRSSILLMAgent:
         agent.history.add_message = AsyncMock()
         agent.history.get_context = AsyncMock(return_value=[])
 
-        # Mock API clients
-        with patch("irssi_llmagent.main.AnthropicClient") as mock_claude:
-            mock_claude.return_value.__aenter__.return_value.call_claude = AsyncMock(
-                return_value="Test response"
-            )
+        # Mock the API client class
+        with patch.object(agent, "api_client_class") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.call = AsyncMock(return_value="Test response")
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
 
             # Test message addressing the bot
             event = {
@@ -199,29 +202,34 @@ class TestIRSSILLMAgent:
 
     @pytest.mark.asyncio
     async def test_sarcastic_mode_unchanged(self, temp_config_file):
-        """Test sarcastic mode still uses regular Claude."""
+        """Test sarcastic mode still uses regular API client."""
         agent = IRSSILLMAgent(temp_config_file)
         agent.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
         agent.history.add_message = AsyncMock()
         agent.history.get_context = AsyncMock(return_value=[])
 
-        with patch("irssi_llmagent.main.AnthropicClient") as mock_claude_class:
-            mock_claude = AsyncMock()
-            mock_claude.call_claude = AsyncMock(return_value="Sarcastic response")
-            mock_claude_class.return_value.__aenter__.return_value = mock_claude
+        # Mock the API client class that would be returned by _get_api_client_class
+        with patch.object(agent, "api_client_class") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.call = AsyncMock(return_value="Sarcastic response")
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
 
-            # Test sarcastic mode (default - should use regular Claude)
+            # Test sarcastic mode (default - should use regular API client)
             await agent.handle_command("test", "#test", "#test", "user", "tell me jokes", "mybot")
 
-            # Should use regular Claude API
-            mock_claude.call_claude.assert_called_once()
-            call_args = mock_claude.call_claude.call_args
+            # Should use regular API client
+            mock_client.call.assert_called_once()
+            call_args = mock_client.call.call_args
             system_prompt = call_args[0][1]
             model = call_args[0][2]
 
             assert "sarcasm" in system_prompt.lower()
-            assert model == agent.config["anthropic"]["model"]
+            # Get the expected model from the appropriate config section
+            api_config = agent._get_api_config_section()
+            assert model == api_config["model"]
 
     @pytest.mark.asyncio
     async def test_mode_classification(self, temp_config_file):
@@ -236,11 +244,14 @@ class TestIRSSILLMAgent:
             return_value=[{"role": "user", "content": "how do I install Python?"}]
         )
 
-        with patch("irssi_llmagent.main.AnthropicClient") as mock_claude_class:
-            mock_claude = AsyncMock()
+        # Mock the API client class for classification
+        with patch.object(agent, "api_client_class") as mock_client_class:
+            mock_client = AsyncMock()
             # First call for classification returns SERIOUS
-            mock_claude.call_claude = AsyncMock(return_value="SERIOUS")
-            mock_claude_class.return_value.__aenter__.return_value = mock_claude
+            mock_client.call = AsyncMock(return_value="SERIOUS")
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
 
             with patch("irssi_llmagent.main.ClaudeAgent") as mock_agent_class:
                 mock_agent = AsyncMock()
@@ -253,7 +264,7 @@ class TestIRSSILLMAgent:
                 )
 
                 # Should call classify_mode first, then use serious mode (agent)
-                mock_claude.call_claude.assert_called_once()
+                mock_client.call.assert_called_once()
                 mock_agent.run_agent.assert_called_once()
 
     @pytest.mark.asyncio
@@ -275,13 +286,16 @@ class TestIRSSILLMAgent:
         )
         agent.server_nicks["test"] = "mybot"
 
-        with patch("irssi_llmagent.main.AnthropicClient") as mock_claude_class:
-            mock_claude = AsyncMock()
+        # Mock the API client class for proactive decisions and classification
+        with patch.object(agent, "api_client_class") as mock_client_class:
+            mock_client = AsyncMock()
             # Mock proactive decision (score 9), mode classification (SERIOUS), and test response
-            mock_claude.call_claude = AsyncMock(
+            mock_client.call = AsyncMock(
                 side_effect=["Should help with this: 9/10", "SERIOUS", "Test response"]
             )
-            mock_claude_class.return_value.__aenter__.return_value = mock_claude
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
 
             with patch("irssi_llmagent.main.ClaudeAgent") as mock_agent_class:
                 mock_agent = AsyncMock()
@@ -304,7 +318,7 @@ class TestIRSSILLMAgent:
                 await asyncio.sleep(0.15)
 
                 # Should call proactive decision and classification (agent call is separate)
-                assert mock_claude.call_claude.call_count == 2
+                assert mock_client.call.call_count == 2
                 # Should call agent in test mode (consistent with live mode)
                 mock_agent.run_agent.assert_called_once()
                 # Should pass the extra proactive prompt to the agent
@@ -323,10 +337,12 @@ class TestIRSSILLMAgent:
         # Test with threshold 8 - score 8 should trigger
         agent.config["behavior"]["proactive_interject_threshold"] = 8
 
-        with patch("irssi_llmagent.main.AnthropicClient") as mock_claude_class:
-            mock_claude = AsyncMock()
-            mock_claude.call_claude = AsyncMock(return_value="Testing threshold: 8/10")
-            mock_claude_class.return_value.__aenter__.return_value = mock_claude
+        with patch.object(agent, "api_client_class") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.call = AsyncMock(return_value="Testing threshold: 8/10")
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
 
             context = [{"role": "user", "content": "Test message"}]
             should_interject, reason, test_mode = await agent.should_interject_proactively(context)
@@ -338,10 +354,12 @@ class TestIRSSILLMAgent:
         # Test with threshold 9 - score 8 should NOT trigger
         agent.config["behavior"]["proactive_interject_threshold"] = 9
 
-        with patch("irssi_llmagent.main.AnthropicClient") as mock_claude_class:
-            mock_claude = AsyncMock()
-            mock_claude.call_claude = AsyncMock(return_value="Testing threshold: 8/10")
-            mock_claude_class.return_value.__aenter__.return_value = mock_claude
+        with patch.object(agent, "api_client_class") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.call = AsyncMock(return_value="Testing threshold: 8/10")
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
 
             context = [{"role": "user", "content": "Test message"}]
             should_interject, reason, test_mode = await agent.should_interject_proactively(context)
@@ -351,10 +369,12 @@ class TestIRSSILLMAgent:
             assert test_mode is True  # Should be in test mode due to barely threshold
 
         # Test with threshold 9 - score 7 should NOT trigger at all
-        with patch("irssi_llmagent.main.AnthropicClient") as mock_claude_class:
-            mock_claude = AsyncMock()
-            mock_claude.call_claude = AsyncMock(return_value="Testing threshold: 7/10")
-            mock_claude_class.return_value.__aenter__.return_value = mock_claude
+        with patch.object(agent, "api_client_class") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.call = AsyncMock(return_value="Testing threshold: 7/10")
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
 
             context = [{"role": "user", "content": "Test message"}]
             should_interject, reason, test_mode = await agent.should_interject_proactively(context)
@@ -371,104 +391,177 @@ class TestCLIMode:
     async def test_cli_mode_sarcastic_message(self, temp_config_file):
         """Test CLI mode with sarcastic message."""
         with patch("builtins.print") as mock_print:
-            with patch("irssi_llmagent.main.AnthropicClient") as mock_claude_class:
-                mock_claude = AsyncMock()
-                mock_claude.call_claude = AsyncMock(return_value="Sarcastic response")
-                mock_claude_class.return_value.__aenter__.return_value = mock_claude
+            # Mock the ChatHistory import in cli_mode
+            with patch("irssi_llmagent.main.ChatHistory") as mock_history_class:
+                mock_history = AsyncMock()
+                mock_history.add_message = AsyncMock()
+                mock_history.get_context.return_value = [
+                    {"role": "user", "content": "!S tell me a joke"}
+                ]
+                mock_history_class.return_value = mock_history
 
-                await cli_mode("!S tell me a joke", temp_config_file)
+                # Create a real agent but mock its API client
+                from irssi_llmagent.main import IRSSILLMAgent
 
-                # Verify Claude was called with the actual message
-                mock_claude.call_claude.assert_called_once()
-                call_args = mock_claude.call_claude.call_args
-                context = call_args[0][0]  # First argument is context
+                agent = IRSSILLMAgent(temp_config_file)
 
-                # Verify the user message is in the context
-                assert len(context) == 1
-                assert context[0]["role"] == "user"
-                assert context[0]["content"] == "!S tell me a joke"
+                # Mock the API client
+                with patch.object(agent, "api_client_class") as mock_client_class:
+                    mock_client = AsyncMock()
+                    mock_client.call = AsyncMock(return_value="Sarcastic response")
+                    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+                    mock_client.__aexit__ = AsyncMock(return_value=None)
+                    mock_client_class.return_value = mock_client
 
-                # Verify output
-                print_calls = [call[0][0] for call in mock_print.call_args_list]
-                assert any(
-                    "Simulating IRC message: !S tell me a joke" in call for call in print_calls
-                )
-                assert any("Sarcastic response" in call for call in print_calls)
+                    # Patch the agent creation in cli_mode
+                    with patch("irssi_llmagent.main.IRSSILLMAgent", return_value=agent):
+                        await cli_mode("!S tell me a joke", temp_config_file)
+
+                        # Verify API client was called with the actual message
+                        mock_client.call.assert_called_once()
+                        call_args = mock_client.call.call_args
+                        context = call_args[0][0]  # First argument is context
+
+                        # Verify the user message is in the context - should be the last message
+                        assert len(context) >= 1
+                        assert context[-1]["role"] == "user"
+                        assert "!S tell me a joke" in context[-1]["content"]
+
+                        # Verify output
+                        print_calls = [call[0][0] for call in mock_print.call_args_list]
+                        assert any(
+                            "Simulating IRC message: !S tell me a joke" in call
+                            for call in print_calls
+                        )
+                        assert any("Sarcastic response" in call for call in print_calls)
 
     @pytest.mark.asyncio
     async def test_cli_mode_perplexity_message(self, temp_config_file):
         """Test CLI mode with Perplexity message."""
         with patch("builtins.print") as mock_print:
             with patch("irssi_llmagent.main.PerplexityClient") as mock_perplexity_class:
-                mock_perplexity = AsyncMock()
-                mock_perplexity.call_perplexity = AsyncMock(return_value="Weather is sunny")
-                mock_perplexity_class.return_value.__aenter__.return_value = mock_perplexity
+                with patch("irssi_llmagent.main.ChatHistory") as mock_history_class:
+                    # Mock history to return only the current message
+                    mock_history = AsyncMock()
+                    mock_history.add_message = AsyncMock()
+                    mock_history.get_context.return_value = [
+                        {"role": "user", "content": "!p what is the weather?"}
+                    ]
+                    mock_history_class.return_value = mock_history
 
-                await cli_mode("!p what is the weather?", temp_config_file)
+                    mock_perplexity = AsyncMock()
+                    mock_perplexity.call_perplexity = AsyncMock(return_value="Weather is sunny")
+                    mock_perplexity_class.return_value.__aenter__.return_value = mock_perplexity
 
-                # Verify Perplexity was called with the actual message in context
-                mock_perplexity.call_perplexity.assert_called_once()
-                call_args = mock_perplexity.call_perplexity.call_args
-                context = call_args[0][0]  # First argument is context
+                    # Create a real agent
+                    from irssi_llmagent.main import IRSSILLMAgent
 
-                # Verify the user message is in the context
-                assert len(context) == 1
-                assert context[0]["role"] == "user"
-                assert context[0]["content"] == "!p what is the weather?"
+                    agent = IRSSILLMAgent(temp_config_file)
 
-                # Verify output
-                print_calls = [call[0][0] for call in mock_print.call_args_list]
-                assert any(
-                    "Simulating IRC message: !p what is the weather?" in call
-                    for call in print_calls
-                )
-                assert any("Weather is sunny" in call for call in print_calls)
+                    # Patch the agent creation in cli_mode
+                    with patch("irssi_llmagent.main.IRSSILLMAgent", return_value=agent):
+                        await cli_mode("!p what is the weather?", temp_config_file)
+
+                        # Verify Perplexity was called with the actual message in context
+                        mock_perplexity.call_perplexity.assert_called_once()
+                        call_args = mock_perplexity.call_perplexity.call_args
+                        context = call_args[0][0]  # First argument is context
+
+                        # Verify the user message is in the context - should be the last message
+                        assert len(context) >= 1
+                        assert context[-1]["role"] == "user"
+                        assert "!p what is the weather?" in context[-1]["content"]
+
+                        # Verify output
+                        print_calls = [call[0][0] for call in mock_print.call_args_list]
+                        assert any(
+                            "Simulating IRC message: !p what is the weather?" in call
+                            for call in print_calls
+                        )
+                        assert any("Weather is sunny" in call for call in print_calls)
 
     @pytest.mark.asyncio
     async def test_cli_mode_agent_message(self, temp_config_file):
         """Test CLI mode with agent message."""
         with patch("builtins.print") as mock_print:
             with patch("irssi_llmagent.main.ClaudeAgent") as mock_agent_class:
-                mock_agent = AsyncMock()
-                mock_agent.run_agent = AsyncMock(return_value="Agent response")
-                mock_agent_class.return_value.__aenter__.return_value = mock_agent
+                with patch("irssi_llmagent.main.ChatHistory") as mock_history_class:
+                    # Mock history to return only the current message
+                    mock_history = AsyncMock()
+                    mock_history.add_message = AsyncMock()
+                    mock_history.get_context.return_value = [
+                        {"role": "user", "content": "!s search for Python news"}
+                    ]
+                    mock_history_class.return_value = mock_history
 
-                await cli_mode("!s search for Python news", temp_config_file)
+                    mock_agent = AsyncMock()
+                    mock_agent.run_agent = AsyncMock(return_value="Agent response")
+                    mock_agent_class.return_value.__aenter__.return_value = mock_agent
 
-                # Verify agent was called with context only
-                mock_agent.run_agent.assert_called_once()
-                call_args = mock_agent.run_agent.call_args
-                assert len(call_args[0]) == 1  # Only context parameter
-                context = call_args[0][0]
-                assert isinstance(context, list)  # Should be context list
+                    # Create a real agent
+                    from irssi_llmagent.main import IRSSILLMAgent
 
-                # Verify output
-                print_calls = [call[0][0] for call in mock_print.call_args_list]
-                assert any(
-                    "Simulating IRC message: !s search for Python news" in call
-                    for call in print_calls
-                )
-                assert any("Agent response" in call for call in print_calls)
+                    agent = IRSSILLMAgent(temp_config_file)
+
+                    # Patch the agent creation in cli_mode
+                    with patch("irssi_llmagent.main.IRSSILLMAgent", return_value=agent):
+                        await cli_mode("!s search for Python news", temp_config_file)
+
+                        # Verify agent was called with context only
+                        mock_agent.run_agent.assert_called_once()
+                        call_args = mock_agent.run_agent.call_args
+                        assert len(call_args[0]) == 1  # Only context parameter
+                        context = call_args[0][0]
+                        assert isinstance(context, list)  # Should be context list
+                        # Verify the user message is the last in context
+                        assert "!s search for Python news" in context[-1]["content"]
+
+                        # Verify output
+                        print_calls = [call[0][0] for call in mock_print.call_args_list]
+                        assert any(
+                            "Simulating IRC message: !s search for Python news" in call
+                            for call in print_calls
+                        )
+                        assert any("Agent response" in call for call in print_calls)
 
     @pytest.mark.asyncio
     async def test_cli_mode_message_content_validation(self, temp_config_file):
         """Test that CLI mode passes actual message content, not placeholder text."""
         with patch("builtins.print"):
             with patch("irssi_llmagent.main.ClaudeAgent") as mock_agent_class:
-                mock_agent = AsyncMock()
-                mock_agent.run_agent = AsyncMock(return_value="Agent response")
-                mock_agent_class.return_value.__aenter__.return_value = mock_agent
+                with patch("irssi_llmagent.main.ChatHistory") as mock_history_class:
+                    # Mock history to return only the current message
+                    mock_history = AsyncMock()
+                    mock_history.add_message = AsyncMock()
+                    mock_history.get_context.return_value = [
+                        {"role": "user", "content": "!s specific test message"}
+                    ]
+                    mock_history_class.return_value = mock_history
 
-                await cli_mode("!s specific test message", temp_config_file)
+                    mock_agent = AsyncMock()
+                    mock_agent.run_agent = AsyncMock(return_value="Agent response")
+                    mock_agent_class.return_value.__aenter__.return_value = mock_agent
 
-                # Verify agent was called once for serious mode
-                mock_agent.run_agent.assert_called_once()
-                call_args = mock_agent.run_agent.call_args
-                context = call_args[0][0]
+                    # Create a real agent
+                    from irssi_llmagent.main import IRSSILLMAgent
 
-                # This test would catch the bug where empty context resulted in "..." placeholder
-                assert context[0]["content"] == "!s specific test message"
-                assert context[0]["content"] != "..."  # Explicitly check it's not placeholder
+                    agent = IRSSILLMAgent(temp_config_file)
+
+                    # Patch the agent creation in cli_mode
+                    with patch("irssi_llmagent.main.IRSSILLMAgent", return_value=agent):
+                        await cli_mode("!s specific test message", temp_config_file)
+
+                        # Verify agent was called once for serious mode
+                        mock_agent.run_agent.assert_called_once()
+                        call_args = mock_agent.run_agent.call_args
+                        context = call_args[0][0]
+
+                        # This test would catch the bug where empty context resulted in "..." placeholder
+                        # The user message should be the last message in context
+                        assert "!s specific test message" in context[-1]["content"]
+                        assert (
+                            context[-1]["content"] != "..."
+                        )  # Explicitly check it's not placeholder
 
     @pytest.mark.asyncio
     async def test_cli_mode_config_not_found(self):

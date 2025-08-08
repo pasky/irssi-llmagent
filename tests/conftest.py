@@ -9,10 +9,17 @@ from typing import Any
 import pytest
 
 
+@pytest.fixture(params=["anthropic", "openai"])
+def api_type(request):
+    """Parametrized API type fixture."""
+    return request.param
+
+
 @pytest.fixture
-def test_config() -> dict[str, Any]:
-    """Test configuration fixture."""
-    return {
+def test_config(api_type) -> dict[str, Any]:
+    """Test configuration fixture with parametrized API type."""
+    base_config = {
+        "api_type": api_type,
         "anthropic": {
             "url": "https://api.anthropic.com/v1/messages",
             "key": "test-key",
@@ -20,6 +27,14 @@ def test_config() -> dict[str, Any]:
             "serious_model": "claude-3-sonnet-20240229",
             "classifier_model": "claude-3-5-haiku-20241022",
             "proactive_validation_models": ["claude-3-haiku-20240307"],
+        },
+        "openai": {
+            "url": "https://api.openai.com/v1/chat/completions",
+            "key": "test-key",
+            "model": "gpt-4o-mini",
+            "serious_model": "gpt-4o",
+            "classifier_model": "gpt-4o-mini",
+            "proactive_validation_models": ["gpt-4o-mini"],
         },
         "perplexity": {
             "url": "https://api.perplexity.ai/chat/completions",
@@ -42,6 +57,7 @@ def test_config() -> dict[str, Any]:
             "proactive_serious_extra": "NOTE: This is a proactive interjection. If upon reflection you decide your contribution wouldn't add significant factual value (e.g. just an encouragement or general statement), respond with exactly 'NULL' instead of a message.",
         },
     }
+    return base_config
 
 
 @pytest.fixture

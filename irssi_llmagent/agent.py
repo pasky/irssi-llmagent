@@ -1,4 +1,4 @@
-"""Claude agent with tool-calling capabilities."""
+"""API agent with tool-calling capabilities."""
 
 import copy
 import logging
@@ -6,13 +6,14 @@ from datetime import datetime
 from typing import Any
 
 from .claude import AnthropicClient
+from .openai import OpenAIClient
 from .tools import TOOLS, create_tool_executors, execute_tool
 
 logger = logging.getLogger(__name__)
 
 
 class ClaudeAgent:
-    """Claude agent with web search and webpage visiting capabilities."""
+    """API agent with web search and webpage visiting capabilities."""
 
     def __init__(
         self,
@@ -23,12 +24,28 @@ class ClaudeAgent:
     ):
         self.config = config
         self.mynick = mynick
-        self.claude_client = AnthropicClient(config)
+        self.api_client = self._get_api_client(config)
         self.max_iterations = 5
         self.extra_prompt = extra_prompt
         self.model_override = model_override
         self.system_prompt = self._get_system_prompt()
         self.tool_executors = create_tool_executors(config)
+
+    def _get_api_client(self, config):
+        """Get the appropriate API client based on config."""
+        api_type = config.get("api_type", "anthropic")
+        if api_type == "openai":
+            return OpenAIClient(config)
+        elif api_type == "anthropic":
+            return AnthropicClient(config)
+        else:
+            logger.error(f"Unknown api_type: {api_type}, defaulting to anthropic")
+            return AnthropicClient(config)
+
+    def _get_api_config_section(self):
+        """Get the appropriate API config section."""
+        api_type = self.config.get("api_type", "anthropic")
+        return self.config[api_type]
 
     def _get_system_prompt(self) -> str:
         """Get the system prompt for the agent based on serious mode prompt."""
@@ -40,12 +57,12 @@ class ClaudeAgent:
 
     async def __aenter__(self):
         """Async context manager entry."""
-        await self.claude_client.__aenter__()
+        await self.api_client.__aenter__()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
-        await self.claude_client.__aexit__(exc_type, exc_val, exc_tb)
+        await self.api_client.__aexit__(exc_type, exc_val, exc_tb)
 
     async def run_agent(self, context: list[dict]) -> str:
         """Run the agent with tool-calling loop."""
@@ -60,11 +77,8 @@ class ClaudeAgent:
             if self.model_override:
                 model = self.model_override
             else:
-                model = (
-                    self.config["anthropic"]["serious_model"]
-                    if iteration == 0
-                    else self.config["anthropic"]["model"]
-                )
+                api_config = self._get_api_config_section()
+                model = api_config["serious_model"] if iteration == 0 else api_config["model"]
 
             # Don't pass tools on final iteration
             extra_prompt = (
@@ -81,8 +95,8 @@ class ClaudeAgent:
             )
 
             try:
-                # Call Claude with or without tools based on iteration
-                response = await self.claude_client.call_claude_raw(
+                # Call API with or without tools based on iteration
+                response = await self.api_client.call_raw(
                     messages,  # Pass messages in proper API format
                     self.system_prompt + thinking_prompt + extra_prompt,
                     model,
@@ -98,11 +112,9 @@ class ClaudeAgent:
                 elif result["type"] == "final_text":
                     return result["text"]
                 elif result["type"] == "tool_use":
-                    # Add Claude's tool request to conversation
-                    if response and isinstance(response, dict) and "content" in response:
-                        content = response["content"]
-                        if isinstance(content, list):  # Claude returns list of content blocks
-                            messages.append({"role": "assistant", "content": content})
+                    # Add assistant's tool request to conversation
+                    if response and isinstance(response, dict):
+                        messages.append(self.api_client.format_assistant_message(response))
 
                     # Execute all tools and collect results
                     tool_results = []
@@ -123,13 +135,12 @@ class ClaudeAgent:
                             }
                         )
 
-                    # Add all tool results to conversation in a single message
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": tool_results,
-                        }
-                    )
+                    # Add tool results to conversation using API-specific format
+                    results_msg = self.api_client.format_tool_results(tool_results)
+                    if isinstance(results_msg, list):
+                        messages.extend(results_msg)
+                    else:
+                        messages.append(results_msg)
                     continue
 
             except Exception as e:
@@ -150,27 +161,16 @@ class ClaudeAgent:
         if not isinstance(response, dict):
             return {"type": "error", "message": f"Unexpected response type: {type(response)}"}
 
-        # Check if Claude wants to use tools
-        if response.get("stop_reason") == "tool_use":
-            tool_uses = self._extract_tool_uses(response)
+        # Check if API wants to use tools
+        if self.api_client.has_tool_calls(response):
+            tool_uses = self.api_client.extract_tool_calls(response)
             if not tool_uses:
                 return {"type": "error", "message": "Invalid tool use response"}
             return {"type": "tool_use", "tools": tool_uses}
 
-        # Extract final text response using claude.py's logic
-        text_response = self.claude_client.extract_text_from_response(response)
+        # Extract final text response using API client's logic
+        text_response = self.api_client.extract_text_from_response(response)
         if text_response and text_response != "...":
             return {"type": "final_text", "text": text_response}
 
         return {"type": "error", "message": "No valid text or tool use found in response"}
-
-    def _extract_tool_uses(self, response: dict) -> list[dict] | None:
-        """Extract all tool use information from Claude's response."""
-        content = response.get("content", [])
-        tool_uses = []
-        for block in content:
-            if block.get("type") == "tool_use":
-                tool_uses.append(
-                    {"id": block["id"], "name": block["name"], "input": block["input"]}
-                )
-        return tool_uses if tool_uses else None

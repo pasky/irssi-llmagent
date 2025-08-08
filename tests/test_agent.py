@@ -1,5 +1,6 @@
 """Tests for agent functionality."""
 
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -7,26 +8,56 @@ import pytest
 from irssi_llmagent.agent import ClaudeAgent
 
 
-class TestClaudeAgent:
-    """Test Claude agent functionality."""
+class TestAPIAgent:
+    """Test API agent functionality with both Anthropic and OpenAI."""
 
     @pytest.fixture
-    def mock_config(self):
-        """Mock configuration for testing."""
-        return {
-            "anthropic": {
-                "url": "https://api.anthropic.com/v1/messages",
-                "key": "test-key",
-                "model": "claude-3-haiku-20240307",
-                "serious_model": "claude-3-sonnet-20240229",
-            },
-            "prompts": {"serious": "You are IRC user {mynick}. Be helpful and informative."},
-        }
-
-    @pytest.fixture
-    def agent(self, mock_config):
+    def agent(self, test_config):
         """Create agent instance for testing."""
-        return ClaudeAgent(mock_config, "testbot")
+        # Add missing prompts for agent tests
+        test_config["prompts"]["serious"] = "You are IRC user {mynick}. Be helpful and informative."
+        return ClaudeAgent(test_config, "testbot")
+
+    def create_text_response(self, api_type: str, text: str) -> dict:
+        """Create a text response in the appropriate format for the API type."""
+        if api_type == "anthropic":
+            return {
+                "content": [{"type": "text", "text": text}],
+                "stop_reason": "end_turn",
+            }
+        else:  # openai
+            return {"choices": [{"message": {"content": text}, "finish_reason": "stop"}]}
+
+    def create_tool_response(self, api_type: str, tools: list[dict]) -> dict:
+        """Create a tool response in the appropriate format for the API type."""
+        if api_type == "anthropic":
+            content = []
+            for tool in tools:
+                content.append(
+                    {
+                        "type": "tool_use",
+                        "id": tool["id"],
+                        "name": tool["name"],
+                        "input": tool["input"],
+                    }
+                )
+            return {
+                "content": content,
+                "stop_reason": "tool_use",
+            }
+        else:  # openai
+            tool_calls = []
+            for tool in tools:
+                tool_calls.append(
+                    {
+                        "id": tool["id"],
+                        "type": "function",
+                        "function": {"name": tool["name"], "arguments": json.dumps(tool["input"])},
+                    }
+                )
+            return {
+                "choices": [{"message": {"tool_calls": tool_calls}, "finish_reason": "tool_calls"}]
+            }
 
     def test_agent_initialization(self, agent):
         """Test agent initialization."""
@@ -36,11 +67,9 @@ class TestClaudeAgent:
     @pytest.mark.asyncio
     async def test_agent_context_manager(self, agent):
         """Test agent as async context manager."""
-        with patch.object(agent.claude_client, "__aenter__", new_callable=AsyncMock) as mock_enter:
-            with patch.object(
-                agent.claude_client, "__aexit__", new_callable=AsyncMock
-            ) as mock_exit:
-                mock_enter.return_value = agent.claude_client
+        with patch.object(agent.api_client, "__aenter__", new_callable=AsyncMock) as mock_enter:
+            with patch.object(agent.api_client, "__aexit__", new_callable=AsyncMock) as mock_exit:
+                mock_enter.return_value = agent.api_client
 
                 async with agent:
                     pass
@@ -49,17 +78,12 @@ class TestClaudeAgent:
                 mock_exit.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_agent_simple_response(self, agent):
+    async def test_agent_simple_response(self, agent, api_type):
         """Test agent with simple text response (no tools)."""
-        # Mock Claude API response with text only
-        mock_response = {
-            "content": [{"type": "text", "text": "This is a simple answer."}],
-            "stop_reason": "end_turn",
-        }
+        # Mock API response with text only
+        mock_response = self.create_text_response(api_type, "This is a simple answer.")
 
-        with patch.object(
-            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = mock_response
 
             result = await agent.run_agent([{"role": "user", "content": "What is 2+2?"}])
@@ -68,34 +92,19 @@ class TestClaudeAgent:
             mock_call.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_agent_tool_use_flow(self, agent):
+    async def test_agent_tool_use_flow(self, agent, api_type):
         """Test agent tool usage flow."""
-        # Mock Claude responses - first wants to use tool, then provides final answer
-        tool_use_response = {
-            "content": [
-                {
-                    "type": "tool_use",
-                    "id": "tool_123",
-                    "name": "web_search",
-                    "input": {"query": "Python tutorial"},
-                }
-            ],
-            "stop_reason": "tool_use",
-        }
+        # Mock API responses - first wants to use tool, then provides final answer
+        tool_use_response = self.create_tool_response(
+            api_type,
+            [{"id": "tool_123", "name": "web_search", "input": {"query": "Python tutorial"}}],
+        )
 
-        final_response = {
-            "content": [
-                {
-                    "type": "text",
-                    "text": "Based on the search results, here's what I found about Python tutorials.",
-                }
-            ],
-            "stop_reason": "end_turn",
-        }
+        final_response = self.create_text_response(
+            api_type, "Based on the search results, here's what I found about Python tutorials."
+        )
 
-        with patch.object(
-            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
             with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
                 mock_call.side_effect = [tool_use_response, final_response]
                 mock_tool.return_value = "Search results: Python is a programming language..."
@@ -109,34 +118,22 @@ class TestClaudeAgent:
                 mock_tool.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_agent_max_iterations(self, agent):
+    async def test_agent_max_iterations(self, agent, api_type):
         """Test agent respects max iteration limit."""
-        # Mock Claude to always want to use tools
-        tool_use_response = {
-            "content": [
-                {
-                    "type": "tool_use",
-                    "id": "tool_123",
-                    "name": "web_search",
-                    "input": {"query": "test"},
-                }
-            ],
-            "stop_reason": "tool_use",
-        }
+        # Mock API to always want to use tools
+        tool_use_response = self.create_tool_response(
+            api_type, [{"id": "tool_123", "name": "web_search", "input": {"query": "test"}}]
+        )
 
-        with patch.object(
-            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
             with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
                 # Mock _extract_text_from_response to return actual cleaned text
                 with patch.object(
-                    agent.claude_client, "extract_text_from_response", return_value="Final response"
+                    agent.api_client, "extract_text_from_response", return_value="Final response"
                 ):
                     # Set up the mock to return tool_use responses for first 2 calls, then final response on 3rd call
-                    final_dict_response = {
-                        "content": [{"type": "text", "text": "Final response"}],
-                        "stop_reason": "end_turn",
-                    }
+                    final_dict_response = self.create_text_response(api_type, "Final response")
+
                     mock_call.side_effect = [
                         tool_use_response,
                         tool_use_response,
@@ -154,39 +151,24 @@ class TestClaudeAgent:
     @pytest.mark.asyncio
     async def test_agent_api_error_handling(self, agent):
         """Test agent handles API errors gracefully."""
-        with patch.object(
-            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
             mock_call.side_effect = Exception("API Error")
 
             with pytest.raises(RuntimeError, match="coroutine raised StopIteration"):
                 await agent.run_agent([{"role": "user", "content": "Test query"}])
 
     @pytest.mark.asyncio
-    async def test_agent_tool_execution_error(self, agent):
+    async def test_agent_tool_execution_error(self, agent, api_type):
         """Test agent handles tool execution errors."""
-        tool_use_response = {
-            "content": [
-                {
-                    "type": "tool_use",
-                    "id": "tool_123",
-                    "name": "web_search",
-                    "input": {"query": "test"},
-                }
-            ],
-            "stop_reason": "tool_use",
-        }
+        tool_use_response = self.create_tool_response(
+            api_type, [{"id": "tool_123", "name": "web_search", "input": {"query": "test"}}]
+        )
 
-        final_response = {
-            "content": [
-                {"type": "text", "text": "I encountered an error but here's what I can tell you."}
-            ],
-            "stop_reason": "end_turn",
-        }
+        final_response = self.create_text_response(
+            api_type, "I encountered an error but here's what I can tell you."
+        )
 
-        with patch.object(
-            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
             with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
                 mock_call.side_effect = [tool_use_response, final_response]
                 mock_tool.return_value = "Tool execution failed: Network error"
@@ -197,21 +179,41 @@ class TestClaudeAgent:
 
                 assert "encountered an error" in result or "what I can tell you" in result
 
-    def test_extract_tool_uses_single(self, agent):
-        """Test single tool use extraction from Claude response."""
-        response = {
-            "content": [
-                {"type": "text", "text": "I'll search for that."},
-                {
-                    "type": "tool_use",
-                    "id": "tool_456",
-                    "name": "visit_webpage",
-                    "input": {"url": "https://example.com"},
-                },
-            ]
-        }
+    def test_extract_tool_uses_single(self, agent, api_type):
+        """Test single tool use extraction from API response."""
+        if api_type == "anthropic":
+            response = {
+                "content": [
+                    {"type": "text", "text": "I'll search for that."},
+                    {
+                        "type": "tool_use",
+                        "id": "tool_456",
+                        "name": "visit_webpage",
+                        "input": {"url": "https://example.com"},
+                    },
+                ]
+            }
+        else:  # openai
+            response = {
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "id": "tool_456",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "visit_webpage",
+                                        "arguments": '{"url": "https://example.com"}',
+                                    },
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
 
-        tool_uses = agent._extract_tool_uses(response)
+        tool_uses = agent.api_client.extract_tool_calls(response)
 
         assert tool_uses is not None
         assert len(tool_uses) == 1
@@ -219,75 +221,90 @@ class TestClaudeAgent:
         assert tool_uses[0]["name"] == "visit_webpage"
         assert tool_uses[0]["input"]["url"] == "https://example.com"
 
-    def test_extract_tool_uses_multiple(self, agent):
-        """Test multiple tool use extraction from Claude response."""
-        response = {
-            "content": [
-                {"type": "text", "text": "I'll search and visit a page."},
-                {
-                    "type": "tool_use",
-                    "id": "tool_1",
-                    "name": "web_search",
-                    "input": {"query": "test"},
-                },
-                {
-                    "type": "tool_use",
-                    "id": "tool_2",
-                    "name": "visit_webpage",
-                    "input": {"url": "https://example.com"},
-                },
-            ]
-        }
+    def test_extract_tool_uses_multiple(self, agent, api_type):
+        """Test multiple tool use extraction from API response."""
+        if api_type == "anthropic":
+            response = {
+                "content": [
+                    {"type": "text", "text": "I'll search and visit a page."},
+                    {
+                        "type": "tool_use",
+                        "id": "tool_1",
+                        "name": "web_search",
+                        "input": {"query": "test"},
+                    },
+                    {
+                        "type": "tool_use",
+                        "id": "tool_2",
+                        "name": "visit_webpage",
+                        "input": {"url": "https://example.com"},
+                    },
+                ]
+            }
+        else:  # openai
+            response = {
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "id": "tool_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "web_search",
+                                        "arguments": '{"query": "test"}',
+                                    },
+                                },
+                                {
+                                    "id": "tool_2",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "visit_webpage",
+                                        "arguments": '{"url": "https://example.com"}',
+                                    },
+                                },
+                            ]
+                        }
+                    }
+                ]
+            }
 
-        tool_uses = agent._extract_tool_uses(response)
+        tool_uses = agent.api_client.extract_tool_calls(response)
 
         assert tool_uses is not None
         assert len(tool_uses) == 2
         assert tool_uses[0]["name"] == "web_search"
         assert tool_uses[1]["name"] == "visit_webpage"
 
-    def test_extract_tool_uses_no_tools(self, agent):
+    def test_extract_tool_uses_no_tools(self, agent, api_type):
         """Test tool use extraction when no tools in response."""
-        response = {"content": [{"type": "text", "text": "Just a text response."}]}
+        if api_type == "anthropic":
+            response = {"content": [{"type": "text", "text": "Just a text response."}]}
+        else:  # openai
+            response = {"choices": [{"message": {"content": "Just a text response."}}]}
 
-        tool_uses = agent._extract_tool_uses(response)
+        tool_uses = agent.api_client.extract_tool_calls(response)
 
         assert tool_uses is None
 
     @pytest.mark.asyncio
-    async def test_agent_multiple_tools_execution(self, agent):
+    async def test_agent_multiple_tools_execution(self, agent, api_type):
         """Test agent executes multiple tools in a single response."""
         # Mock response with multiple tool calls
-        multi_tool_response = {
-            "content": [
-                {"type": "text", "text": "I'll search and visit a page."},
-                {
-                    "type": "tool_use",
-                    "id": "tool_1",
-                    "name": "web_search",
-                    "input": {"query": "test"},
-                },
-                {
-                    "type": "tool_use",
-                    "id": "tool_2",
-                    "name": "visit_webpage",
-                    "input": {"url": "https://example.com"},
-                },
+        multi_tool_response = self.create_tool_response(
+            api_type,
+            [
+                {"id": "tool_1", "name": "web_search", "input": {"query": "test"}},
+                {"id": "tool_2", "name": "visit_webpage", "input": {"url": "https://example.com"}},
             ],
-            "stop_reason": "tool_use",
-        }
+        )
 
-        final_response = {
-            "content": [{"type": "text", "text": "Here's what I found"}],
-            "stop_reason": "end_turn",
-        }
+        final_response = self.create_text_response(api_type, "Here's what I found")
 
-        with patch.object(
-            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
             with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
                 with patch.object(
-                    agent.claude_client,
+                    agent.api_client,
                     "extract_text_from_response",
                     return_value="Here's what I found",
                 ):
@@ -324,11 +341,9 @@ class TestClaudeAgent:
             {"role": "user", "content": "Tell me more about it"},
         ]
 
-        with patch.object(
-            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
             with patch.object(
-                agent.claude_client,
+                agent.api_client,
                 "extract_text_from_response",
                 return_value="Blue represents calm and trust",
             ):
@@ -355,11 +370,9 @@ class TestClaudeAgent:
     @pytest.mark.asyncio
     async def test_agent_without_context(self, agent):
         """Test agent works without context (current behavior)."""
-        with patch.object(
-            agent.claude_client, "call_claude_raw", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
             with patch.object(
-                agent.claude_client, "extract_text_from_response", return_value="Hello there"
+                agent.api_client, "extract_text_from_response", return_value="Hello there"
             ):
                 mock_call.return_value = {
                     "content": [{"type": "text", "text": "Hello there"}],
@@ -377,31 +390,59 @@ class TestClaudeAgent:
 
     # Removed tests for _extract_text_response and _format_for_irc as they were unified with claude.py
 
-    def test_process_claude_response_text(self, agent):
+    def test_process_claude_response_text(self, agent, api_type):
         """Test unified response processing for text responses."""
-        response = {
-            "content": [{"type": "text", "text": "This is a test response"}],
-            "stop_reason": "end_turn",
-        }
+        if api_type == "anthropic":
+            response = {
+                "content": [{"type": "text", "text": "This is a test response"}],
+                "stop_reason": "end_turn",
+            }
+        else:  # openai
+            response = {
+                "choices": [
+                    {"message": {"content": "This is a test response"}, "finish_reason": "stop"}
+                ]
+            }
 
         result = agent._process_claude_response(response)
 
         assert result["type"] == "final_text"
         assert result["text"] == "This is a test response"
 
-    def test_process_claude_response_tool_use(self, agent):
+    def test_process_claude_response_tool_use(self, agent, api_type):
         """Test unified response processing for tool use responses."""
-        response = {
-            "content": [
-                {
-                    "type": "tool_use",
-                    "id": "tool_123",
-                    "name": "web_search",
-                    "input": {"query": "test"},
-                }
-            ],
-            "stop_reason": "tool_use",
-        }
+        if api_type == "anthropic":
+            response = {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tool_123",
+                        "name": "web_search",
+                        "input": {"query": "test"},
+                    }
+                ],
+                "stop_reason": "tool_use",
+            }
+        else:  # openai
+            response = {
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "id": "tool_123",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "web_search",
+                                        "arguments": '{"query": "test"}',
+                                    },
+                                }
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            }
 
         result = agent._process_claude_response(response)
 

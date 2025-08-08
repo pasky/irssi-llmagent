@@ -2,19 +2,20 @@
 
 import json
 import logging
-import re
 from typing import Any
 
 import aiohttp
 
+from .base_client import BaseAPIClient
+
 logger = logging.getLogger(__name__)
 
 
-class AnthropicClient:
+class AnthropicClient(BaseAPIClient):
     """Anthropic Claude API client with async support."""
 
     def __init__(self, config: dict[str, Any]):
-        self.config = config["anthropic"]
+        super().__init__(config["anthropic"])
         self.session: aiohttp.ClientSession | None = None
 
     async def __aenter__(self):
@@ -34,10 +35,16 @@ class AnthropicClient:
 
     async def call_claude(self, context: list[dict], system_prompt: str, model: str) -> str:
         """Call Claude API with context and system prompt, returning cleaned text response."""
-        raw_response = await self.call_claude_raw(context, system_prompt, model)
+        raw_response = await self.call_raw(context, system_prompt, model)
         return self.extract_text_from_response(raw_response)
 
     async def call_claude_raw(
+        self, context: list[dict], system_prompt: str, model: str, tools: list | None = None
+    ) -> dict:
+        """Call Claude API with context and system prompt - deprecated, use call_raw."""
+        return await self.call_raw(context, system_prompt, model, tools)
+
+    async def call_raw(
         self, context: list[dict], system_prompt: str, model: str, tools: list | None = None
     ) -> dict:
         """Call Claude API with context and system prompt."""
@@ -85,16 +92,12 @@ class AnthropicClient:
             logger.error(f"Anthropic API error: {e}")
             return {"error": f"API error: {e}"}
 
-    def extract_text_from_response(self, response: dict) -> str:
-        """Extract cleaned text from raw Claude response."""
-
-        if "error" in response:
-            return ""  # response["error"]
-
+    def _extract_raw_text(self, response: dict) -> str:
+        """Extract raw text content from Claude response format."""
         # Check for refusal
         if response.get("stop_reason") == "refusal":
             logger.warning("Claude refusal detected")
-            return ""  # "refusal, rip"
+            return ""
 
         if "content" in response and response["content"]:
             # Find text content
@@ -102,20 +105,30 @@ class AnthropicClient:
                 if content_block.get("type") == "text":
                     text = content_block["text"]
                     logger.debug(f"Claude response text: {text}")
+                    return text or ""
 
-                    # Clean up response
-                    text = text.strip()
+        return ""
 
-                    # Remove thinking tags and content if present
-                    text = re.sub(r"<thinking>.*?</thinking>\s*", "", text, flags=re.DOTALL)
+    def has_tool_calls(self, response: dict) -> bool:
+        """Check if Claude response contains tool calls."""
+        return response.get("stop_reason") == "tool_use"
 
-                    # For IRC: single line only, take first line of remaining content
-                    text = text.replace("\n", "; ").strip()
+    def extract_tool_calls(self, response: dict) -> list[dict] | None:
+        """Extract tool calls from Claude response format."""
+        content = response.get("content", [])
+        tool_uses = []
+        for block in content:
+            if block.get("type") == "tool_use":
+                tool_uses.append(
+                    {"id": block["id"], "name": block["name"], "input": block["input"]}
+                )
+        return tool_uses if tool_uses else None
 
-                    # Remove IRC nick prefix
-                    text = re.sub(r"^(\[..:..\]\s*)?<[^>]+>\s*", "", text)
+    def format_assistant_message(self, response: dict) -> dict:
+        """Format Claude's response for conversation history."""
+        content = response.get("content", [])
+        return {"role": "assistant", "content": content}
 
-                    logger.debug(f"Cleaned Claude response: {text}")
-                    return text
-
-        return "..."
+    def format_tool_results(self, tool_results: list[dict]) -> dict:
+        """Format tool results for Claude API."""
+        return {"role": "user", "content": tool_results}
