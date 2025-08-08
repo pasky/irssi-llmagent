@@ -78,7 +78,7 @@ class OpenAIClient(BaseAPIClient):
 
         # Check if last message is from assistant (but allow tool_calls)
         if messages[-1]["role"] == "assistant" and "tool_calls" not in messages[-1]:
-            return {"error": "(wait, I just replied)"}
+            return {"cancel": "(wait, I just replied)"}
 
         payload = {
             "model": model,

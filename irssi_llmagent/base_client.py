@@ -36,8 +36,11 @@ class BaseAPIClient(ABC):
 
     def extract_text_from_response(self, response: dict) -> str:
         """Extract cleaned text from raw API response."""
-        if "error" in response:
+        if "cancel" in response:
             return ""
+
+        if "error" in response:
+            return f"Error - {response['error']}"
 
         text = self._extract_raw_text(response)
         if not text:

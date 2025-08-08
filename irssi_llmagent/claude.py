@@ -65,7 +65,7 @@ class AnthropicClient(BaseAPIClient):
         if messages[-1]["role"] == "assistant":
             # may happen in some race conditions with proactive checks or
             # multiple commands
-            return {"error": "(wait, I just replied)"}
+            return {"cancel": "(wait, I just replied)"}
 
         payload = {
             "model": model,

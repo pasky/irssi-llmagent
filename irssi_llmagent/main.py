@@ -502,7 +502,7 @@ class IRSSILLMAgent:
         if (
             is_proactive
             and response
-            and (response.strip().upper() == "NULL" or response.startswith("API error:"))
+            and (response.strip().upper() == "NULL" or response.startswith("Error - "))
         ):
             logger.info(f"Agent decided not to interject proactively for {target}")
             return None
