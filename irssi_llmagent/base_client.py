@@ -24,7 +24,13 @@ class BaseAPIClient(ABC):
 
     @abstractmethod
     async def call_raw(
-        self, context: list[dict], system_prompt: str, model: str, tools: list | None = None
+        self,
+        context: list[dict],
+        system_prompt: str,
+        model: str,
+        tools: list | None = None,
+        tool_choice: str | None = None,
+        reasoning_effort: str = "minimal",
     ) -> dict:
         """Call API with context and system prompt, returning raw response."""
         pass

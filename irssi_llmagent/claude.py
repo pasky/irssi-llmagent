@@ -45,7 +45,13 @@ class AnthropicClient(BaseAPIClient):
         return await self.call_raw(context, system_prompt, model, tools)
 
     async def call_raw(
-        self, context: list[dict], system_prompt: str, model: str, tools: list | None = None
+        self,
+        context: list[dict],
+        system_prompt: str,
+        model: str,
+        tools: list | None = None,
+        tool_choice: str | None = None,
+        reasoning_effort: str = "minimal",
     ) -> dict:
         """Call Claude API with context and system prompt."""
         if not self.session:
@@ -76,6 +82,7 @@ class AnthropicClient(BaseAPIClient):
 
         if tools:
             payload["tools"] = tools
+            # TODO tool_choice
 
         logger.debug(f"Calling Anthropic API with model: {model}")
         logger.debug(f"Anthropic request payload: {json.dumps(payload, indent=2)}")

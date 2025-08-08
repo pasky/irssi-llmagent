@@ -59,7 +59,7 @@ class AIAgent:
 
     def _get_system_prompt(self) -> str:
         """Get the system prompt for the agent based on serious mode prompt."""
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
         base_prompt = self.config["prompts"]["serious"].format(
             mynick=self.mynick, current_time=current_time
         )
@@ -104,7 +104,7 @@ class AIAgent:
             # Don't pass tools on final iteration
             extra_prompt = (
                 " THIS WAS YOUR LAST TOOL TURN, YOU MUST NOT CALL ANY FURTHER TOOLS OR FUNCTIONS !!!"
-                if iteration >= self.max_iterations - 3
+                if iteration >= self.max_iterations - 2
                 else ""
             )
 
@@ -135,16 +135,16 @@ class AIAgent:
                 if elapsed >= self.progress_threshold_seconds:
                     progress_prompt = " If you are going to call more tools, you MUST also use the progress_report tool now!"
 
-            # Select which tools to expose (include progress tool only when enabled)
-            tools_for_model = TOOLS + ([PROGRESS_TOOL] if self._progress_can_send else [])
+            tools_for_model = TOOLS + [PROGRESS_TOOL]
 
             try:
-                # Call API with or without tools based on iteration
                 response = await self.api_client.call_raw(
                     messages,  # Pass messages in proper API format
                     self.system_prompt + thinking_prompt + progress_prompt + extra_prompt,
                     model,
                     tools=tools_for_model,
+                    tool_choice="auto" if iteration < self.max_iterations - 1 else "none",
+                    reasoning_effort="minimal" if iteration > 0 else "medium",
                 )
 
                 # Process response using unified handler

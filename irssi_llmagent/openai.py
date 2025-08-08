@@ -71,7 +71,13 @@ class OpenAIClient(BaseAPIClient):
         return converted
 
     async def call_raw(
-        self, context: list[dict], system_prompt: str, model: str, tools: list | None = None
+        self,
+        context: list[dict],
+        system_prompt: str,
+        model: str,
+        tools: list | None = None,
+        tool_choice: str | None = None,
+        reasoning_effort: str = "minimal",
     ) -> dict:
         """Call the OpenAI Responses API and return native response dict."""
         if not self._client:
@@ -119,25 +125,17 @@ class OpenAIClient(BaseAPIClient):
                         )
                 # Also include the assistant message text if any
             role = m.get("role", "user")
-            if role == "tool":
-                # Fallback: treat tool messages as user-visible text if any remain
-                inputs.append(
-                    {
-                        "role": "user",
-                        "content": f"tool_result[{m.get('tool_call_id','')}]: {m.get('content','')}",
-                    }
-                )
-            else:
-                content_val = m.get("content") or ""
-                inputs.append({"role": role, "content": content_val})
+            assert role != "tool"
+            content_val = m.get("content") or ""
+            inputs.append({"role": role, "content": content_val})
 
         max_tokens = int(self.config.get("max_tokens", 1024 if tools else 256))
 
         sdk_kwargs: dict[str, Any] = {
             "model": model,
-            # Responses API expects 'input' as messages for multi-turn
             "input": inputs,
             "max_output_tokens": max_tokens,
+            "reasoning": {"effort": reasoning_effort, "summary": "auto"},
         }
         if tools:
             sdk_kwargs["tools"] = self._convert_tools(tools)
