@@ -250,15 +250,73 @@ class PythonExecutorE2B:
             return f"Error executing code: {e}"
 
 
-def create_tool_executors(config: dict | None = None) -> dict[str, Any]:
+# Definition for optional tool that can be exposed conditionally by the agent
+PROGRESS_TOOL: Tool = {
+    "name": "progress_report",
+    "description": "Send a brief one-line progress update to the user. Keep it super concise, but very casual and even snarky in line with your instructions and previous conversation.",
+    "input_schema": {
+        "type": "object",
+        "properties": {"text": {"type": "string", "description": "One-line progress update."}},
+        "required": ["text"],
+    },
+}
+
+
+class ProgressReportExecutor:
+    """Executor that sends progress updates via a provided callback."""
+
+    def __init__(
+        self,
+        send_callback: Any | None = None,
+        min_interval_seconds: int = 15,
+    ):
+        self.send_callback = send_callback
+        self.min_interval_seconds = min_interval_seconds
+        self._last_sent: float | None = None
+
+    async def execute(self, text: str) -> str:
+        # Sanitize to single line and trim
+        clean = re.sub(r"\s+", " ", text or "").strip()
+        logger.info(f"progress_report: {text}")
+        if not clean:
+            return "OK"
+
+        # No-op if no callback (e.g., proactive mode)
+        if not self.send_callback:
+            return "OK"
+
+        now = time.time()
+        if self._last_sent is not None and (now - self._last_sent) < self.min_interval_seconds:
+            return "OK"
+
+        # Send update
+        try:
+            await self.send_callback(clean)
+            self._last_sent = now
+        except Exception as e:
+            logger.warning(f"progress_report send failed: {e}")
+        return "OK"
+
+
+def create_tool_executors(
+    config: dict | None = None, *, progress_callback: Any | None = None
+) -> dict[str, Any]:
     """Create tool executors with configuration."""
     e2b_config = config.get("e2b", {}) if config else {}
     e2b_api_key = e2b_config.get("api_key")
+
+    # Progress executor settings
+    behavior = (config or {}).get("behavior", {})
+    progress_cfg = behavior.get("progress", {}) if behavior else {}
+    min_interval = int(progress_cfg.get("min_interval_seconds", 15))
 
     return {
         "web_search": WebSearchExecutor(),
         "visit_webpage": WebpageVisitorExecutor(),
         "execute_python": PythonExecutorE2B(api_key=e2b_api_key),
+        "progress_report": ProgressReportExecutor(
+            send_callback=progress_callback, min_interval_seconds=min_interval
+        ),
     }
 
 

@@ -1,6 +1,5 @@
 """OpenAI API client implementation."""
 
-import asyncio
 import json
 import logging
 from typing import Any
@@ -116,7 +115,7 @@ class OpenAIClient(BaseAPIClient):
                 return {"error": f"Authentication failed: {e}"}
             logger.error(f"OpenAI API HTTP error: {e}")
             return {"error": f"HTTP error: {e}"}
-        except (aiohttp.ClientError, json.JSONDecodeError, asyncio.TimeoutError) as e:
+        except (aiohttp.ClientError, json.JSONDecodeError, TimeoutError) as e:
             logger.error(f"OpenAI API error: {repr(e)}")
             import traceback
 

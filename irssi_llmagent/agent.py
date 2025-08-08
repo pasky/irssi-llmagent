@@ -7,7 +7,7 @@ from typing import Any
 
 from .claude import AnthropicClient
 from .openai import OpenAIClient
-from .tools import TOOLS, create_tool_executors, execute_tool
+from .tools import PROGRESS_TOOL, TOOLS, create_tool_executors, execute_tool
 
 logger = logging.getLogger(__name__)
 
@@ -21,15 +21,25 @@ class AIAgent:
         mynick: str,
         extra_prompt: str = "",
         model_override: str | None = None,
+        *,
+        progress_enabled: bool = False,
+        progress_callback: Any | None = None,
     ):
         self.config = config
         self.mynick = mynick
-        self.api_client = self._get_api_client(config)
+        self.api_client: Any = self._get_api_client(config)
         self.max_iterations = 7
         self.extra_prompt = extra_prompt
         self.model_override = model_override
         self.system_prompt = self._get_system_prompt()
-        self.tool_executors = create_tool_executors(config)
+        # Progress reporting
+        behavior = self.config.get("behavior", {})
+        prog_cfg = behavior.get("progress", {}) if behavior else {}
+        self.progress_threshold_seconds = int(prog_cfg.get("threshold_seconds", 30))
+        self._progress_start_time: float | None = None
+        self._progress_can_send: bool = bool(progress_callback)
+        # Tool executors with progress callback
+        self.tool_executors = create_tool_executors(config, progress_callback=progress_callback)
 
     def _get_api_client(self, config):
         """Get the appropriate API client based on config."""
@@ -58,7 +68,17 @@ class AIAgent:
     async def __aenter__(self):
         """Async context manager entry."""
         await self.api_client.__aenter__()
+        # Initialize progress timers
+        from time import time as _now
+
+        self._progress_start_time = _now()
         return self
+
+    def configure_progress(self, enabled: bool, callback: Any | None) -> None:
+        """Configure progress reporting at runtime (used by main)."""
+        self._progress_can_send = bool(enabled and callback is not None)
+        # Recreate executors with the provided callback
+        self.tool_executors = create_tool_executors(self.config, progress_callback=callback)
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
@@ -95,13 +115,36 @@ class AIAgent:
                 else ""
             )
 
+            # Conditional progress nudge appended only when threshold elapsed
+            progress_prompt = ""
+            if self._progress_can_send and self._progress_start_time is not None:
+                from time import time as _now
+
+                # Read last progress time from executor if available
+                last = self._progress_start_time
+                try:
+                    prog_exec = self.tool_executors.get("progress_report")
+                    if prog_exec and getattr(prog_exec, "_last_sent", None):
+                        last = max(last, float(prog_exec._last_sent))
+                except Exception:
+                    pass
+                elapsed = _now() - last
+                logger.debug(
+                    f"Last: {last} (start: {self._progress_start_time}), elapsed {elapsed}, vs. {self.progress_threshold_seconds}"
+                )
+                if elapsed >= self.progress_threshold_seconds:
+                    progress_prompt = " If you are going to call more tools, you MUST also use the progress_report tool now!"
+
+            # Select which tools to expose (always include progress tool; it no-ops if disabled)
+            tools_for_model = TOOLS + [PROGRESS_TOOL]
+
             try:
                 # Call API with or without tools based on iteration
                 response = await self.api_client.call_raw(
                     messages,  # Pass messages in proper API format
-                    self.system_prompt + thinking_prompt + extra_prompt,
+                    self.system_prompt + thinking_prompt + progress_prompt + extra_prompt,
                     model,
-                    tools=TOOLS,
+                    tools=tools_for_model,
                 )
 
                 # Process response using unified handler

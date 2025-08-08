@@ -497,9 +497,27 @@ class IRSSILLMAgent:
         api_config = self._get_api_config_section()
         # Use default model for proactive interjections to avoid expensive models
         model_override = api_config["model"] if is_proactive else None
+        # Build progress callback only for non-proactive mode
+        from collections.abc import Awaitable, Callable
+
+        progress_cb_fn: Callable[[str], Awaitable[None]] | None = None
+        if not is_proactive:
+
+            async def _progress_cb(text: str) -> None:
+                # Send to channel as a normal message and store in history
+                await self.varlink_sender.send_message(target, text, server)
+                await self.history.add_message(server, chan_name, text, mynick, mynick, True)
+
+            progress_cb_fn = _progress_cb
         async with AIAgent(
-            self.config, mynick, extra_prompt, model_override=model_override
+            self.config,
+            mynick,
+            extra_prompt,
+            model_override=model_override,
         ) as agent:
+            # Configure progress after entering (avoid changing call signature used in tests)
+            if not is_proactive:
+                agent.configure_progress(True, progress_cb_fn)
             response = await agent.run_agent(context)
 
         # For proactive interjections, check for NULL response
@@ -526,7 +544,7 @@ class IRSSILLMAgent:
         self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
     ) -> None:
         """Handle sarcastic mode using direct AI calls."""
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
         system_prompt = self.config["prompts"]["sarcastic"].format(
             mynick=mynick, current_time=current_time
         )
