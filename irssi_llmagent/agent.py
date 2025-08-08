@@ -135,8 +135,8 @@ class AIAgent:
                 if elapsed >= self.progress_threshold_seconds:
                     progress_prompt = " If you are going to call more tools, you MUST also use the progress_report tool now!"
 
-            # Select which tools to expose (always include progress tool; it no-ops if disabled)
-            tools_for_model = TOOLS + [PROGRESS_TOOL]
+            # Select which tools to expose (include progress tool only when enabled)
+            tools_for_model = TOOLS + ([PROGRESS_TOOL] if self._progress_can_send else [])
 
             try:
                 # Call API with or without tools based on iteration

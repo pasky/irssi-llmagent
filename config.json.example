@@ -10,7 +10,7 @@
     "proactive_validation_models": ["claude-3-haiku-20240307", "claude-3-5-haiku-20241022"]
   },
   "openai": {
-    "url": "https://api.openai.com/v1/chat/completions",
+    "url": "https://api.openai.com/v1",
     "key": "your-openai-api-key-here",
     "model": "gpt-5",
     "serious_model": "gpt-5",

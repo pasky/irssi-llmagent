@@ -25,8 +25,8 @@ class TestAPIAgent:
                 "content": [{"type": "text", "text": text}],
                 "stop_reason": "end_turn",
             }
-        else:  # openai
-            return {"choices": [{"message": {"content": text}, "finish_reason": "stop"}]}
+        else:  # openai (Responses API)
+            return {"output_text": text}
 
     def create_tool_response(self, api_type: str, tools: list[dict]) -> dict:
         """Create a tool response in the appropriate format for the API type."""
@@ -45,18 +45,23 @@ class TestAPIAgent:
                 "content": content,
                 "stop_reason": "tool_use",
             }
-        else:  # openai
-            tool_calls = []
+        else:  # openai (Responses API)
+            content = []
             for tool in tools:
-                tool_calls.append(
+                content.append(
                     {
+                        "type": "tool_call",
                         "id": tool["id"],
-                        "type": "function",
                         "function": {"name": tool["name"], "arguments": json.dumps(tool["input"])},
                     }
                 )
             return {
-                "choices": [{"message": {"tool_calls": tool_calls}, "finish_reason": "tool_calls"}]
+                "output": [
+                    {
+                        "type": "message",
+                        "message": {"role": "assistant", "content": content},
+                    }
+                ]
             }
 
     def test_agent_initialization(self, agent):
@@ -193,22 +198,24 @@ class TestAPIAgent:
                     },
                 ]
             }
-        else:  # openai
+        else:  # openai (Responses API)
             response = {
-                "choices": [
+                "output": [
                     {
+                        "type": "message",
                         "message": {
-                            "tool_calls": [
+                            "role": "assistant",
+                            "content": [
                                 {
+                                    "type": "tool_call",
                                     "id": "tool_456",
-                                    "type": "function",
                                     "function": {
                                         "name": "visit_webpage",
                                         "arguments": '{"url": "https://example.com"}',
                                     },
                                 }
-                            ]
-                        }
+                            ],
+                        },
                     }
                 ]
             }
@@ -241,34 +248,35 @@ class TestAPIAgent:
                     },
                 ]
             }
-        else:  # openai
+        else:  # openai (Responses API)
             response = {
-                "choices": [
+                "output": [
                     {
+                        "type": "message",
                         "message": {
-                            "tool_calls": [
+                            "role": "assistant",
+                            "content": [
                                 {
+                                    "type": "tool_call",
                                     "id": "tool_1",
-                                    "type": "function",
                                     "function": {
                                         "name": "web_search",
                                         "arguments": '{"query": "test"}',
                                     },
                                 },
                                 {
+                                    "type": "tool_call",
                                     "id": "tool_2",
-                                    "type": "function",
                                     "function": {
                                         "name": "visit_webpage",
                                         "arguments": '{"url": "https://example.com"}',
                                     },
                                 },
-                            ]
-                        }
+                            ],
+                        },
                     }
                 ]
             }
-
         tool_uses = agent.api_client.extract_tool_calls(response)
 
         assert tool_uses is not None
@@ -280,8 +288,8 @@ class TestAPIAgent:
         """Test tool use extraction when no tools in response."""
         if api_type == "anthropic":
             response = {"content": [{"type": "text", "text": "Just a text response."}]}
-        else:  # openai
-            response = {"choices": [{"message": {"content": "Just a text response."}}]}
+        else:  # openai (Responses API)
+            response = {"output_text": "Just a text response."}
 
         tool_uses = agent.api_client.extract_tool_calls(response)
 
@@ -397,12 +405,8 @@ class TestAPIAgent:
                 "content": [{"type": "text", "text": "This is a test response"}],
                 "stop_reason": "end_turn",
             }
-        else:  # openai
-            response = {
-                "choices": [
-                    {"message": {"content": "This is a test response"}, "finish_reason": "stop"}
-                ]
-            }
+        else:  # openai (Responses API)
+            response = {"output_text": "This is a test response"}
 
         result = agent._process_ai_response(response)
 
@@ -423,23 +427,24 @@ class TestAPIAgent:
                 ],
                 "stop_reason": "tool_use",
             }
-        else:  # openai
+        else:  # openai (Responses API)
             response = {
-                "choices": [
+                "output": [
                     {
+                        "type": "message",
                         "message": {
-                            "tool_calls": [
+                            "role": "assistant",
+                            "content": [
                                 {
+                                    "type": "tool_call",
                                     "id": "tool_123",
-                                    "type": "function",
                                     "function": {
                                         "name": "web_search",
                                         "arguments": '{"query": "test"}',
                                     },
                                 }
-                            ]
+                            ],
                         },
-                        "finish_reason": "tool_calls",
                     }
                 ]
             }
