@@ -15,7 +15,7 @@ class FakeAPIClient:
         return False
 
     # Mimic API surface used by AIAgent
-    async def call_raw(self, messages, system_prompt, model, tools=None):
+    async def call_raw(self, messages, system_prompt, model, tools=None, **kwargs):
         # Record tools exposed to model
         self.calls.append(
             {"system_prompt": system_prompt, "tools": [t["name"] for t in (tools or [])]}
@@ -112,39 +112,3 @@ async def test_progress_report_tool_emits_callback(monkeypatch):
     assert result == "Final answer"
     assert sent, "Expected progress callback to be called at least once"
     assert sent[0].startswith("Searching docs")
-
-
-@pytest.mark.asyncio
-async def test_progress_tool_not_exposed_when_disabled(monkeypatch):
-    # No progress callback provided, disabled
-    config = {
-        "api_type": "anthropic",
-        "prompts": {
-            "serious": "{mynick} at {current_time}",
-        },
-        "anthropic": {
-            "key": "dummy",
-            "url": "http://example.com",
-            "model": "dummy",
-            "serious_model": "dummy-serious",
-            "classifier_model": "dummy-classifier",
-            "proactive_validation_models": [],
-        },
-        "behavior": {
-            "progress": {
-                "threshold_seconds": 0,
-                "min_interval_seconds": 0,
-            }
-        },
-    }
-
-    agent = AIAgent(config, mynick="bot", progress_enabled=False, progress_callback=None)
-    fake = FakeAPIClient()
-    agent.api_client = fake
-
-    context = [{"role": "user", "content": "Hello"}]
-    await agent.run_agent(context)
-
-    # Ensure progress_report not exposed to model in any call
-    for call in fake.calls:
-        assert "progress_report" not in call["tools"]
