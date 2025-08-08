@@ -187,7 +187,7 @@ class IRSSILLMAgent:
             current_message = context[-1]["content"]
 
             # Clean message content if it has IRC nick formatting like "<nick> message"
-            message_match = re.search(r"<[^>]+>\s*(.*)", current_message)
+            message_match = re.search(r"<?\S+>\s*(.*)", current_message)
             if message_match:
                 current_message = message_match.group(1).strip()
 
@@ -416,7 +416,11 @@ class IRSSILLMAgent:
         """Handle IRC commands and generate responses."""
         if message.startswith("!h") or message == "!h":
             logger.debug(f"Sending help message to {nick}")
-            help_msg = "default is automatic mode (AI decides), !S is explicit sarcastic mode, !s is serious agentic mode with web tools, !p is Perplexity (prefer English!)"
+            api_config = self._get_api_config_section()
+            sarcastic_model = api_config["model"]
+            serious_model = api_config["serious_model"]
+            classifier_model = api_config["classifier_model"]
+            help_msg = f"default is automatic mode ({classifier_model} decides), !d is explicit sarcastic diss mode ({sarcastic_model}), !a is serious agentic mode with web tools ({serious_model}), !p is Perplexity (prefer English!)"
             await self.varlink_sender.send_message(target, help_msg, server)
 
         elif message.startswith("!p ") or message == "!p":
@@ -438,12 +442,12 @@ class IRSSILLMAgent:
                 # Update context with response
                 await self.history.add_message(server, chan_name, lines[0], mynick, mynick, True)
 
-        elif message.startswith("!S "):
+        elif message.startswith("!S ") or message.startswith("!d "):
             message = message[3:].strip()
             logger.debug(f"Processing explicit sarcastic request from {nick}: {message}")
             await self._handle_sarcastic_mode(server, chan_name, target, nick, message, mynick)
 
-        elif message.startswith("!s "):
+        elif message.startswith("!s ") or message.startswith("!a "):
             message = message[3:].strip()
             logger.debug(f"Processing explicit serious request from {nick}: {message}")
             await self._handle_serious_mode(server, chan_name, target, nick, message, mynick)
