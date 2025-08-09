@@ -144,7 +144,7 @@ class AIAgent:
                     model,
                     tools=tools_for_model,
                     tool_choice="auto" if iteration < self.max_iterations - 1 else "none",
-                    reasoning_effort="minimal" if iteration > 0 else "medium",
+                    reasoning_effort="low" if iteration > 0 else "medium",
                 )
 
                 # Process response using unified handler

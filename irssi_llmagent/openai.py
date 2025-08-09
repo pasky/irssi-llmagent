@@ -146,7 +146,7 @@ class OpenAIClient(BaseAPIClient):
             resp = await self._client.responses.create(**sdk_kwargs)
             # Convert SDK obj to plain dict for robust handling
             data = resp.model_dump() if hasattr(resp, "model_dump") else json.loads(resp.json())
-            logger.debug(f"OpenAI raw Responses payload: {json.dumps(data, indent=2)[:2000]}")
+            logger.debug(f"OpenAI raw Responses payload: {json.dumps(data, indent=2)}")
         except Exception as e:  # Broad catch to mirror previous network error handling
             msg = repr(e)
             logger.error(f"OpenAI API error: {msg}")

@@ -24,7 +24,7 @@ class Tool(TypedDict):
 TOOLS: list[Tool] = [
     {
         "name": "web_search",
-        "description": "Search the web using DuckDuckGo and return top results with titles, URLs, and descriptions.",
+        "description": "Search the web and return top results with titles, URLs, and descriptions.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -253,10 +253,15 @@ class PythonExecutorE2B:
 # Definition for optional tool that can be exposed conditionally by the agent
 PROGRESS_TOOL: Tool = {
     "name": "progress_report",
-    "description": "Send a brief one-line progress update to the user. Keep it super concise, but very casual and even snarky in line with your instructions and previous conversation.",
+    "description": "Send a brief one-line progress update to the user.",
     "input_schema": {
         "type": "object",
-        "properties": {"text": {"type": "string", "description": "One-line progress update."}},
+        "properties": {
+            "text": {
+                "type": "string",
+                "description": "One-line progress update. Keep it super concise, but very casual and even snarky in line with your instructions and previous conversation.",
+            }
+        },
         "required": ["text"],
     },
 }
