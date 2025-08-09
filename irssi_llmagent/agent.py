@@ -71,7 +71,7 @@ class AIAgent:
             await self.model_router.__aexit__(exc_type, exc_val, exc_tb)
             self.model_router = None
 
-    async def run_agent(self, context: list[dict]) -> str:
+    async def run_agent(self, context: list[dict], reasoning_effort: str = "low") -> str:
         """Run the agent with tool-calling loop."""
         messages: list[dict[str, Any]] = copy.deepcopy(context)
 
@@ -110,13 +110,13 @@ class AIAgent:
             # Don't pass tools on final iteration
             extra_prompt = (
                 " THIS WAS YOUR LAST TOOL TURN, YOU MUST NOT CALL ANY FURTHER TOOLS OR FUNCTIONS !!!"
-                if iteration >= self.max_iterations - 2
+                if iteration >= self.max_iterations - 1
                 else ""
             )
 
             # Add thinking encouragement for first iteration only
             thinking_prompt = (
-                " First, think in <thinking> tags: review your knowledge and decide whether a search must be done. If so, plan your research; if not, think through your reply."
+                " First, think in <thinking> tags: review your knowledge and decide whether a search must be done. In the first response before using tools, you must write your thinking - either about your reply, or to plan your research."
                 if iteration == 0
                 else ""
             )
@@ -138,8 +138,10 @@ class AIAgent:
                 logger.debug(
                     f"Last: {last} (start: {self._progress_start_time}), elapsed {elapsed}, vs. {self.progress_threshold_seconds}"
                 )
-                if elapsed >= self.progress_threshold_seconds:
-                    progress_prompt = " If you are going to call more tools, you MUST also use the progress_report tool now!"
+                if elapsed >= self.progress_threshold_seconds or (
+                    iteration == 0 and reasoning_effort in ("medium", "high")
+                ):
+                    progress_prompt = " If you are going to call more tools, you MUST ALSO use the progress_report tool now!"
 
             tools_for_model = TOOLS + [PROGRESS_TOOL]
 
@@ -152,7 +154,7 @@ class AIAgent:
                     self.system_prompt + thinking_prompt + progress_prompt + extra_prompt,
                     tools=tools_for_model,
                     tool_choice="auto" if iteration < self.max_iterations - 1 else "none",
-                    reasoning_effort="low" if iteration > 0 else "medium",
+                    reasoning_effort=reasoning_effort,
                 )
 
                 # Process response using unified handler (provider-aware)

@@ -147,7 +147,11 @@ class IRSSILLMAgent:
             elif serious_count <= sarcastic_count:
                 return "SARCASTIC"
             else:
-                return "SERIOUS"
+                return (
+                    "EASY_SERIOUS"
+                    if response.count("EASY_SERIOUS") > response.count("THINKING_SERIOUS")
+                    else "THINKING_SERIOUS"
+                )
         except Exception as e:
             logger.error(f"Error classifying mode: {e}")
             return "SARCASTIC"  # Default to sarcastic on error
@@ -273,7 +277,7 @@ class IRSSILLMAgent:
             if should_interject:
                 # Classify the mode for proactive response (should be serious mode only)
                 classified_mode = await self.classify_mode(context)
-                if classified_mode == "SERIOUS":
+                if classified_mode.endswith("SERIOUS"):
                     # Check if this is a test channel or forced test mode due to low score
                     test_channels = self.config.get("behavior", {}).get(
                         "proactive_interjecting_test", []
@@ -298,6 +302,7 @@ class IRSSILLMAgent:
                             nick,
                             message,
                             mynick,
+                            classified_mode,
                             is_proactive=True,
                             send_message=False,
                         )
@@ -307,7 +312,14 @@ class IRSSILLMAgent:
                             f"Interjecting proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
                         )
                         await self._handle_serious_mode(
-                            server, chan_name, target, nick, message, mynick, is_proactive=True
+                            server,
+                            chan_name,
+                            target,
+                            nick,
+                            message,
+                            mynick,
+                            classified_mode,
+                            is_proactive=True,
                         )
                 else:
                     # Check if this is a test channel for logging
@@ -436,10 +448,19 @@ class IRSSILLMAgent:
             logger.debug(f"Processing explicit sarcastic request from {nick}: {message}")
             await self._handle_sarcastic_mode(server, chan_name, target, nick, message, mynick)
 
-        elif message.startswith("!s ") or message.startswith("!a "):
+        elif message.startswith("!s "):
             message = message[3:].strip()
             logger.debug(f"Processing explicit serious request from {nick}: {message}")
-            await self._handle_serious_mode(server, chan_name, target, nick, message, mynick)
+            await self._handle_serious_mode(
+                server, chan_name, target, nick, message, mynick, "EASY_SERIOUS"
+            )
+
+        elif message.startswith("!a "):
+            message = message[3:].strip()
+            logger.debug(f"Processing explicit agentic request from {nick}: {message}")
+            await self._handle_serious_mode(
+                server, chan_name, target, nick, message, mynick, "THINKING_SERIOUS"
+            )
 
         elif re.match(r"^!.", message):
             logger.warning(f"Unknown command from {nick}: {message}")
@@ -453,8 +474,10 @@ class IRSSILLMAgent:
             classified_mode = await self.classify_mode(context)
             logger.debug(f"Auto-classified message as {classified_mode} mode")
 
-            if classified_mode == "SERIOUS":
-                await self._handle_serious_mode(server, chan_name, target, nick, message, mynick)
+            if classified_mode.endswith("SERIOUS"):
+                await self._handle_serious_mode(
+                    server, chan_name, target, nick, message, mynick, classified_mode
+                )
             else:
                 await self._handle_sarcastic_mode(server, chan_name, target, nick, message, mynick)
 
@@ -471,6 +494,7 @@ class IRSSILLMAgent:
         nick: str,
         message: str,
         mynick: str,
+        classified_mode: str,
         is_proactive: bool = False,
         send_message: bool = True,
     ) -> str | None:
@@ -505,7 +529,9 @@ class IRSSILLMAgent:
             # Configure progress after entering (avoid changing call signature used in tests)
             if not is_proactive:
                 agent.configure_progress(True, progress_cb_fn)
-            response = await agent.run_agent(context)
+            response = await agent.run_agent(
+                context, reasoning_effort="low" if classified_mode == "EASY_SERIOUS" else "medium"
+            )
 
         # For proactive interjections, check for NULL response
         if (
@@ -518,7 +544,7 @@ class IRSSILLMAgent:
 
         if response:
             if send_message:
-                logger.info(f"Sending agent response to {target}: {response}")
+                logger.info(f"Sending agent ({classified_mode}) response to {target}: {response}")
                 await self.varlink_sender.send_message(target, response, server)
                 # Update context with response
                 await self.history.add_message(server, chan_name, response, mynick, mynick, True)
