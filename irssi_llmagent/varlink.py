@@ -107,7 +107,8 @@ class VarlinkSender(BaseVarlinkClient):
         effective payload limit for a client-sent PRIVMSG is roughly:
             512 - len("PRIVMSG ") - len(target) - len(" :") - len(CRLF)
         which simplifies to: 512 - 12 - len(target)
-        We split on UTF-8 byte boundaries and prefer splitting on whitespace.
+        We count bytes strictly in UTF-8 and never split inside a code point.
+        Prefer splitting on whitespace when possible.
         """
         # Calculate maximum payload bytes for the message text
         try:
@@ -117,24 +118,30 @@ class VarlinkSender(BaseVarlinkClient):
         max_payload = max(1, 512 - 12 - target_len)
 
         def split_once(text: str) -> tuple[str, str | None]:
-            # If text fits, return as-is
+            # Fast path if it fits
             b = text.encode("utf-8")
             if len(b) <= max_payload:
                 return text, None
-            # Find split point no later than max_payload bytes, try whitespace
-            # Walk back to ensure valid UTF-8 and optional whitespace boundary
-            cut = max_payload
-            # Back up to a character boundary
-            while cut > 0 and (b[cut] & 0xC0) == 0x80:
-                cut -= 1
-            head = b[:cut].decode("utf-8", errors="ignore")
-            # Prefer last whitespace in head if it doesn't shrink too much
-            ws = head.rfind(" ")
-            if ws >= 0 and ws >= len(head) // 2:
-                head = head[:ws]
-                cut = len(head.encode("utf-8"))
-            tail_bytes = b[cut:]
-            tail = tail_bytes.decode("utf-8", errors="ignore")
+
+            # Walk characters while counting bytes to avoid partial code points
+            byte_count = 0
+            split_idx = 0  # character index to split at
+            last_space_idx: int | None = None
+            for i, ch in enumerate(text):
+                ch_bytes = len(ch.encode("utf-8"))
+                if byte_count + ch_bytes > max_payload:
+                    break
+                byte_count += ch_bytes
+                split_idx = i + 1
+                if ch.isspace():
+                    last_space_idx = split_idx  # position AFTER the space
+
+            # Prefer last whitespace if it doesn't make the first part too short
+            if last_space_idx is not None and last_space_idx >= split_idx // 2:
+                split_idx = last_space_idx
+
+            head = text[:split_idx]
+            tail = text[split_idx:]
             return head, tail
 
         first, rest = split_once(message)
@@ -146,16 +153,24 @@ class VarlinkSender(BaseVarlinkClient):
             if response and "parameters" in response:
                 return response["parameters"].get("success", False)
             return False
+
         # Need a second part; ensure it also fits within one payload (truncate if not)
-        # Trim leading spaces on second part
-        rest = rest.lstrip()
+        # Trim exactly one leading space on second part to look natural
+        if rest.startswith(" "):
+            rest = rest[1:]
         rest_bytes = rest.encode("utf-8")
         if len(rest_bytes) > max_payload:
-            # Truncate to max_payload on byte boundary
-            cut = max_payload
-            while cut > 0 and (rest_bytes[cut] & 0xC0) == 0x80:
-                cut -= 1
-            rest = rest_bytes[:cut].decode("utf-8", errors="ignore")
+            # Keep as many complete characters as fit
+            byte_count = 0
+            end_idx = 0
+            for i, ch in enumerate(rest):
+                ch_bytes = len(ch.encode("utf-8"))
+                if byte_count + ch_bytes > max_payload:
+                    break
+                byte_count += ch_bytes
+                end_idx = i + 1
+            rest = rest[:end_idx]
+
         ok = True
         for part in (first, rest):
             response = await self.send_call(
