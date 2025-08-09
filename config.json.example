@@ -1,34 +1,43 @@
 {
-  "_comment": "API keys should be set to your actual keys from Anthropic, OpenAI and Perplexity",
-  "api_type": "anthropic",
-  "anthropic": {
-    "url": "https://api.anthropic.com/v1/messages",
-    "key": "your-anthropic-api-key-here",
-    "model": "claude-sonnet-4-20250514",
-    "serious_model": "claude-opus-4-20250514",
-    "classifier_model": "claude-3-5-haiku-20241022",
-    "proactive_validation_models": ["claude-3-haiku-20240307", "claude-3-5-haiku-20241022"]
+  "_comment": "Set provider keys. Choose models by provider:model",
+
+  "providers": {
+    "anthropic": {
+      "url": "https://api.anthropic.com/v1/messages",
+      "key": "your-anthropic-api-key-here"
+    },
+    "openai": {
+      "base_url": "https://api.openai.com/v1",
+      "key": "your-openai-api-key-here",
+      "max_tokens": 5000
+    },
+    "perplexity": {
+      "url": "https://api.perplexity.ai/chat/completions",
+      "key": "your-perplexity-api-key-here",
+      "model": "sonar-pro"
+    },
+    "e2b": {
+      "api_key": "your-e2b-api-key-here"
+    }
   },
-  "openai": {
-    "url": "https://api.openai.com/v1",
-    "key": "your-openai-api-key-here",
-    "model": "gpt-5",
-    "serious_model": "gpt-5",
-    "classifier_model": "gpt-5-mini",
-    "proactive_validation_models": ["gpt-5-nano", "gpt-5-mini"],
-    "max_tokens": 5000
+
+  "models": {
+    "sarcastic": "anthropic:claude-sonnet-4-20250514",
+    "serious": [
+      "openai:gpt-5"
+    ],
+    "proactive_serious": "openai:gpt-5",
+    "classifier": "openai:gpt-5-mini",
+    "proactive_validation": [
+      "anthropic:claude-3-haiku-20240307",
+      "openai:gpt-5-mini"
+    ]
   },
-  "perplexity": {
-    "url": "https://api.perplexity.ai/chat/completions",
-    "key": "your-perplexity-api-key-here",
-    "model": "sonar-pro"
-  },
-  "e2b": {
-    "api_key": "your-e2b-api-key-here"
-  },
+
   "varlink": {
     "socket_path": "~/.irssi/varlink.sock"
   },
+
   "behavior": {
     "history_size": 15,
     "rate_limit": 30,
@@ -45,6 +54,7 @@
       "min_interval_seconds": 8
     }
   },
+
   "prompts": {
     "serious": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. You will follow up to the last message, address the topic, and provide a ONE-LINE thoughtful and constructive response. Try to helpfully surprise if you can. Search for external info if you aren't sure and the question is very specific (it is expensive, but better than being wrong) - in that case, ALWAYS cite external resources with full link. But if you don't search, you never make up URLs. (V češtině tykáš, but you reply in the same language as the last message. Address whoever was talking to you.) Current time: {current_time}.",
     "sarcastic": "You are IRC user {mynick} and you are known for your sharp sarcasm and cynical, dry, rough sense of humor. You are also extremely clever. You will follow up to the last message, play along (address the topic, not the speaker), and say a single surprisingly witty comeback message that makes everyone chuckle. (V češtině tykáš, but you reply in the same language as last message. Address whoever was talking to you.) Current time: {current_time}.",

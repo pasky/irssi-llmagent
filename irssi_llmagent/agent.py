@@ -5,8 +5,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from .claude import AnthropicClient
-from .openai import OpenAIClient
+from .model_router import ModelRouter, parse_model_spec
 from .tools import PROGRESS_TOOL, TOOLS, create_tool_executors, execute_tool
 
 logger = logging.getLogger(__name__)
@@ -27,7 +26,7 @@ class AIAgent:
     ):
         self.config = config
         self.mynick = mynick
-        self.api_client: Any = self._get_api_client(config)
+        self.model_router: ModelRouter | None = None
         self.max_iterations = 7
         self.extra_prompt = extra_prompt
         self.model_override = model_override
@@ -41,22 +40,6 @@ class AIAgent:
         # Tool executors with progress callback
         self.tool_executors = create_tool_executors(config, progress_callback=progress_callback)
 
-    def _get_api_client(self, config):
-        """Get the appropriate API client based on config."""
-        api_type = config.get("api_type", "anthropic")
-        if api_type == "openai":
-            return OpenAIClient(config)
-        elif api_type == "anthropic":
-            return AnthropicClient(config)
-        else:
-            logger.error(f"Unknown api_type: {api_type}, defaulting to anthropic")
-            return AnthropicClient(config)
-
-    def _get_api_config_section(self):
-        """Get the appropriate API config section."""
-        api_type = self.config.get("api_type", "anthropic")
-        return self.config[api_type]
-
     def _get_system_prompt(self) -> str:
         """Get the system prompt for the agent based on serious mode prompt."""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -67,7 +50,8 @@ class AIAgent:
 
     async def __aenter__(self):
         """Async context manager entry."""
-        await self.api_client.__aenter__()
+        # Lazy-init router when entering
+        self.model_router = await ModelRouter(self.config).__aenter__()
         # Initialize progress timers
         from time import time as _now
 
@@ -82,24 +66,46 @@ class AIAgent:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
-        await self.api_client.__aexit__(exc_type, exc_val, exc_tb)
+        # Close model router (which closes its clients)
+        if self.model_router is not None:
+            await self.model_router.__aexit__(exc_type, exc_val, exc_tb)
+            self.model_router = None
 
     async def run_agent(self, context: list[dict]) -> str:
         """Run the agent with tool-calling loop."""
         messages: list[dict[str, Any]] = copy.deepcopy(context)
 
         # Tool execution loop
+        cross_provider_next: bool = False
         for iteration in range(self.max_iterations):
             if iteration > 0:
                 logger.info(f"Agent iteration {iteration + 1}/{self.max_iterations}")
 
-            # Use serious_model for first iteration only, then default model
-            # Override with specific model if provided
+            # Select serious model per iteration; last element repeats thereafter
             if self.model_override:
                 model = self.model_override
+                next_model = self.model_override
             else:
-                api_config = self._get_api_config_section()
-                model = api_config["serious_model"] if iteration == 0 else api_config["model"]
+                serious_cfg = self.config["models"]["serious"]
+                if isinstance(serious_cfg, list):
+                    model = (
+                        serious_cfg[iteration] if iteration < len(serious_cfg) else serious_cfg[-1]
+                    )
+                    next_model = (
+                        serious_cfg[iteration + 1]
+                        if (iteration + 1) < len(serious_cfg)
+                        else serious_cfg[-1]
+                    )
+                else:
+                    model = serious_cfg
+                    next_model = serious_cfg
+            # Determine if next iteration switches providers
+            try:
+                cur_provider = parse_model_spec(model).provider
+                nxt_provider = parse_model_spec(next_model).provider
+                cross_provider_next = cur_provider != nxt_provider
+            except Exception:
+                cross_provider_next = False
 
             # Don't pass tools on final iteration
             extra_prompt = (
@@ -138,17 +144,19 @@ class AIAgent:
             tools_for_model = TOOLS + [PROGRESS_TOOL]
 
             try:
-                response = await self.api_client.call_raw(
+                if self.model_router is None:
+                    self.model_router = await ModelRouter(self.config).__aenter__()
+                response, client, _ = await self.model_router.call_raw_with_model(
+                    model,
                     messages,  # Pass messages in proper API format
                     self.system_prompt + thinking_prompt + progress_prompt + extra_prompt,
-                    model,
                     tools=tools_for_model,
                     tool_choice="auto" if iteration < self.max_iterations - 1 else "none",
                     reasoning_effort="low" if iteration > 0 else "medium",
                 )
 
-                # Process response using unified handler
-                result = self._process_ai_response(response)
+                # Process response using unified handler (provider-aware)
+                result = self._process_ai_response_provider(response, client)
 
                 if result["type"] == "error":
                     logger.error(f"Invalid AI response: {result['message']}")
@@ -158,7 +166,7 @@ class AIAgent:
                 elif result["type"] == "tool_use":
                     # Add assistant's tool request to conversation
                     if response and isinstance(response, dict):
-                        messages.append(self.api_client.format_assistant_message(response))
+                        messages.append(client.format_assistant_message(response))
 
                     # Execute all tools and collect results
                     tool_results = []
@@ -180,11 +188,26 @@ class AIAgent:
                         )
 
                     # Add tool results to conversation using API-specific format
-                    results_msg = self.api_client.format_tool_results(tool_results)
+                    results_msg = client.format_tool_results(tool_results)
                     if isinstance(results_msg, list):
                         messages.extend(results_msg)
                     else:
                         messages.append(results_msg)
+                    # Also add provider-agnostic summary only when provider switches next
+                    if cross_provider_next:
+                        try:
+                            summarized = "; ".join(
+                                [str(r.get("content", "")) for r in tool_results]
+                            )[:800]
+                            if summarized:
+                                logger.warning(
+                                    "Cross-provider handoff detected; injecting TOOL RESULTS summary for interoperability"
+                                )
+                                messages.append(
+                                    {"role": "user", "content": f"TOOL RESULTS: {summarized}"}
+                                )
+                        except Exception:
+                            pass
                     continue
 
             except Exception as e:
@@ -193,8 +216,10 @@ class AIAgent:
 
         raise StopIteration("Agent took too many turns to research")
 
-    def _process_ai_response(self, response: dict | str | None) -> dict[str, Any]:
-        """Unified processing of AI responses, returning structured result."""
+    def _process_ai_response_provider(
+        self, response: dict | str | None, client: Any
+    ) -> dict[str, Any]:
+        """Unified processing of AI responses, using the given provider client."""
         if not response:
             return {"type": "error", "message": "Empty response from AI"}
 
@@ -206,14 +231,14 @@ class AIAgent:
             return {"type": "error", "message": f"Unexpected response type: {type(response)}"}
 
         # Check if API wants to use tools
-        if self.api_client.has_tool_calls(response):
-            tool_uses = self.api_client.extract_tool_calls(response)
+        if client.has_tool_calls(response):
+            tool_uses = client.extract_tool_calls(response)
             if not tool_uses:
                 return {"type": "error", "message": "Invalid tool use response"}
             return {"type": "tool_use", "tools": tool_uses}
 
         # Extract final text response using API client's logic
-        text_response = self.api_client.extract_text_from_response(response)
+        text_response = client.extract_text_from_response(response)
         if text_response and text_response != "...":
             return {"type": "final_text", "text": text_response}
 

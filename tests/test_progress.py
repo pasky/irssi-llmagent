@@ -79,17 +79,16 @@ async def test_progress_report_tool_emits_callback(monkeypatch):
 
     # Config with progress thresholds very small to trigger immediately
     config = {
-        "api_type": "anthropic",
+        "default_provider": "anthropic",
+        "providers": {"anthropic": {"url": "http://example.com", "key": "dummy"}},
+        "models": {
+            "default": "anthropic:dummy",
+            "serious": "anthropic:dummy-serious",
+            "classifier": "anthropic:dummy-classifier",
+            "proactive_validation": [],
+        },
         "prompts": {
             "serious": "{mynick} at {current_time}",
-        },
-        "anthropic": {
-            "key": "dummy",
-            "url": "http://example.com",
-            "model": "dummy",
-            "serious_model": "dummy-serious",
-            "classifier_model": "dummy-classifier",
-            "proactive_validation_models": [],
         },
         "behavior": {
             "progress": {
@@ -100,14 +99,38 @@ async def test_progress_report_tool_emits_callback(monkeypatch):
     }
 
     agent = AIAgent(config, mynick="bot", progress_enabled=True, progress_callback=progress_cb)
-    # Inject fake client
-    agent.api_client = FakeAPIClient()
 
-    # Context can be emptyish; agent ensures a user msg
-    context = [{"role": "user", "content": "Hello"}]
+    # Patch router to use FakeAPIClient
+    fake_client = FakeAPIClient()
+    call_count = {"n": 0}
 
-    # Run agent without using context manager (fake client doesn't need it here)
-    result = await agent.run_agent(context)
+    async def fake_call_raw_with_model(*args, **kwargs):
+        # args: (model, messages, system_prompt, ...)
+        model = args[0]
+        messages = args[1]
+        system_prompt = args[2]
+        if call_count["n"] == 0:
+            call_count["n"] += 1
+            resp = await fake_client.call_raw(
+                messages, system_prompt, model, tools=kwargs.get("tools")
+            )
+            return resp, fake_client, None
+        else:
+            # Second call: return final text
+            return {"content": [{"type": "text", "text": "Final answer"}]}, fake_client, None
+
+    from unittest.mock import AsyncMock as _AsyncMock
+    from unittest.mock import patch as _patch
+
+    with _patch(
+        "irssi_llmagent.model_router.ModelRouter.call_raw_with_model",
+        new=_AsyncMock(side_effect=fake_call_raw_with_model),
+    ):
+        # Context can be emptyish; agent ensures a user msg
+        context = [{"role": "user", "content": "Hello"}]
+
+        # Run agent without using context manager (fake client doesn't need it here)
+        result = await agent.run_agent(context)
 
     assert result == "Final answer"
     assert sent, "Expected progress callback to be called at least once"

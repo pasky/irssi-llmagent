@@ -11,9 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from .agent import AIAgent
-from .claude import AnthropicClient
 from .history import ChatHistory
-from .openai import OpenAIClient
+from .model_router import ModelRouter
 from .perplexity import PerplexityClient
 from .proactive_debouncer import ProactiveDebouncer
 from .rate_limiter import RateLimiter
@@ -56,7 +55,7 @@ class IRSSILLMAgent:
 
     def __init__(self, config_path: str = "config.json"):
         self.config = self.load_config(config_path)
-        self.api_client_class = self._get_api_client_class()
+        self.model_router: ModelRouter | None = None
         self.varlink_events = VarlinkClient(self.config["varlink"]["socket_path"])
         self.varlink_sender = VarlinkSender(self.config["varlink"]["socket_path"])
         self.history = ChatHistory(
@@ -91,22 +90,6 @@ class IRSSILLMAgent:
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in config file: {e}")
             sys.exit(1)
-
-    def _get_api_client_class(self):
-        """Get the appropriate API client class based on config."""
-        api_type = self.config.get("api_type", "anthropic")
-        if api_type == "openai":
-            return OpenAIClient
-        elif api_type == "anthropic":
-            return AnthropicClient
-        else:
-            logger.error(f"Unknown api_type: {api_type}, defaulting to anthropic")
-            return AnthropicClient
-
-    def _get_api_config_section(self):
-        """Get the appropriate API config section."""
-        api_type = self.config.get("api_type", "anthropic")
-        return self.config[api_type]
 
     def should_ignore_user(self, nick: str) -> bool:
         """Check if user should be ignored."""
@@ -148,11 +131,12 @@ class IRSSILLMAgent:
                 current_message = message_match.group(1).strip()
 
             prompt = self.config["prompts"]["mode_classifier"].format(message=current_message)
-            api_config = self._get_api_config_section()
-            model = api_config["classifier_model"]
-
-            async with self.api_client_class(self.config) as client:
-                response = await client.call(context, prompt, model)
+            model = self.config["models"]["classifier"]
+            # Lazy-init router on first use
+            if self.model_router is None:
+                self.model_router = await ModelRouter(self.config).__aenter__()
+            resp, client, _ = await self.model_router.call_raw_with_model(model, context, prompt)
+            response = client.extract_text_from_response(resp)
 
             serious_count = response.count("SERIOUS")
             sarcastic_count = response.count("SARCASTIC")
@@ -195,16 +179,19 @@ class IRSSILLMAgent:
             prompt = self.config["prompts"]["proactive_interject"].format(message=current_message)
 
             # Get validation models list
-            api_config = self._get_api_config_section()
-            validation_models = api_config["proactive_validation_models"]
+            validation_models = self.config["models"]["proactive_validation"]
+            if self.model_router is None:
+                self.model_router = await ModelRouter(self.config).__aenter__()
 
             final_score = None
             all_responses = []
 
             # Run iterative validation through all models
             for i, model in enumerate(validation_models):
-                async with self.api_client_class(self.config) as client:
-                    response = await client.call(context, prompt, model)
+                resp, client, _ = await self.model_router.call_raw_with_model(
+                    model, context, prompt
+                )
+                response = client.extract_text_from_response(resp)
 
                 if not response or response.startswith("API error:"):
                     return False, f"No response from validation model {i + 1}", False
@@ -416,10 +403,12 @@ class IRSSILLMAgent:
         """Handle IRC commands and generate responses."""
         if message.startswith("!h") or message == "!h":
             logger.debug(f"Sending help message to {nick}")
-            api_config = self._get_api_config_section()
-            sarcastic_model = api_config["model"]
-            serious_model = api_config["serious_model"]
-            classifier_model = api_config["classifier_model"]
+            sarcastic_model = self.config["models"]["sarcastic"]
+            serious_cfg = self.config["models"]["serious"]
+            serious_model = (
+                serious_cfg[0] if isinstance(serious_cfg, list) and serious_cfg else serious_cfg
+            )
+            classifier_model = self.config["models"]["classifier"]
             help_msg = f"default is automatic mode ({classifier_model} decides), !d is explicit sarcastic diss mode ({sarcastic_model}), !a is serious agentic mode with web tools ({serious_model}), !p is Perplexity (prefer English!)"
             await self.varlink_sender.send_message(target, help_msg, server)
 
@@ -493,10 +482,8 @@ class IRSSILLMAgent:
         if is_proactive:
             extra_prompt = " " + self.config["prompts"]["proactive_serious_extra"]
 
-        # Use configured API type (AIAgent works for both anthropic and openai)
-        api_config = self._get_api_config_section()
-        # Use default model for proactive interjections to avoid expensive models
-        model_override = api_config["model"] if is_proactive else None
+        # Use configured proactive serious model for proactive interjections
+        model_override = self.config["models"].get("proactive_serious") if is_proactive else None
         # Build progress callback only for non-proactive mode
         from collections.abc import Awaitable, Callable
 
@@ -548,16 +535,16 @@ class IRSSILLMAgent:
         system_prompt = self.config["prompts"]["sarcastic"].format(
             mynick=mynick, current_time=current_time
         )
-        api_config = self._get_api_config_section()
-        model = api_config["model"]
+        model = self.config["models"]["sarcastic"]
 
         context = await self.history.get_context(server, chan_name)
-        async with self.api_client_class(self.config) as client:
-            response = await client.call(context, system_prompt, model)
+        if self.model_router is None:
+            self.model_router = await ModelRouter(self.config).__aenter__()
+        resp, client, _ = await self.model_router.call_raw_with_model(model, context, system_prompt)
+        response = client.extract_text_from_response(resp)
 
         if response:
-            api_type = self.config.get("api_type", "anthropic")
-            logger.info(f"Sending {api_type} response to {target}: {response}")
+            logger.info(f"Sending sarcastic response to {target}: {response}")
             await self.varlink_sender.send_message(target, response, server)
             # Update context with response
             await self.history.add_message(server, chan_name, response, mynick, mynick, True)
@@ -694,6 +681,13 @@ async def cli_mode(message: str, config_path: str | None = None) -> None:
 
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        # Ensure any model router sessions held by the agent are closed
+        try:
+            if getattr(agent, "model_router", None) is not None:
+                await agent.model_router.__aexit__(None, None, None)  # type: ignore
+        except Exception:
+            pass
 
 
 def main() -> None:

@@ -24,6 +24,8 @@
 - **Varlink Protocol**: Dual async socket architecture (events + sender) over UNIX socket at `~/.irssi/varlink.sock`
 - **APIs**: Anthropic Claude (sarcastic/serious modes with automatic classification using claude-3-5-haiku), Perplexity AI, E2B sandbox for Python code execution
 - **Config**: JSON-based configuration in `config.json` (copy from `config.json.example`)
+  - Models MUST be fully-qualified as `provider:model` (e.g., `anthropic:claude-sonnet-4`). No defaults.
+  - No backwards compatibility is kept for legacy config keys; tests are aligned to the new schema.
 - **Logging**: Console output (INFO+) and debug.log file (DEBUG+), third-party libraries suppressed from console
 - **Database**: SQLite persistent chat history with configurable inference limits
 - **Proactive Interjecting**: Channel-based whitelist feature using claude-3-haiku to scan non-directed messages and interject in serious conversations when useful. Includes rate limiting, test mode, and channel whitelisting
@@ -44,3 +46,7 @@
 - **Type Safety**: Type hints and pyright type checking enabled
 - **Linting**: Ruff for code quality and formatting
 - **Testing**: Pytest with async support for behavioral tests
+
+## Notes for contributors
+- Tests should avoid mocking low-level API client constructors when validating control flow. Prefer patching router calls to inject fake responses, and ensure provider configs are referenced via `providers.*`.
+- Do NOT introduce compatibility shims for legacy config fields; update tests and fixtures instead.

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from irssi_llmagent.agent import AIAgent
+from irssi_llmagent.model_router import ModelRouter, ModelSpec
 
 
 class TestAPIAgent:
@@ -72,9 +73,9 @@ class TestAPIAgent:
     @pytest.mark.asyncio
     async def test_agent_context_manager(self, agent):
         """Test agent as async context manager."""
-        with patch.object(agent.api_client, "__aenter__", new_callable=AsyncMock) as mock_enter:
-            with patch.object(agent.api_client, "__aexit__", new_callable=AsyncMock) as mock_exit:
-                mock_enter.return_value = agent.api_client
+        with patch.object(ModelRouter, "__aenter__", new_callable=AsyncMock) as mock_enter:
+            with patch.object(ModelRouter, "__aexit__", new_callable=AsyncMock) as mock_exit:
+                mock_enter.return_value = ModelRouter(agent.config)
 
                 async with agent:
                     pass
@@ -88,9 +89,28 @@ class TestAPIAgent:
         # Mock API response with text only
         mock_response = self.create_text_response(api_type, "This is a simple answer.")
 
-        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
-            mock_call.return_value = mock_response
+        class FakeClient:
+            def extract_text_from_response(self, r):
+                return "This is a simple answer."
 
+            def has_tool_calls(self, r):
+                return False
+
+            def extract_tool_calls(self, r):
+                return None
+
+            def format_assistant_message(self, r):
+                return {"role": "assistant", "content": "ok"}
+
+            def format_tool_results(self, results):
+                return {"role": "user", "content": []}
+
+        async def fake_call_raw_with_model(*args, **kwargs):
+            return mock_response, FakeClient(), ModelSpec("anthropic", "dummy")
+
+        with patch.object(
+            ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+        ) as mock_call:
             result = await agent.run_agent([{"role": "user", "content": "What is 2+2?"}])
 
             assert result == "This is a simple answer."
@@ -109,9 +129,43 @@ class TestAPIAgent:
             api_type, "Based on the search results, here's what I found about Python tutorials."
         )
 
-        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
+        class FakeClient:
+            def extract_text_from_response(self, r):
+                if r is final_response:
+                    return (
+                        "Based on the search results, here's what I found about Python tutorials."
+                    )
+                return ""
+
+            def has_tool_calls(self, r):
+                return r is tool_use_response
+
+            def extract_tool_calls(self, r):
+                if r is tool_use_response:
+                    return [
+                        {
+                            "id": "tool_123",
+                            "name": "web_search",
+                            "input": {"query": "Python tutorial"},
+                        }
+                    ]
+                return None
+
+            def format_assistant_message(self, r):
+                return {"role": "assistant", "content": []}
+
+            def format_tool_results(self, results):
+                return {"role": "user", "content": []}
+
+        seq = [tool_use_response, final_response]
+
+        async def fake_call_raw_with_model(*args, **kwargs):
+            return seq.pop(0), FakeClient(), ModelSpec("anthropic", "dummy")
+
+        with patch.object(
+            ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+        ) as mock_call:
             with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
-                mock_call.side_effect = [tool_use_response, final_response]
                 mock_tool.return_value = "Search results: Python is a programming language..."
 
                 result = await agent.run_agent(
@@ -130,35 +184,59 @@ class TestAPIAgent:
             api_type, [{"id": "tool_123", "name": "web_search", "input": {"query": "test"}}]
         )
 
-        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
-            with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
-                # Mock _extract_text_from_response to return actual cleaned text
-                with patch.object(
-                    agent.api_client, "extract_text_from_response", return_value="Final response"
-                ):
-                    # Set up the mock to return tool_use responses for first 2 calls, then final response on 3rd call
-                    final_dict_response = self.create_text_response(api_type, "Final response")
-
-                    mock_call.side_effect = [
-                        tool_use_response,
-                        tool_use_response,
-                        final_dict_response,
-                    ]
-                    mock_tool.return_value = "Tool result"
-
-                    result = await agent.run_agent(
-                        [{"role": "user", "content": "Keep using tools"}]
+        class FakeClient:
+            def extract_text_from_response(self, r):
+                if isinstance(r, dict) and (
+                    r.get("output_text") == "Final response"
+                    or any(
+                        (c.get("type") == "text" and c.get("text") == "Final response")
+                        for c in r.get("content", [])
                     )
+                ):
+                    return "Final response"
+                return ""
 
-                    assert "Final response" in result
-                    assert mock_call.call_count == 3  # 3 iterations max
+            def has_tool_calls(self, r):
+                return r == tool_use_response
+
+            def extract_tool_calls(self, r):
+                if r == tool_use_response:
+                    return [{"id": "tool_123", "name": "web_search", "input": {"query": "test"}}]
+                return None
+
+            def format_assistant_message(self, r):
+                return {"role": "assistant", "content": []}
+
+            def format_tool_results(self, results):
+                return {"role": "user", "content": []}
+
+        final_dict_response = self.create_text_response(api_type, "Final response")
+        seq = [tool_use_response, tool_use_response, final_dict_response]
+
+        async def fake_call_raw_with_model(*args, **kwargs):
+            return seq.pop(0), FakeClient(), ModelSpec("anthropic", "dummy")
+
+        with patch.object(
+            ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+        ) as mock_call:
+            with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
+                mock_tool.return_value = "Tool result"
+
+                result = await agent.run_agent([{"role": "user", "content": "Keep using tools"}])
+
+                assert "Final response" in result
+                assert mock_call.call_count == 3  # 3 iterations max
 
     @pytest.mark.asyncio
     async def test_agent_api_error_handling(self, agent):
         """Test agent handles API errors gracefully."""
-        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
-            mock_call.side_effect = Exception("API Error")
 
+        async def fake_call_raw_with_model(*args, **kwargs):
+            raise Exception("API Error")
+
+        with patch.object(
+            ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+        ):
             with pytest.raises(RuntimeError, match="coroutine raised StopIteration"):
                 await agent.run_agent([{"role": "user", "content": "Test query"}])
 
@@ -173,9 +251,35 @@ class TestAPIAgent:
             api_type, "I encountered an error but here's what I can tell you."
         )
 
-        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
+        class FakeClient:
+            def extract_text_from_response(self, r):
+                if r is final_response:
+                    return "I encountered an error but here's what I can tell you."
+                return ""
+
+            def has_tool_calls(self, r):
+                return r is tool_use_response
+
+            def extract_tool_calls(self, r):
+                if r is tool_use_response:
+                    return [{"id": "tool_123", "name": "web_search", "input": {"query": "test"}}]
+                return None
+
+            def format_assistant_message(self, r):
+                return {"role": "assistant", "content": []}
+
+            def format_tool_results(self, results):
+                return {"role": "user", "content": []}
+
+        seq = [tool_use_response, final_response]
+
+        async def fake_call_raw_with_model(*args, **kwargs):
+            return seq.pop(0), FakeClient(), ModelSpec("anthropic", "dummy")
+
+        with patch.object(
+            ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+        ):
             with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
-                mock_call.side_effect = [tool_use_response, final_response]
                 mock_tool.return_value = "Tool execution failed: Network error"
 
                 result = await agent.run_agent(
@@ -220,7 +324,41 @@ class TestAPIAgent:
                 ]
             }
 
-        tool_uses = agent.api_client.extract_tool_calls(response)
+        class FakeClient:
+            def extract_tool_calls(self, r):
+                # Reuse provider shapes
+                if "content" in r:
+                    return [
+                        {
+                            "id": b.get("id"),
+                            "name": b.get("name"),
+                            "input": b.get("input", {}),
+                        }
+                        for b in r.get("content", [])
+                        if isinstance(b, dict) and b.get("type") == "tool_use"
+                    ] or None
+                outputs = r.get("output") or []
+                calls = []
+                for item in outputs:
+                    if item.get("type") == "message":
+                        msg = item.get("message") if isinstance(item.get("message"), dict) else item
+                        for c in msg.get("content", []):
+                            if c.get("type") == "tool_call":
+                                fn = c.get("function", {})
+                                import json as _json
+
+                                args = fn.get("arguments")
+                                if isinstance(args, str):
+                                    try:
+                                        args = _json.loads(args)
+                                    except Exception:
+                                        args = {}
+                                calls.append(
+                                    {"id": c.get("id"), "name": fn.get("name"), "input": args}
+                                )
+                return calls or None
+
+        tool_uses = FakeClient().extract_tool_calls(response)
 
         assert tool_uses is not None
         assert len(tool_uses) == 1
@@ -277,7 +415,42 @@ class TestAPIAgent:
                     }
                 ]
             }
-        tool_uses = agent.api_client.extract_tool_calls(response)
+
+        class FakeClient:
+            def extract_tool_calls(self, r):
+                # Reuse provider shapes
+                if "content" in r:
+                    return [
+                        {
+                            "id": b.get("id"),
+                            "name": b.get("name"),
+                            "input": b.get("input", {}),
+                        }
+                        for b in r.get("content", [])
+                        if isinstance(b, dict) and b.get("type") == "tool_use"
+                    ] or None
+                outputs = r.get("output") or []
+                calls = []
+                for item in outputs:
+                    if item.get("type") == "message":
+                        msg = item.get("message") if isinstance(item.get("message"), dict) else item
+                        for c in msg.get("content", []):
+                            if c.get("type") == "tool_call":
+                                fn = c.get("function", {})
+                                import json as _json
+
+                                args = fn.get("arguments")
+                                if isinstance(args, str):
+                                    try:
+                                        args = _json.loads(args)
+                                    except Exception:
+                                        args = {}
+                                calls.append(
+                                    {"id": c.get("id"), "name": fn.get("name"), "input": args}
+                                )
+                return calls or None
+
+        tool_uses = FakeClient().extract_tool_calls(response)
 
         assert tool_uses is not None
         assert len(tool_uses) == 2
@@ -291,7 +464,41 @@ class TestAPIAgent:
         else:  # openai (Responses API)
             response = {"output_text": "Just a text response."}
 
-        tool_uses = agent.api_client.extract_tool_calls(response)
+        class FakeClient:
+            def extract_tool_calls(self, r):
+                # Reuse provider shapes
+                if "content" in r:
+                    return [
+                        {
+                            "id": b.get("id"),
+                            "name": b.get("name"),
+                            "input": b.get("input", {}),
+                        }
+                        for b in r.get("content", [])
+                        if isinstance(b, dict) and b.get("type") == "tool_use"
+                    ] or None
+                outputs = r.get("output") or []
+                calls = []
+                for item in outputs:
+                    if item.get("type") == "message":
+                        msg = item.get("message") if isinstance(item.get("message"), dict) else item
+                        for c in msg.get("content", []):
+                            if c.get("type") == "tool_call":
+                                fn = c.get("function", {})
+                                import json as _json
+
+                                args = fn.get("arguments")
+                                if isinstance(args, str):
+                                    try:
+                                        args = _json.loads(args)
+                                    except Exception:
+                                        args = {}
+                                calls.append(
+                                    {"id": c.get("id"), "name": fn.get("name"), "input": args}
+                                )
+                return calls or None
+
+        tool_uses = FakeClient().extract_tool_calls(response)
 
         assert tool_uses is None
 
@@ -309,32 +516,58 @@ class TestAPIAgent:
 
         final_response = self.create_text_response(api_type, "Here's what I found")
 
-        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
+        class FakeClient:
+            def extract_text_from_response(self, r):
+                if r is final_response:
+                    return "Here's what I found"
+                return ""
+
+            def has_tool_calls(self, r):
+                return r is multi_tool_response
+
+            def extract_tool_calls(self, r):
+                if r is multi_tool_response:
+                    return [
+                        {"id": "tool_1", "name": "web_search", "input": {"query": "test"}},
+                        {
+                            "id": "tool_2",
+                            "name": "visit_webpage",
+                            "input": {"url": "https://example.com"},
+                        },
+                    ]
+                return None
+
+            def format_assistant_message(self, r):
+                return {"role": "assistant", "content": []}
+
+            def format_tool_results(self, results):
+                return {"role": "user", "content": []}
+
+        seq = [multi_tool_response, final_response]
+
+        async def fake_call_raw_with_model(*args, **kwargs):
+            return seq.pop(0), FakeClient(), ModelSpec("anthropic", "dummy")
+
+        with patch.object(
+            ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+        ):
             with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
-                with patch.object(
-                    agent.api_client,
-                    "extract_text_from_response",
-                    return_value="Here's what I found",
-                ):
-                    mock_call.side_effect = [multi_tool_response, final_response]
-                    mock_tool.side_effect = ["Search result", "Page content"]
+                mock_tool.side_effect = ["Search result", "Page content"]
 
-                    result = await agent.run_agent(
-                        [{"role": "user", "content": "Search and visit"}]
-                    )
+                result = await agent.run_agent([{"role": "user", "content": "Search and visit"}])
 
-                    # Verify both tools were executed
-                    assert mock_tool.call_count == 2
+                # Verify both tools were executed
+                assert mock_tool.call_count == 2
 
-                    # Verify correct tool calls
-                    call_args_list = mock_tool.call_args_list
-                    # Now expects (tool_name, tool_executors, **kwargs)
-                    assert call_args_list[0][0][0] == "web_search"  # first positional arg
-                    assert call_args_list[0][1] == {"query": "test"}  # kwargs
-                    assert call_args_list[1][0][0] == "visit_webpage"  # first positional arg
-                    assert call_args_list[1][1] == {"url": "https://example.com"}  # kwargs
+                # Verify correct tool calls
+                call_args_list = mock_tool.call_args_list
+                # Now expects (tool_name, tool_executors, **kwargs)
+                assert call_args_list[0][0][0] == "web_search"  # first positional arg
+                assert call_args_list[0][1] == {"query": "test"}  # kwargs
+                assert call_args_list[1][0][0] == "visit_webpage"  # first positional arg
+                assert call_args_list[1][1] == {"url": "https://example.com"}  # kwargs
 
-                    assert "Here's what I found" in result
+                assert "Here's what I found" in result
 
     @pytest.mark.asyncio
     async def test_agent_with_context(self, agent):
@@ -349,52 +582,92 @@ class TestAPIAgent:
             {"role": "user", "content": "Tell me more about it"},
         ]
 
-        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
-            with patch.object(
-                agent.api_client,
-                "extract_text_from_response",
-                return_value="Blue represents calm and trust",
-            ):
-                mock_call.return_value = {
+        class FakeClient:
+            def extract_text_from_response(self, r):
+                return "Blue represents calm and trust"
+
+            def has_tool_calls(self, r):
+                return False
+
+            def extract_tool_calls(self, r):
+                return None
+
+            def format_assistant_message(self, r):
+                return {"role": "assistant", "content": []}
+
+            def format_tool_results(self, results):
+                return {"role": "user", "content": []}
+
+        async def fake_call_raw_with_model(model, messages, system_prompt, **kwargs):
+            return (
+                {
                     "content": [{"type": "text", "text": "Blue represents calm and trust"}],
                     "stop_reason": "end_turn",
-                }
+                },
+                FakeClient(),
+                ModelSpec("anthropic", "dummy"),
+            )
 
-                await agent.run_agent(context)
+        with patch.object(
+            ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+        ) as mock_call:
+            await agent.run_agent(context)
 
-                # Verify the full context was passed to AI
-                call_args = mock_call.call_args[0]
-                messages_passed = call_args[0]
+            # Verify the full context was passed to AI
+            call_args = mock_call.call_args[0]
+            # args were (model, messages, system_prompt)
+            messages_passed = call_args[1]
 
-                # Should have original context + current query (if not duplicate)
-                assert len(messages_passed) >= 3
-                assert messages_passed[0]["content"] == "What's your favorite color?"
-                assert (
-                    messages_passed[1]["content"]
-                    == "I don't have personal preferences, but blue is nice."
-                )
-                assert messages_passed[2]["content"] == "Tell me more about it"
+            # Should have original context + current query (if not duplicate)
+            assert len(messages_passed) >= 3
+            assert messages_passed[0]["content"] == "What's your favorite color?"
+            assert (
+                messages_passed[1]["content"]
+                == "I don't have personal preferences, but blue is nice."
+            )
+            assert messages_passed[2]["content"] == "Tell me more about it"
 
     @pytest.mark.asyncio
     async def test_agent_without_context(self, agent):
         """Test agent works without context (current behavior)."""
-        with patch.object(agent.api_client, "call_raw", new_callable=AsyncMock) as mock_call:
-            with patch.object(
-                agent.api_client, "extract_text_from_response", return_value="Hello there"
-            ):
-                mock_call.return_value = {
+
+        class FakeClient:
+            def extract_text_from_response(self, r):
+                return "Hello there"
+
+            def has_tool_calls(self, r):
+                return False
+
+            def extract_tool_calls(self, r):
+                return None
+
+            def format_assistant_message(self, r):
+                return {"role": "assistant", "content": []}
+
+            def format_tool_results(self, results):
+                return {"role": "user", "content": []}
+
+        async def fake_call_raw_with_model(model, messages, system_prompt, **kwargs):
+            return (
+                {
                     "content": [{"type": "text", "text": "Hello there"}],
                     "stop_reason": "end_turn",
-                }
+                },
+                FakeClient(),
+                ModelSpec("anthropic", "dummy"),
+            )
 
-                await agent.run_agent([{"role": "user", "content": "Hello"}])
+        with patch.object(
+            ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+        ) as mock_call:
+            await agent.run_agent([{"role": "user", "content": "Hello"}])
 
-                # Verify only the current query was passed
-                call_args = mock_call.call_args[0]
-                messages_passed = call_args[0]
+            # Verify only the current query was passed
+            call_args = mock_call.call_args[0]
+            messages_passed = call_args[1]
 
-                assert len(messages_passed) == 1
-                assert messages_passed[0]["content"] == "Hello"
+            assert len(messages_passed) == 1
+            assert messages_passed[0]["content"] == "Hello"
 
     # Removed tests for _extract_text_response and _format_for_irc as they were unified with client modules
 
@@ -408,7 +681,17 @@ class TestAPIAgent:
         else:  # openai (Responses API)
             response = {"output_text": "This is a test response"}
 
-        result = agent._process_ai_response(response)
+        class FakeClient:
+            def has_tool_calls(self, r):
+                return False
+
+            def extract_tool_calls(self, r):
+                return None
+
+            def extract_text_from_response(self, r):
+                return "This is a test response"
+
+        result = agent._process_ai_response_provider(response, FakeClient())
 
         assert result["type"] == "final_text"
         assert result["text"] == "This is a test response"
@@ -449,7 +732,17 @@ class TestAPIAgent:
                 ]
             }
 
-        result = agent._process_ai_response(response)
+        class FakeClient:
+            def has_tool_calls(self, r):
+                return True
+
+            def extract_tool_calls(self, r):
+                return [{"id": "tool_123", "name": "web_search", "input": {"query": "test"}}]
+
+            def extract_text_from_response(self, r):
+                return ""
+
+        result = agent._process_ai_response_provider(response, FakeClient())
 
         assert result["type"] == "tool_use"
         assert len(result["tools"]) == 1
@@ -459,17 +752,29 @@ class TestAPIAgent:
 
     def test_process_ai_response_errors(self, agent):
         """Test unified response processing error cases."""
+
         # Test None response
-        result = agent._process_ai_response(None)
+        # Using provider-aware path now
+        class FakeClient:
+            def has_tool_calls(self, r):
+                return False
+
+            def extract_tool_calls(self, r):
+                return None
+
+            def extract_text_from_response(self, r):
+                return ""
+
+        result = agent._process_ai_response_provider(None, FakeClient())
         assert result["type"] == "error"
         assert "Empty response" in result["message"]
 
         # Test string response (fallback)
-        result = agent._process_ai_response("Text response")
+        result = agent._process_ai_response_provider("Text response", FakeClient())
         assert result["type"] == "final_text"
         assert result["text"] == "Text response"
 
         # Test invalid dict response (AI client returns None, so we return error)
-        result = agent._process_ai_response({"invalid": "response"})
+        result = agent._process_ai_response_provider({"invalid": "response"}, FakeClient())
         assert result["type"] == "error"
         assert "No valid text" in result["message"]

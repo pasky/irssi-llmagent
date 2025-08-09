@@ -21,14 +21,16 @@ class OpenAIClient(BaseAPIClient):
     """OpenAI API client backed by the Responses API via the Python SDK."""
 
     def __init__(self, config: dict[str, Any]):
-        # Handle both full config and openai subsection
+        # Support new providers.* layout (preferred) and legacy top-level openai
         if "openai" in config:
-            super().__init__(config["openai"])
+            cfg = config["openai"]
         else:
-            super().__init__(config)
+            providers = config.get("providers", {}) if isinstance(config, dict) else {}
+            cfg = providers.get("openai", {})
+        super().__init__(cfg)
 
-        # Validate required keys
-        required_keys = ["key", "model"]
+        # Validate required keys (model is provided per-call in new routing)
+        required_keys = ["key"]
         for key in required_keys:
             if key not in self.config:
                 raise ValueError(f"OpenAI config missing required key: {key}")
@@ -85,7 +87,9 @@ class OpenAIClient(BaseAPIClient):
 
         # Build messages array from context (user/assistant/tool). System prompt via instructions.
         messages = list(context)
-        if not messages or all(m.get("role") != "user" for m in messages):
+        if not messages or all(
+            (not isinstance(m, dict)) or (m.get("role") != "user") for m in messages
+        ):
             messages.append({"role": "user", "content": "..."})
 
         # If the last role is assistant without tool_calls, avoid re-answering
@@ -98,36 +102,46 @@ class OpenAIClient(BaseAPIClient):
         if system_prompt:
             inputs.append({"role": "system", "content": system_prompt})
         for m in messages:
-            # Allow passing native function_call_output items straight through
-            if m.get("type") == "function_call_output":
-                inputs.append(
-                    {
-                        "type": "function_call_output",
-                        "call_id": m.get("call_id"),
-                        "output": m.get("output", "{}"),
-                    }
-                )
+            try:
+                # Allow passing native function_call_output items straight through
+                if isinstance(m, dict) and m.get("type") == "function_call_output":
+                    inputs.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": m.get("call_id"),
+                            "output": m.get("output", "{}"),
+                        }
+                    )
+                    continue
+                # Convert prior assistant tool_calls into Responses function_call items
+                if isinstance(m, dict) and isinstance(m.get("tool_calls"), list):
+                    for tc in m["tool_calls"]:
+                        if tc.get("type") == "function":
+                            name = tc.get("function", {}).get("name", "")
+                            args = tc.get("function", {}).get("arguments", "{}")
+                            call_id = tc.get("id") or ""
+                            inputs.append(
+                                {
+                                    "type": "function_call",
+                                    "call_id": call_id,
+                                    "name": name,
+                                    "arguments": args,
+                                }
+                            )
+                    # Also include the assistant message text if any
+                # Skip artifacts that aren't role-based messages
+                if not isinstance(m, dict) or ("role" not in m and "type" not in m):
+                    continue
+                # Only handle role-based chat messages here
+                role = m.get("role")
+                if role is None:
+                    continue
+                assert role != "tool"
+                content_val = m.get("content") or ""
+                inputs.append({"role": role, "content": content_val})
+            except Exception:
+                # Be permissive about stray artifacts in message history
                 continue
-            # Convert prior assistant tool_calls into Responses function_call items
-            if isinstance(m.get("tool_calls"), list):
-                for tc in m["tool_calls"]:
-                    if tc.get("type") == "function":
-                        name = tc.get("function", {}).get("name", "")
-                        args = tc.get("function", {}).get("arguments", "{}")
-                        call_id = tc.get("id") or ""
-                        inputs.append(
-                            {
-                                "type": "function_call",
-                                "call_id": call_id,
-                                "name": name,
-                                "arguments": args,
-                            }
-                        )
-                # Also include the assistant message text if any
-            role = m.get("role", "user")
-            assert role != "tool"
-            content_val = m.get("content") or ""
-            inputs.append({"role": role, "content": content_val})
 
         max_tokens = int(self.config.get("max_tokens", 1024 if tools else 256))
 

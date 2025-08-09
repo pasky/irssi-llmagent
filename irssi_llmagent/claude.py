@@ -15,7 +15,9 @@ class AnthropicClient(BaseAPIClient):
     """Anthropic Claude API client with async support."""
 
     def __init__(self, config: dict[str, Any]):
-        super().__init__(config["anthropic"])
+        providers = config.get("providers", {}) if isinstance(config, dict) else {}
+        cfg = providers.get("anthropic", {})
+        super().__init__(cfg)
         self.session: aiohttp.ClientSession | None = None
 
     async def __aenter__(self):
@@ -57,13 +59,14 @@ class AnthropicClient(BaseAPIClient):
         if not self.session:
             raise RuntimeError("AnthropicClient not initialized as async context manager")
 
-        # Keep separate user turns - Claude API handles consecutive user messages fine
-        messages = context.copy()
-
-        # Ensure first message is from user (only for simple text messages)
-        if messages and messages[0]["role"] != "user":
+        # Build Claude-friendly messages (skip function_call and function_call_output artifacts)
+        messages = []
+        for m in context:
+            if isinstance(m, dict) and m.get("role") in ("user", "assistant"):
+                messages.append({"role": m.get("role"), "content": m.get("content") or "..."})
+        # Ensure first message is from user
+        if messages and messages[0].get("role") != "user":
             messages.insert(0, {"role": "user", "content": "..."})
-
         # Ensure we have at least one message
         if not messages:
             messages.append({"role": "user", "content": "..."})

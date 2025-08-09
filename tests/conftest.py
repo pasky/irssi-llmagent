@@ -19,27 +19,25 @@ def api_type(request):
 def test_config(api_type) -> dict[str, Any]:
     """Test configuration fixture with parametrized API type."""
     base_config = {
-        "api_type": api_type,
-        "anthropic": {
-            "url": "https://api.anthropic.com/v1/messages",
-            "key": "test-key",
-            "model": "claude-3-haiku-20240307",
-            "serious_model": "claude-3-sonnet-20240229",
-            "classifier_model": "claude-3-5-haiku-20241022",
-            "proactive_validation_models": ["claude-3-haiku-20240307"],
+        "providers": {
+            "anthropic": {"url": "https://api.anthropic.com/v1/messages", "key": "test-key"},
+            "openai": {
+                "base_url": "https://api.openai.com/v1",
+                "key": "test-key",
+                "max_tokens": 2048,
+            },
+            "perplexity": {
+                "url": "https://api.perplexity.ai/chat/completions",
+                "key": "test-key",
+                "model": "sonar-pro",
+            },
         },
-        "openai": {
-            "url": "https://api.openai.com/v1/chat/completions",
-            "key": "test-key",
-            "model": "gpt-4o-mini",
-            "serious_model": "gpt-4o",
-            "classifier_model": "gpt-4o-mini",
-            "proactive_validation_models": ["gpt-4o-mini"],
-        },
-        "perplexity": {
-            "url": "https://api.perplexity.ai/chat/completions",
-            "key": "test-key",
-            "model": "sonar-pro",
+        "models": {
+            "sarcastic": f"{api_type}:dummy-sarcastic",
+            "serious": [f"{api_type}:dummy-serious"],
+            "proactive_serious": f"{api_type}:dummy-proactive",
+            "classifier": f"{api_type}:dummy-classifier",
+            "proactive_validation": [f"{api_type}:dummy-validator"],
         },
         "varlink": {"socket_path": "/tmp/test_varlink.sock"},
         "behavior": {
