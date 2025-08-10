@@ -307,7 +307,7 @@ def create_tool_executors(
     config: dict | None = None, *, progress_callback: Any | None = None
 ) -> dict[str, Any]:
     """Create tool executors with configuration."""
-    e2b_config = config.get("e2b", {}) if config else {}
+    e2b_config = config["providers"].get("e2b", {}) if config else {}
     e2b_api_key = e2b_config.get("api_key")
 
     # Progress executor settings

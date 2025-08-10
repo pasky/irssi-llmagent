@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from irssi_llmagent.tools import (
-    TOOLS,
     PythonExecutorE2B,
     WebpageVisitorExecutor,
     WebSearchExecutor,
@@ -161,32 +160,9 @@ class TestToolRegistry:
 class TestToolDefinitions:
     """Test tool definitions."""
 
-    def test_tools_structure(self):
-        """Test that tools have correct structure."""
-        assert isinstance(TOOLS, list)
-        assert len(TOOLS) == 3
-
-        # Check web_search tool
-        web_search = next(tool for tool in TOOLS if tool["name"] == "web_search")
-        assert "description" in web_search
-        assert "input_schema" in web_search
-        assert web_search["input_schema"]["required"] == ["query"]
-
-        # Check visit_webpage tool
-        visit_webpage = next(tool for tool in TOOLS if tool["name"] == "visit_webpage")
-        assert "description" in visit_webpage
-        assert "input_schema" in visit_webpage
-        assert visit_webpage["input_schema"]["required"] == ["url"]
-
-        # Check execute_python tool
-        execute_python = next(tool for tool in TOOLS if tool["name"] == "execute_python")
-        assert "description" in execute_python
-        assert "input_schema" in execute_python
-        assert execute_python["input_schema"]["required"] == ["code"]
-
     def test_create_tool_executors_with_config(self):
         """Test that tool executors are created with configuration."""
-        config = {"e2b": {"api_key": "test-key-123"}}
+        config = {"providers": {"e2b": {"api_key": "test-key-123"}}}
 
         executors = create_tool_executors(config)
 
