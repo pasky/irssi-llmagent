@@ -95,7 +95,8 @@ class AnthropicClient(BaseAPIClient):
             payload["thinking_budget"] = thinking_budget
         if tools:
             payload["tools"] = tools
-            # TODO tool_choice
+        if tool_choice:
+            payload["tool_choice"] = tool_choice
 
         logger.debug(f"Calling Anthropic API with model: {model}")
         logger.debug(f"Anthropic request payload: {json.dumps(payload, indent=2)}")

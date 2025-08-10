@@ -62,6 +62,20 @@ TOOLS: list[Tool] = [
             "required": ["code"],
         },
     },
+    {
+        "name": "progress_report",
+        "description": "Send a brief one-line progress update to the user.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "One-line progress update. Keep it super concise, but very casual and even snarky in line with your instructions and previous conversation.",
+                }
+            },
+            "required": ["text"],
+        },
+    },
 ]
 
 
@@ -248,23 +262,6 @@ class PythonExecutorE2B:
         except Exception as e:
             logger.error(f"E2B sandbox execution failed: {e}")
             return f"Error executing code: {e}"
-
-
-# Definition for optional tool that can be exposed conditionally by the agent
-PROGRESS_TOOL: Tool = {
-    "name": "progress_report",
-    "description": "Send a brief one-line progress update to the user.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "text": {
-                "type": "string",
-                "description": "One-line progress update. Keep it super concise, but very casual and even snarky in line with your instructions and previous conversation.",
-            }
-        },
-        "required": ["text"],
-    },
-}
 
 
 class ProgressReportExecutor:

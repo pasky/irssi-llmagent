@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from .model_router import ModelRouter, parse_model_spec
-from .tools import PROGRESS_TOOL, TOOLS, create_tool_executors, execute_tool
+from .tools import TOOLS, create_tool_executors, execute_tool
 
 logger = logging.getLogger(__name__)
 
@@ -107,22 +107,8 @@ class AIAgent:
             except Exception:
                 cross_provider_next = False
 
-            # Don't pass tools on final iteration
-            extra_prompt = (
-                " THIS WAS YOUR LAST TOOL TURN, YOU MUST NOT CALL ANY FURTHER TOOLS OR FUNCTIONS !!!"
-                if iteration >= self.max_iterations - 1
-                else ""
-            )
-
-            # Add thinking encouragement for first iteration only
-            thinking_prompt = (
-                " First, think in <thinking> tags: review your knowledge and decide whether a search must be done. In the first response before using tools, you must write your thinking - either about your reply, or to plan your research."
-                if iteration == 0
-                else ""
-            )
-
             # Conditional progress nudge appended only when threshold elapsed
-            progress_prompt = ""
+            extra_messages = []
             if self._progress_can_send and self._progress_start_time is not None:
                 from time import time as _now
 
@@ -141,18 +127,21 @@ class AIAgent:
                 if elapsed >= self.progress_threshold_seconds or (
                     iteration == 0 and reasoning_effort in ("medium", "high")
                 ):
-                    progress_prompt = " If you are going to call more tools, you MUST ALSO use the progress_report tool now!"
-
-            tools_for_model = TOOLS + [PROGRESS_TOOL]
+                    extra_messages = [
+                        {
+                            "role": "user",
+                            "content": "<meta>If you are going to call more tools, you MUST ALSO use the progress_report tool now.</meta>",
+                        }
+                    ]
 
             try:
                 if self.model_router is None:
                     self.model_router = await ModelRouter(self.config).__aenter__()
                 response, client, _ = await self.model_router.call_raw_with_model(
                     model,
-                    messages,  # Pass messages in proper API format
-                    self.system_prompt + thinking_prompt + progress_prompt + extra_prompt,
-                    tools=tools_for_model,
+                    messages + extra_messages,
+                    self.system_prompt,
+                    tools=TOOLS,
                     tool_choice="auto" if iteration < self.max_iterations - 1 else "none",
                     reasoning_effort=reasoning_effort,
                 )
