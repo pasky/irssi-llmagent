@@ -76,13 +76,23 @@ class AnthropicClient(BaseAPIClient):
             # multiple commands
             return {"cancel": "(wait, I just replied)"}
 
+        thinking_budget = 0
+        if reasoning_effort == "low":
+            thinking_budget = 1024
+        elif reasoning_effort == "medium":
+            thinking_budget = 2048
+        elif reasoning_effort == "high":
+            thinking_budget = 8192
+
         payload = {
             "model": model,
-            "max_tokens": 1024 if tools else 256,
+            "max_tokens": (1024 if tools else 256) + thinking_budget,
             "messages": messages,
             "system": system_prompt,
         }
 
+        if thinking_budget:
+            payload["thinking_budget"] = thinking_budget
         if tools:
             payload["tools"] = tools
             # TODO tool_choice
