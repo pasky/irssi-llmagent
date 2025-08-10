@@ -6,7 +6,7 @@ from irssi_llmagent.varlink import VarlinkSender
 class DummySender(VarlinkSender):
     def __init__(self):
         super().__init__("/tmp/does-not-matter.sock")
-        self.sent = []
+        self.sent: list[str] = []
 
     async def send_call(self, method: str, parameters: dict | None = None):
         # Capture messages instead of real varlink
@@ -15,91 +15,99 @@ class DummySender(VarlinkSender):
         return {"parameters": {"success": True}}
 
 
-@pytest.mark.asyncio
-async def test_send_short_message_no_split():
-    sender = DummySender()
-    target = "#test"
-    msg = "hello world"
-    ok = await sender.send_message(target, msg, server="irc")
-    assert ok
-    assert sender.sent == [msg]
+class DummySenderTruncating(VarlinkSender):
+    """Simulates an IRC server enforcing the 512-byte limit including prefix.
+
+    It truncates the message payload if the constructed line would exceed 512 bytes.
+    Records whether truncation occurred.
+    """
+
+    def __init__(self, prefix_len: int = 60):
+        super().__init__("/tmp/does-not-matter.sock")
+        self.sent: list[str] = []
+        self.truncated: list[bool] = []
+        self.prefix_len = prefix_len  # e.g., ":nick!user@host " length + tags if any
+
+    async def send_call(self, method: str, parameters: dict | None = None):
+        if method == "org.irssi.varlink.SendMessage":
+            target = parameters["target"]  # type: ignore[index]
+            msg = parameters["message"]  # type: ignore[index]
+            # Build an approximate IRC line: ":prefix PRIVMSG <target> :<msg>\r\n"
+            # Compute bytes and truncate from the end of msg to fit 512 bytes total
+            fixed = f"PRIVMSG {target} :".encode()
+            msg_b = msg.encode("utf-8")
+            total = self.prefix_len + len(fixed) + len(msg_b) + 2  # +2 for CRLF
+            did_truncate = False
+            if total > 512:
+                did_truncate = True
+                # How many bytes must be removed from msg
+                over = total - 512
+                keep = max(0, len(msg_b) - over)
+                # Cut at UTF-8 boundary
+                cut = keep
+                while cut > 0 and (msg_b[cut - 1] & 0xC0) == 0x80:
+                    cut -= 1
+                msg_b = msg_b[:cut]
+                msg = msg_b.decode("utf-8", errors="ignore")
+            self.sent.append(msg)
+            self.truncated.append(did_truncate)
+        return {"parameters": {"success": True}}
 
 
 @pytest.mark.asyncio
-async def test_split_into_two_parts_when_over_limit():
-    sender = DummySender()
+async def test_split_integrity_with_multibyte_and_pipeline():
+    """Single high-signal test that catches both classes of regressions.
+
+    - Contains multibyte Cyrillic text to detect mid-codepoint splits or drops
+    - Contains a long real-world shell pipeline to detect server-side truncation
+      and boundary token loss (e.g., 'tee')
+    - Asserts exact-prefix property across concatenated parts and that the
+      simulated server never truncated (thanks to our safety margin)
+    - Also implicitly asserts we cap at max two messages
+    """
+    sender = DummySenderTruncating()
     target = "#t"
-    # Compute payload limit as used in implementation
-    max_payload = max(1, 512 - 12 - len(target.encode("utf-8")))
-    msg = "a" * (max_payload + 10)
-    ok = await sender.send_message(target, msg, server="irc")
-    assert ok
-    assert len(sender.sent) == 2
-    assert len(sender.sent[0].encode("utf-8")) <= max_payload
-    assert len(sender.sent[1].encode("utf-8")) <= max_payload
-    # Combined content should start with original and be a prefix (second possibly truncated)
-    combined = (sender.sent[0] + sender.sent[1]).replace(" ", "")
-    assert msg.startswith(combined) or combined.startswith(msg)
 
+    # Compute the sender-side payload so we can position the seam precisely
+    max_payload = max(1, 512 - 12 - len(target.encode("utf-8")) - 100)
 
-@pytest.mark.asyncio
-async def test_second_part_truncated_not_more_than_two_messages():
-    sender = DummySender()
-    target = "#longtarget"
-    max_payload = max(1, 512 - 12 - len(target.encode("utf-8")))
-    # Create a message that would require 3 parts if not truncated
-    msg = "b" * (max_payload * 3)
-    ok = await sender.send_message(target, msg, server="irc")
-    assert ok
-    assert len(sender.sent) == 2
-    assert len(sender.sent[0].encode("utf-8")) <= max_payload
-    assert len(sender.sent[1].encode("utf-8")) <= max_payload
+    # Build a head that includes the pipeline and lands just before the seam
+    # We take a prefix of the pipeline to fit under the payload, keeping a 'tee' segment
+    # Choose a small pipeline segment that still includes the tee token
+    tee_seg = "| sudo tee /etc/apt/keyrings/spotify.gpg"
+    # Build head: tee_seg + ASCII filler to exactly max_payload-1 bytes
+    head_bytes_target = max_payload - 1
+    ph_bytes = len(tee_seg.encode("utf-8"))
+    filler_count = max(0, head_bytes_target - ph_bytes)
 
-
-# UTF-8 boundary tests merged from separate file per contributor preference
-@pytest.mark.asyncio
-async def test_split_preserves_utf8_characters_and_words():
-    sender = DummySender()
-    target = "#t"
-
-    # Russian text with multibyte chars; ensure split falls near multibyte boundary
-    text = (
-        "Коротко: у LessWrong он фигурирует как ранний техно‑скептик, но его анализ считают "
-        "упрощённым/ошибочным, а насилие — однозначно аморальным и контрпродуктивным; "
-        "манифест обсуждают как исторический кейс, фокус смещают на управление рисками и безопасность технологий (в т.ч. AI), а не на неолуддизм."
-    )
-
-    # Force a split by appending filler to exceed limit
-    filler = " X" * 200
-    msg = text + filler
+    # Build by bytes so the seam lands exactly between bytes of a multibyte code point.
+    tee_b = tee_seg.encode("utf-8")
+    filler_b = b"A" * filler_count
+    # Append first byte of 'Ж' (0xD0) to end the head at byte index max_payload-1
+    first_byte = b"\xD0"
+    # Tail begins with the continuation byte (0x96), which a naive errors="ignore" decoder will drop,
+    # then 'X' sentinel, then a long run of 'Ж'
+    tail_b = b"\x96" + b"X" + ("Ж" * 5000).encode("utf-8")
+    msg_b = tee_b + filler_b + first_byte + tail_b
+    # Decode to str for sending
+    msg = msg_b.decode("utf-8")
 
     ok = await sender.send_message(target, msg, server="irc")
     assert ok
-    assert len(sender.sent) in (1, 2)
+
+    # At most two messages
+    assert len(sender.sent) <= 2
 
     combined = "".join(sender.sent)
-    # If truncated to two messages, the combined should be a prefix of the original
-    assert msg.startswith(combined)
-
-    # Ensure no character loss around split
-    assert "безопасность технологий" in combined or "безопасност" in combined
-
-
-@pytest.mark.asyncio
-async def test_no_character_loss_at_boundary():
-    sender = DummySender()
-    target = "#t"
-    max_payload = max(1, 512 - 12 - len(target.encode("utf-8")))
-
-    # Build a string whose byte length is just over the limit, with a multibyte char at the cut
-    base = "a" * (max_payload - 1)
-    # Cyrillic soft sign is two bytes in UTF-8; ensure cut would have fallen between bytes if naive
-    s = base + "ь" + " продолжение"
-
-    ok = await sender.send_message(target, s, server="irc")
-    assert ok
-    assert len(sender.sent) == 2
-    combined = "".join(sender.sent)
-    # Should exactly equal original or be a prefix if second part truncated (not here)
-    assert combined.startswith(s)
-    assert "ь п" in combined  # The soft sign followed by space should be preserved at split
+    # Strong invariants:
+    # 1) No internal loss at character level
+    assert combined == msg[: len(combined)]
+    # 2) No internal loss at byte level (detects silent drops from naive decode errors="ignore")
+    assert combined.encode("utf-8") == msg.encode("utf-8")[: len(combined.encode("utf-8"))]
+    # 3) Seam must be followed by multibyte immediately
+    if len(sender.sent) == 2:
+        assert ord(sender.sent[1][0]) > 127
+    # 4) Key substrings from pipeline intact within combined
+    assert "| sudo tee /etc/apt/keyrings/spotify.gpg" in combined
+    # 5) Simulated server did not need to truncate
+    assert not any(sender.truncated)

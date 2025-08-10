@@ -107,6 +107,8 @@ class VarlinkSender(BaseVarlinkClient):
         effective payload limit for a client-sent PRIVMSG is roughly:
             512 - len("PRIVMSG ") - len(target) - len(" :") - len(CRLF)
         which simplifies to: 512 - 12 - len(target)
+        Note: servers prepend a source prefix and may include tags, so we keep a
+        conservative safety margin to avoid server-side truncation.
         We count bytes strictly in UTF-8 and never split inside a code point.
         Prefer splitting on whitespace when possible.
         """
@@ -115,7 +117,8 @@ class VarlinkSender(BaseVarlinkClient):
             target_len = len(target.encode("utf-8"))
         except Exception:
             target_len = len(target)
-        max_payload = max(1, 512 - 12 - target_len)
+        SAFETY_MARGIN = 60  # bytes, to account for prefix/tags on the wire
+        max_payload = max(1, 512 - 12 - target_len - SAFETY_MARGIN)
 
         def split_once(text: str) -> tuple[str, str | None]:
             # Fast path if it fits
@@ -155,7 +158,8 @@ class VarlinkSender(BaseVarlinkClient):
             return False
 
         # Need a second part; ensure it also fits within one payload (truncate if not)
-        # Trim exactly one leading space on second part to look natural
+        # Aesthetics: if the split occurred after whitespace, avoid sending a
+        # second message that starts with a space (trim exactly one if present)
         if rest.startswith(" "):
             rest = rest[1:]
         rest_bytes = rest.encode("utf-8")
