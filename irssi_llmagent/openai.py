@@ -153,7 +153,7 @@ class OpenAIClient(BaseAPIClient):
         }
         if tools:
             sdk_kwargs["tools"] = self._convert_tools(tools)
-            sdk_kwargs["tool_choice"] = self.config.get("tool_choice", "auto")
+            sdk_kwargs["tool_choice"] = tool_choice
 
         logger.debug(f"Calling OpenAI Responses API with model: {model}")
         try:
