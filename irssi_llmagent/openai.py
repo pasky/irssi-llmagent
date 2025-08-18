@@ -291,7 +291,9 @@ class OpenAIClient(BaseAPIClient):
                                 fc = c.get("function", {})
                                 args = fc.get("arguments")
                                 args_json = (
-                                    args if isinstance(args, str) else json.dumps(args or {})
+                                    args
+                                    if isinstance(args, str)
+                                    else json.dumps(args or {}, ensure_ascii=False)
                                 )
                                 tool_calls_out.append(
                                     {
@@ -305,7 +307,11 @@ class OpenAIClient(BaseAPIClient):
                                 )
                 if item.get("type") == "function_call":
                     args = item.get("arguments")
-                    args_json = args if isinstance(args, str) else json.dumps(args or {})
+                    args_json = (
+                        args
+                        if isinstance(args, str)
+                        else json.dumps(args or {}, ensure_ascii=False)
+                    )
                     tool_calls_out.append(
                         {
                             "id": item.get("call_id") or item.get("id") or "tool_call",
@@ -324,7 +330,7 @@ class OpenAIClient(BaseAPIClient):
             {
                 "type": "function_call_output",
                 "call_id": result["tool_use_id"],
-                "output": json.dumps({"result": result["content"]}),
+                "output": json.dumps({"result": result["content"]}, ensure_ascii=False),
             }
             for result in tool_results
         ]
