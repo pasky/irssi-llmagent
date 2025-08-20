@@ -2,9 +2,9 @@
 
 import copy
 import logging
-from datetime import datetime
 from typing import Any
 
+from .base_client import build_system_prompt
 from .model_router import ModelRouter, parse_model_spec
 from .tools import TOOLS, create_tool_executors, execute_tool
 
@@ -30,7 +30,7 @@ class AIAgent:
         self.max_iterations = 7
         self.extra_prompt = extra_prompt
         self.model_override = model_override
-        self.system_prompt = self._get_system_prompt()
+        # System prompt is now generated dynamically per model call
         # Progress reporting
         prog_cfg = self.config.get("agent", {}).get("progress", {})
         self.progress_threshold_seconds = int(prog_cfg.get("threshold_seconds", 30))
@@ -39,12 +39,9 @@ class AIAgent:
         # Tool executors with progress callback
         self.tool_executors = create_tool_executors(config, progress_callback=progress_callback)
 
-    def _get_system_prompt(self) -> str:
+    def _get_system_prompt(self, current_model: str = "") -> str:
         """Get the system prompt for the agent based on serious mode prompt."""
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
-        base_prompt = self.config["command"]["prompts"]["serious"].format(
-            mynick=self.mynick, current_time=current_time
-        )
+        base_prompt = build_system_prompt(self.config, "serious", self.mynick)
         return base_prompt + self.extra_prompt
 
     async def __aenter__(self):
@@ -136,10 +133,11 @@ class AIAgent:
             try:
                 if self.model_router is None:
                     self.model_router = await ModelRouter(self.config).__aenter__()
+                system_prompt = self._get_system_prompt(model)
                 response, client, _ = await self.model_router.call_raw_with_model(
                     model,
                     messages + extra_messages,
-                    self.system_prompt,
+                    system_prompt,
                     tools=TOOLS,
                     tool_choice="auto" if iteration < self.max_iterations - 1 else "none",
                     reasoning_effort=reasoning_effort,

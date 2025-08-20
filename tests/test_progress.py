@@ -84,10 +84,11 @@ async def test_progress_report_tool_emits_callback(monkeypatch):
         "command": {
             "models": {
                 "serious": "anthropic:dummy-serious",
+                "sarcastic": "anthropic:dummy-sarcastic",
                 "classifier": "anthropic:dummy-classifier",
             },
             "prompts": {
-                "serious": "{mynick} at {current_time}",
+                "serious": "{mynick} at {current_time} with models serious={serious_model}, sarcastic={sarcastic_model}",
             },
         },
         "agent": {

@@ -2,6 +2,7 @@
 
 import re
 from abc import ABC, abstractmethod
+from datetime import datetime
 from typing import Any
 
 
@@ -93,3 +94,35 @@ class BaseAPIClient(ABC):
     def format_tool_results(self, tool_results: list[dict]) -> dict | list[dict]:
         """Format tool results for the next API call."""
         pass
+
+
+def build_system_prompt(config: dict[str, Any], prompt_key: str, mynick: str) -> str:
+    """Build a command system prompt with standard substitutions.
+
+    Args:
+        config: Configuration dictionary
+        prompt_key: Key in config["command"]["prompts"] (e.g., "serious", "sarcastic")
+        mynick: IRC nickname for substitution
+
+    Returns:
+        Formatted system prompt with all substitutions applied
+    """
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # Get model configurations for context
+    sarcastic_model = config["command"]["models"]["sarcastic"]
+    serious_cfg = config["command"]["models"]["serious"]
+    serious_model = serious_cfg[0] if isinstance(serious_cfg, list) and serious_cfg else serious_cfg
+
+    # Get the prompt template from command section
+    try:
+        prompt_template = config["command"]["prompts"][prompt_key]
+    except KeyError:
+        raise ValueError(f"Command prompt key '{prompt_key}' not found in config") from None
+
+    return prompt_template.format(
+        mynick=mynick,
+        current_time=current_time,
+        sarcastic_model=sarcastic_model,
+        serious_model=serious_model,
+    )

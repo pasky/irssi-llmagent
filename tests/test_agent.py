@@ -18,7 +18,7 @@ class TestAPIAgent:
         # Add missing prompts for agent tests
         test_config["command"]["prompts"][
             "serious"
-        ] = "You are IRC user {mynick}. Be helpful and informative."
+        ] = "You are IRC user {mynick}. Be helpful and informative. Available models: serious={serious_model}, sarcastic={sarcastic_model}."
         return AIAgent(test_config, "testbot")
 
     def create_text_response(self, api_type: str, text: str) -> dict:
@@ -69,8 +69,15 @@ class TestAPIAgent:
 
     def test_agent_initialization(self, agent):
         """Test agent initialization."""
-        assert "testbot" in agent.system_prompt  # mynick is substituted
-        assert "IRC user" in agent.system_prompt
+        system_prompt = agent._get_system_prompt("test:model")
+        assert "testbot" in system_prompt  # mynick is substituted
+        assert "IRC user" in system_prompt
+        assert (
+            "serious=" in system_prompt and "dummy-serious" in system_prompt
+        )  # serious model is substituted
+        assert (
+            "sarcastic=" in system_prompt and "dummy-sarcastic" in system_prompt
+        )  # sarcastic model is substituted
 
     @pytest.mark.asyncio
     async def test_agent_context_manager(self, agent):

@@ -6,11 +6,11 @@ import json
 import logging
 import re
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .agent import AIAgent
+from .base_client import build_system_prompt
 from .history import ChatHistory
 from .model_router import ModelRouter
 from .perplexity import PerplexityClient
@@ -561,16 +561,15 @@ class IRSSILLMAgent:
         self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
     ) -> None:
         """Handle sarcastic mode using direct AI calls."""
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
-        system_prompt = self.config["command"]["prompts"]["sarcastic"].format(
-            mynick=mynick, current_time=current_time
-        )
-        model = self.config["command"]["models"]["sarcastic"]
+        system_prompt = build_system_prompt(self.config, "sarcastic", mynick)
+        sarcastic_model = self.config["command"]["models"]["sarcastic"]
 
         context = await self.history.get_context(server, chan_name)
         if self.model_router is None:
             self.model_router = await ModelRouter(self.config).__aenter__()
-        resp, client, _ = await self.model_router.call_raw_with_model(model, context, system_prompt)
+        resp, client, _ = await self.model_router.call_raw_with_model(
+            sarcastic_model, context, system_prompt
+        )
         response = client.extract_text_from_response(resp)
 
         if response:

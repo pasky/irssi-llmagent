@@ -44,8 +44,8 @@ def test_config(api_type) -> dict[str, Any]:
                 "classifier": f"{api_type}:dummy-classifier",
             },
             "prompts": {
-                "serious": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. Test serious prompt.",
-                "sarcastic": "You are IRC user {mynick} and you are known for your sharp sarcasm and cynical, dry, rough sense of humor. Test sarcastic prompt.",
+                "serious": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. Test serious prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}.",
+                "sarcastic": "You are IRC user {mynick} and you are known for your sharp sarcasm and cynical, dry, rough sense of humor. Test sarcastic prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}.",
                 "mode_classifier": "Analyze this IRC message and decide whether it should be handled with SARCASTIC or SERIOUS mode. Respond with only one word: 'SARCASTIC' or 'SERIOUS'. Message: {message}",
             },
         },
