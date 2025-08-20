@@ -106,6 +106,64 @@ class TestIRSSILLMAgent:
         assert "automatic mode" in call_args[1]  # Help text should mention automatic mode
 
     @pytest.mark.asyncio
+    async def test_command_debouncing_end_to_end(self, temp_config_file, temp_db_path):
+        """Test end-to-end command debouncing with message consolidation."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.config["command"]["debounce"] = 0.5
+        agent.varlink_sender = AsyncMock()
+
+        # Use isolated database for this test
+        from irssi_llmagent.history import ChatHistory
+
+        agent.history = ChatHistory(temp_db_path)
+        await agent.history.initialize()
+
+        # Capture the final consolidated message
+        captured_message = None
+
+        async def capture_message(server, chan_name, target, nick, message, mynick):
+            nonlocal captured_message
+            captured_message = message
+
+        agent._handle_sarcastic_mode = capture_message
+        agent.classify_mode = AsyncMock(return_value="SARCASTIC")
+
+        # Control timing with precise timestamp mocking
+        base_time = 1000000000.0
+        time_calls = 0
+
+        def mock_time():
+            nonlocal time_calls
+            time_calls += 1
+            # First call is when handle_command records original timestamp
+            return base_time
+
+        # Add followup messages that should be found after debounce sleep
+        async def add_followup_messages():
+            # Add all messages quickly at the start of debounce period
+            await asyncio.sleep(0.05)  # Small delay to ensure they're after the timestamp
+            await agent.history.add_message("test", "#test", "oops typo fix", "user", "mybot")
+            await agent.history.add_message(
+                "test", "#test", "blah", "user2", "mybot"
+            )  # Different user - should be ignored
+            await agent.history.add_message(
+                "test", "#test2", "blahblah", "user", "mybot"
+            )  # Different channel - should be ignored
+            await agent.history.add_message("test", "#test", "and one more", "user", "mybot")
+
+        with patch("time.time", side_effect=mock_time):
+            # Run both tasks concurrently
+            await asyncio.gather(
+                agent.handle_command("test", "#test", "#test", "user", "original command", "mybot"),
+                add_followup_messages(),
+            )
+
+        # Verify the consolidated message contains all parts
+        assert captured_message is not None
+        print(f"Captured message: '{captured_message}'")
+        assert captured_message == "original command\noops typo fix\nand one more"
+
+    @pytest.mark.asyncio
     async def test_rate_limiting_triggers(self, temp_config_file):
         """Test that rate limiting prevents excessive requests."""
         agent = IRSSILLMAgent(temp_config_file)

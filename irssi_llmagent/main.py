@@ -417,6 +417,21 @@ class IRSSILLMAgent:
         self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
     ) -> None:
         """Handle IRC commands and generate responses."""
+        import time
+
+        # Debounce to catch quick followup messages
+        original_timestamp = time.time()
+        debounce = self.config["command"].get("debounce", 0)
+        if debounce > 0:
+            await asyncio.sleep(debounce)
+            followups = await self.history.get_recent_messages_since(
+                server, chan_name, nick, original_timestamp
+            )
+            if followups:
+                followup_texts = [m["message"] for m in followups]
+                message = message + "\n" + "\n".join(followup_texts)
+                logger.debug(f"Debounced {len(followups)} followup messages from {nick}")
+
         if message.startswith("!h") or message == "!h":
             logger.debug(f"Sending help message to {nick}")
             sarcastic_model = self.config["command"]["models"]["sarcastic"]

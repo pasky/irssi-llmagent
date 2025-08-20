@@ -1,5 +1,8 @@
 """Tests for chat history functionality."""
 
+import asyncio
+import time
+
 import pytest
 
 from irssi_llmagent.history import ChatHistory
@@ -103,3 +106,39 @@ class TestChatHistory:
 
         assert len(context) == 2  # Limited by inference_limit
         assert len(full_history) == 5  # All messages
+
+    @pytest.mark.asyncio
+    async def test_get_recent_messages_since(self, temp_db_path):
+        """Test retrieving messages from a user since a timestamp for debouncing."""
+        history = ChatHistory(temp_db_path)
+        await history.initialize()
+
+        server = "testserver"
+        channel = "#testchan"
+        mynick = "bot"
+
+        # Add initial message and record timestamp
+        await history.add_message(server, channel, "initial command", "user1", mynick)
+        original_time = time.time()
+
+        # Add followup messages after delay
+        await asyncio.sleep(1.1)
+        await history.add_message(server, channel, "oops typo", "user1", mynick)
+        await history.add_message(server, channel, "one more thing", "user1", mynick)
+
+        # Add message from different user (should not be included)
+        await history.add_message(server, channel, "unrelated", "user2", mynick)
+
+        # Test the query
+        followups = await history.get_recent_messages_since(server, channel, "user1", original_time)
+
+        assert len(followups) == 2
+        assert followups[0]["message"] == "oops typo"
+        assert followups[1]["message"] == "one more thing"
+
+        # Test with different user returns empty
+        other_followups = await history.get_recent_messages_since(
+            server, channel, "user2", original_time
+        )
+        assert len(other_followups) == 1
+        assert other_followups[0]["message"] == "unrelated"

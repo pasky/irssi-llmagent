@@ -135,6 +135,35 @@ class ChatHistory:
             await db.commit()
             return cursor.rowcount
 
+    async def get_recent_messages_since(
+        self, server_tag: str, channel_name: str, nick: str, timestamp: float
+    ) -> list[dict[str, str]]:
+        """Get messages from a specific user since a given timestamp."""
+        async with self._lock, aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT message, timestamp FROM chat_messages
+                WHERE server_tag = ? AND channel_name = ? AND nick = ?
+                AND strftime('%s', timestamp) > ?
+                ORDER BY timestamp ASC
+                """,
+                # strftime('%s', timestamp) converts SQLite datetime to Unix timestamp for comparison
+                (server_tag, channel_name, nick, str(int(timestamp))),
+            )
+            rows = await cursor.fetchall()
+
+        # Extract message text (message field stores "<nick> text", strip the prefix)
+        messages = []
+        for row in rows:
+            content = str(row[0])
+            # Find first "> " and take everything after it
+            if "> " in content:
+                message_text = content.split("> ", 1)[1]
+                messages.append({"message": message_text, "timestamp": str(row[1])})
+
+        logger.debug(f"Found {len(messages)} followup messages from {nick} since {timestamp}")
+        return messages
+
     async def close(self) -> None:
         """Close database connections."""
         # aiosqlite handles connection cleanup automatically
