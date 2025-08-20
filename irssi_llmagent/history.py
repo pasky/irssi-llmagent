@@ -69,8 +69,11 @@ class ChatHistory:
 
         logger.debug(f"Added message to history: {server_tag}/{channel_name} - {nick}: {message}")
 
-    async def get_context(self, server_tag: str, channel_name: str) -> list[dict[str, str]]:
-        """Get recent chat context for inference (limited by inference_limit)."""
+    async def get_context(
+        self, server_tag: str, channel_name: str, limit: int | None = None
+    ) -> list[dict[str, str]]:
+        """Get recent chat context for inference (limited by inference_limit or provided limit)."""
+        inference_limit = limit if limit is not None else self.inference_limit
         async with self._lock, aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 """
@@ -79,7 +82,7 @@ class ChatHistory:
                     ORDER BY timestamp DESC
                     LIMIT ?
                     """,
-                (server_tag, channel_name, self.inference_limit),
+                (server_tag, channel_name, inference_limit),
             )
             rows = await cursor.fetchall()
 

@@ -32,8 +32,7 @@ class AIAgent:
         self.model_override = model_override
         self.system_prompt = self._get_system_prompt()
         # Progress reporting
-        behavior = self.config.get("behavior", {})
-        prog_cfg = behavior.get("progress", {}) if behavior else {}
+        prog_cfg = self.config.get("agent", {}).get("progress", {})
         self.progress_threshold_seconds = int(prog_cfg.get("threshold_seconds", 30))
         self._progress_start_time: float | None = None
         self._progress_can_send: bool = bool(progress_callback)
@@ -43,7 +42,7 @@ class AIAgent:
     def _get_system_prompt(self) -> str:
         """Get the system prompt for the agent based on serious mode prompt."""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
-        base_prompt = self.config["prompts"]["serious"].format(
+        base_prompt = self.config["command"]["prompts"]["serious"].format(
             mynick=self.mynick, current_time=current_time
         )
         return base_prompt + self.extra_prompt
@@ -86,7 +85,7 @@ class AIAgent:
                 model = self.model_override
                 next_model = self.model_override
             else:
-                serious_cfg = self.config["models"]["serious"]
+                serious_cfg = self.config["command"]["models"]["serious"]
                 if isinstance(serious_cfg, list):
                     model = (
                         serious_cfg[iteration] if iteration < len(serious_cfg) else serious_cfg[-1]

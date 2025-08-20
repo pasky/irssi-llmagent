@@ -16,7 +16,9 @@ class TestAPIAgent:
     def agent(self, test_config):
         """Create agent instance for testing."""
         # Add missing prompts for agent tests
-        test_config["prompts"]["serious"] = "You are IRC user {mynick}. Be helpful and informative."
+        test_config["command"]["prompts"][
+            "serious"
+        ] = "You are IRC user {mynick}. Be helpful and informative."
         return AIAgent(test_config, "testbot")
 
     def create_text_response(self, api_type: str, text: str) -> dict:

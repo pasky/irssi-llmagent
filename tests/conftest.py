@@ -32,28 +32,41 @@ def test_config(api_type) -> dict[str, Any]:
                 "model": "sonar-pro",
             },
         },
-        "models": {
-            "sarcastic": f"{api_type}:dummy-sarcastic",
-            "serious": [f"{api_type}:dummy-serious"],
-            "proactive_serious": f"{api_type}:dummy-proactive",
-            "classifier": f"{api_type}:dummy-classifier",
-            "proactive_validation": [f"{api_type}:dummy-validator"],
-        },
         "varlink": {"socket_path": "/tmp/test_varlink.sock"},
-        "behavior": {
+        "command": {
             "history_size": 5,
             "rate_limit": 30,
             "rate_period": 900,
             "ignore_users": [],
-            "proactive_interject_threshold": 9,
+            "models": {
+                "sarcastic": f"{api_type}:dummy-sarcastic",
+                "serious": [f"{api_type}:dummy-serious"],
+                "classifier": f"{api_type}:dummy-classifier",
+            },
+            "prompts": {
+                "serious": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. Test serious prompt.",
+                "sarcastic": "You are IRC user {mynick} and you are known for your sharp sarcasm and cynical, dry, rough sense of humor. Test sarcastic prompt.",
+                "mode_classifier": "Analyze this IRC message and decide whether it should be handled with SARCASTIC or SERIOUS mode. Respond with only one word: 'SARCASTIC' or 'SERIOUS'. Message: {message}",
+            },
         },
-        "prompts": {
-            "serious": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. Test serious prompt.",
-            "sarcastic": "You are IRC user {mynick} and you are known for your sharp sarcasm and cynical, dry, rough sense of humor. Test sarcastic prompt.",
-            "mode_classifier": "Analyze this IRC message and decide whether it should be handled with SARCASTIC or SERIOUS mode. Respond with only one word: 'SARCASTIC' or 'SERIOUS'. Message: {message}",
-            "proactive_interject": "Decide if AI should interject. Respond with '[reason]: X/10' where X is 1-10. Message: {message}",
-            "proactive_serious_extra": "NOTE: This is a proactive interjection. If upon reflection you decide your contribution wouldn't add significant factual value (e.g. just an encouragement or general statement), respond with exactly 'NULL' instead of a message.",
+        "proactive": {
+            "history_size": 3,
+            "interjecting": [],
+            "interjecting_test": [],
+            "interject_threshold": 9,
+            "rate_limit": 10,
+            "rate_period": 60,
+            "debounce_seconds": 15.0,
+            "models": {
+                "serious": f"{api_type}:dummy-proactive",
+                "validation": [f"{api_type}:dummy-validator"],
+            },
+            "prompts": {
+                "interject": "Decide if AI should interject. Respond with '[reason]: X/10' where X is 1-10. Message: {message}",
+                "serious_extra": "NOTE: This is a proactive interjection. If upon reflection you decide your contribution wouldn't add significant factual value (e.g. just an encouragement or general statement), respond with exactly 'NULL' instead of a message.",
+            },
         },
+        "agent": {"progress": {"threshold_seconds": 10, "min_interval_seconds": 8}},
     }
     return base_config
 

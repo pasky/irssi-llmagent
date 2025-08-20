@@ -22,7 +22,7 @@ class TestIRSSILLMAgent:
     def test_should_ignore_user(self, temp_config_file):
         """Test user ignoring functionality."""
         agent = IRSSILLMAgent(temp_config_file)
-        agent.config["behavior"]["ignore_users"] = ["spammer", "BadBot"]
+        agent.config["command"]["ignore_users"] = ["spammer", "BadBot"]
 
         assert agent.should_ignore_user("spammer") is True
         assert agent.should_ignore_user("SPAMMER") is True  # Case insensitive
@@ -144,7 +144,7 @@ class TestIRSSILLMAgent:
         agent.server_nicks["test"] = "mybot"
 
         # Configure for proactive interjecting
-        agent.config["behavior"]["proactive_interjecting"] = ["#test"]
+        agent.config["proactive"]["interjecting"] = ["#test"]
 
         # First, send a non-command message to trigger proactive interjection scheduling
         non_command_event = {
@@ -285,8 +285,8 @@ class TestIRSSILLMAgent:
         """Test proactive interjection detection in whitelisted channels."""
         agent = IRSSILLMAgent(temp_config_file)
         # Configure proactive interjection test channel with short debounce
-        agent.config["behavior"]["proactive_interjecting_test"] = ["#testchannel"]
-        agent.config["behavior"]["proactive_debounce_seconds"] = 0.1
+        agent.config["proactive"]["interjecting_test"] = ["#testchannel"]
+        agent.config["proactive"]["debounce_seconds"] = 0.1
         # Recreate debouncer with updated config
         agent.proactive_debouncer = ProactiveDebouncer(0.1)
 
@@ -347,7 +347,7 @@ class TestIRSSILLMAgent:
         agent = IRSSILLMAgent(temp_config_file)
 
         # Test with threshold 8 - score 8 should trigger
-        agent.config["behavior"]["proactive_interject_threshold"] = 8
+        agent.config["proactive"]["interject_threshold"] = 8
 
         async def fake_call_raw_with_model(*args, **kwargs):
             resp = {"output_text": "Testing threshold: 8/10"}
@@ -370,7 +370,7 @@ class TestIRSSILLMAgent:
             assert test_mode is False
 
         # Test with threshold 9 - score 8 should NOT trigger
-        agent.config["behavior"]["proactive_interject_threshold"] = 9
+        agent.config["proactive"]["interject_threshold"] = 9
 
         async def fake_call_raw_with_model_8(*args, **kwargs):
             resp = {"output_text": "Testing threshold: 8/10"}
