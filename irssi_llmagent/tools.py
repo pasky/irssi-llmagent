@@ -153,46 +153,55 @@ class WebpageVisitorExecutor:
         if not url.startswith(("http://", "https://")):
             raise ValueError("Invalid URL. Must start with http:// or https://")
 
-        # Use separate context managers to avoid UnboundLocalError bug
-        async with aiohttp.ClientSession() as session:  # noqa: SIM117
-            async with session.get(
+        async with aiohttp.ClientSession() as session:
+            # First, check the original URL for content-type to detect images
+            async with session.head(
                 url,
                 timeout=aiohttp.ClientTimeout(total=self.timeout),
                 headers={"User-Agent": "irssi-llmagent/1.0"},
-                max_line_size=8190 * 2,
-                max_field_size=8190 * 2,
+            ) as head_response:
+                content_type = head_response.headers.get("content-type", "").lower()
+
+                if content_type.startswith("image/"):
+                    # Handle image content - fetch the actual image
+                    async with session.get(
+                        url,
+                        timeout=aiohttp.ClientTimeout(total=self.timeout),
+                        headers={"User-Agent": "irssi-llmagent/1.0"},
+                        max_line_size=8190 * 2,
+                        max_field_size=8190 * 2,
+                    ) as response:
+                        response.raise_for_status()
+
+                        # Check content length to avoid huge token costs
+                        content_length = response.headers.get("content-length")
+                        if content_length and int(content_length) > self.max_image_size:
+                            return f"Error: Image too large ({content_length} bytes). Maximum allowed: {self.max_image_size} bytes"
+
+                        # Handle image content
+                        image_data = await response.read()
+
+                        # Double-check actual size after download
+                        if len(image_data) > self.max_image_size:
+                            return f"Error: Image too large ({len(image_data)} bytes). Maximum allowed: {self.max_image_size} bytes"
+
+                        # Convert to base64 directly
+                        image_b64 = base64.b64encode(image_data).decode()
+                        logger.info(
+                            f"Downloaded image from {url}, content-type: {content_type}, size: {len(image_data)} bytes"
+                        )
+                        return f"IMAGE_DATA:{content_type}:{len(image_data)}:{image_b64}"
+
+            # Handle text/HTML content - use jina.ai reader service
+            jina_url = f"https://r.jina.ai/{url}"
+            async with session.get(
+                jina_url,
+                timeout=aiohttp.ClientTimeout(total=self.timeout),
+                headers={"User-Agent": "irssi-llmagent/1.0"},
             ) as response:
                 response.raise_for_status()
-
-                # Check content type for images
-                content_type = response.headers.get("content-type", "").lower()
-                if content_type.startswith("image/"):
-                    # Check content length to avoid huge token costs
-                    content_length = response.headers.get("content-length")
-                    if content_length and int(content_length) > self.max_image_size:
-                        return f"Error: Image too large ({content_length} bytes). Maximum allowed: {self.max_image_size} bytes"
-
-                    # Handle image content
-                    image_data = await response.read()
-
-                    # Double-check actual size after download
-                    if len(image_data) > self.max_image_size:
-                        return f"Error: Image too large ({len(image_data)} bytes). Maximum allowed: {self.max_image_size} bytes"
-
-                    # Convert to base64 directly
-                    image_b64 = base64.b64encode(image_data).decode()
-                    logger.info(
-                        f"Downloaded image from {url}, content-type: {content_type}, size: {len(image_data)} bytes"
-                    )
-                    return f"IMAGE_DATA:{content_type}:{len(image_data)}:{image_b64}"
-
-                # Handle text/HTML content
-                html_content = await response.text()
-
-        # Convert HTML to markdown
-        from markdownify import markdownify
-
-        markdown_content = markdownify(html_content).strip()
+                markdown_content = await response.text()
+                markdown_content = markdown_content.strip()
 
         # Clean up multiple line breaks
         markdown_content = re.sub(r"\n{3,}", "\n\n", markdown_content)

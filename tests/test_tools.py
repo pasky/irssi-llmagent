@@ -78,22 +78,33 @@ class TestToolExecutors:
         """Test webpage visitor with image URL."""
         executor = WebpageVisitorExecutor()
 
-        # Create proper async context manager mock
-        mock_response = AsyncMock()
-        mock_response.headers = {"content-type": "image/png"}
-        mock_response.read = AsyncMock(
+        # Create mock for HEAD response
+        mock_head_response = AsyncMock()
+        mock_head_response.headers = {"content-type": "image/png"}
+        mock_head_response.raise_for_status = MagicMock()
+
+        # Create mock for GET response
+        mock_get_response = AsyncMock()
+        mock_get_response.headers = {"content-type": "image/png"}
+        mock_get_response.read = AsyncMock(
             return_value=b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
         )  # PNG header
-        mock_response.raise_for_status = MagicMock()
+        mock_get_response.raise_for_status = MagicMock()
 
         mock_session = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
-        # Create async context manager for session.get
+        # Create async context managers for session.head and session.get
+        mock_head_context = AsyncMock()
+        mock_head_context.__aenter__ = AsyncMock(return_value=mock_head_response)
+        mock_head_context.__aexit__ = AsyncMock(return_value=None)
+
         mock_get_context = AsyncMock()
-        mock_get_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get_context.__aenter__ = AsyncMock(return_value=mock_get_response)
         mock_get_context.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.head = MagicMock(return_value=mock_head_context)
         mock_session.get = MagicMock(return_value=mock_get_context)
 
         with patch("aiohttp.ClientSession", return_value=mock_session):
