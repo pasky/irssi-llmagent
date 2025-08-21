@@ -159,6 +159,8 @@ class WebpageVisitorExecutor:
                 url,
                 timeout=aiohttp.ClientTimeout(total=self.timeout),
                 headers={"User-Agent": "irssi-llmagent/1.0"},
+                max_line_size=8190 * 2,
+                max_field_size=8190 * 2,
             ) as response:
                 response.raise_for_status()
 
