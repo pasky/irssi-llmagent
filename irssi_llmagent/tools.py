@@ -29,7 +29,10 @@ TOOLS: list[Tool] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "The search query to perform."}
+                "query": {
+                    "type": "string",
+                    "description": "The search query to perform. Never use \\u unicode escapes.",
+                }
             },
             "required": ["query"],
         },

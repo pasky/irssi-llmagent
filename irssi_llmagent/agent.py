@@ -30,7 +30,7 @@ class AIAgent:
         self.mynick = mynick
         self.mode = mode
         self.model_router: ModelRouter | None = None
-        self.max_iterations = 7
+        self.max_iterations = 10
         self.extra_prompt = extra_prompt
         self.model_override = model_override
         # System prompt is now generated dynamically per model call
@@ -124,9 +124,10 @@ class AIAgent:
                 logger.debug(
                     f"Last: {last} (start: {self._progress_start_time}), elapsed {elapsed}, vs. {self.progress_threshold_seconds}"
                 )
-                if elapsed >= self.progress_threshold_seconds or (
-                    iteration == 0 and reasoning_effort in ("medium", "high")
-                ):
+                if (
+                    iteration < self.max_iterations - 2
+                    and elapsed >= self.progress_threshold_seconds
+                ) or (iteration == 0 and reasoning_effort in ("medium", "high")):
                     extra_messages = [
                         {
                             "role": "user",
@@ -148,7 +149,7 @@ class AIAgent:
                     messages + extra_messages,
                     system_prompt,
                     tools=available_tools,
-                    tool_choice="auto" if iteration < self.max_iterations - 1 else "none",
+                    tool_choice="auto" if iteration < self.max_iterations - 2 else "none",
                     reasoning_effort=reasoning_effort,
                 )
 
