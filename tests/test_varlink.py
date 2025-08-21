@@ -84,7 +84,7 @@ async def test_split_integrity_with_multibyte_and_pipeline():
     tee_b = tee_seg.encode("utf-8")
     filler_b = b"A" * filler_count
     # Append first byte of 'Ж' (0xD0) to end the head at byte index max_payload-1
-    first_byte = b"\xD0"
+    first_byte = b"\xd0"
     # Tail begins with the continuation byte (0x96), which a naive errors="ignore" decoder will drop,
     # then 'X' sentinel, then a long run of 'Ж'
     tail_b = b"\x96" + b"X" + ("Ж" * 5000).encode("utf-8")

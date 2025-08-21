@@ -9,6 +9,28 @@ from irssi_llmagent.main import IRSSILLMAgent, cli_mode
 from irssi_llmagent.proactive_debouncer import ProactiveDebouncer
 
 
+class MockAPIClient:
+    """Mock API client with all required methods."""
+
+    def __init__(self, response_text: str = "Mock response"):
+        self.response_text = response_text
+
+    def extract_text_from_response(self, r):
+        return self.response_text
+
+    def has_tool_calls(self, response):
+        return False
+
+    def extract_tool_calls(self, response):
+        return None
+
+    def format_assistant_message(self, response):
+        return {"role": "assistant", "content": self.response_text}
+
+    def format_tool_results(self, tool_results):
+        return {"role": "user", "content": "Tool results"}
+
+
 class TestIRSSILLMAgent:
     """Test main agent functionality."""
 
@@ -65,11 +87,7 @@ class TestIRSSILLMAgent:
             # Return simple text response via a fake client
             resp = {"output_text": "Test response"}
 
-            class C:
-                def extract_text_from_response(self, r):
-                    return "Test response"
-
-            return resp, C(), None
+            return resp, MockAPIClient("Test response"), None
 
         with patch(
             "irssi_llmagent.main.ModelRouter.call_raw_with_model",
@@ -257,7 +275,9 @@ class TestIRSSILLMAgent:
             )
 
             # Should create and use agent
-            mock_agent_class.assert_called_once_with(agent.config, "mybot", "", model_override=None)
+            mock_agent_class.assert_called_once_with(
+                agent.config, "mybot", mode="serious", extra_prompt="", model_override=None
+            )
             # Should call run_agent with context only
             mock_agent.run_agent.assert_called_once()
             call_args = mock_agent.run_agent.call_args
@@ -280,11 +300,7 @@ class TestIRSSILLMAgent:
             # Return simple text response via a fake client
             resp = {"output_text": "Sarcastic response"}
 
-            class C:
-                def extract_text_from_response(self, r):
-                    return "Sarcastic response"
-
-            return resp, C(), None
+            return resp, MockAPIClient("Sarcastic response"), None
 
         with patch(
             "irssi_llmagent.main.ModelRouter.call_raw_with_model",
@@ -314,11 +330,7 @@ class TestIRSSILLMAgent:
             # Return classification result
             resp = {"output_text": "SERIOUS"}
 
-            class C:
-                def extract_text_from_response(self, r):
-                    return "SERIOUS"
-
-            return resp, C(), None
+            return resp, MockAPIClient("SERIOUS"), None
 
         with patch(
             "irssi_llmagent.main.ModelRouter.call_raw_with_model",
@@ -364,11 +376,7 @@ class TestIRSSILLMAgent:
             text = seq.pop(0)
             resp = {"output_text": text}
 
-            class C:
-                def extract_text_from_response(self, r):
-                    return text
-
-            return resp, C(), None
+            return resp, MockAPIClient(text), None
 
         with patch(
             "irssi_llmagent.main.ModelRouter.call_raw_with_model",
@@ -409,12 +417,7 @@ class TestIRSSILLMAgent:
 
         async def fake_call_raw_with_model(*args, **kwargs):
             resp = {"output_text": "Testing threshold: 8/10"}
-
-            class C:
-                def extract_text_from_response(self, r):
-                    return "Testing threshold: 8/10"
-
-            return resp, C(), None
+            return resp, MockAPIClient("Testing threshold: 8/10"), None
 
         with patch(
             "irssi_llmagent.main.ModelRouter.call_raw_with_model",
@@ -453,12 +456,7 @@ class TestIRSSILLMAgent:
         # Test with threshold 9 - score 7 should NOT trigger at all
         async def fake_call_raw_with_model_7(*args, **kwargs):
             resp = {"output_text": "Testing threshold: 7/10"}
-
-            class C:
-                def extract_text_from_response(self, r):
-                    return "Testing threshold: 7/10"
-
-            return resp, C(), None
+            return resp, MockAPIClient("Testing threshold: 7/10"), None
 
         with patch(
             "irssi_llmagent.main.ModelRouter.call_raw_with_model",
@@ -496,11 +494,7 @@ class TestCLIMode:
                 async def fake_call_raw_with_model(*args, **kwargs):
                     resp = {"output_text": "Sarcastic response"}
 
-                    class C:
-                        def extract_text_from_response(self, r):
-                            return "Sarcastic response"
-
-                    return resp, C(), None
+                    return resp, MockAPIClient("Sarcastic response"), None
 
                 # Patch the agent creation in cli_mode and model router
                 with patch("irssi_llmagent.main.IRSSILLMAgent", return_value=agent):

@@ -138,6 +138,7 @@ class OpenAIClient(BaseAPIClient):
                     continue
                 assert role != "tool"
                 content_val = m.get("content") or ""
+                # Handle both string content and structured content (for images)
                 inputs.append({"role": role, "content": content_val})
             except Exception:
                 # Be permissive about stray artifacts in message history
@@ -326,11 +327,51 @@ class OpenAIClient(BaseAPIClient):
 
     def format_tool_results(self, tool_results: list[dict]) -> list[dict]:
         """Format tool results for OpenAI Responses API as function_call_output items."""
-        return [
-            {
-                "type": "function_call_output",
-                "call_id": result["tool_use_id"],
-                "output": json.dumps({"result": result["content"]}, ensure_ascii=False),
-            }
-            for result in tool_results
-        ]
+        processed_results = []
+        image_contents = []
+
+        for result in tool_results:
+            content = result["content"]
+            # Check if content is image data
+            if isinstance(content, str) and content.startswith("IMAGE_DATA:"):
+                try:
+                    _, content_type, size, base64_data = content.split(":", 3)
+                    media_type = content_type.split("/")[-1]
+                    if media_type in ["jpeg", "png", "gif", "webp"]:
+                        # Store image for separate message
+                        image_contents.append(
+                            {
+                                "type": "input_image",
+                                "image_url": f"data:{content_type};base64,{base64_data}",
+                            }
+                        )
+                        content = f"Downloaded image ({content_type}, {size} bytes) - Image provided separately"
+                    else:
+                        content = (
+                            f"Downloaded image ({content_type}, {size} bytes) - Unsupported format"
+                        )
+                except ValueError:
+                    # Malformed image data, use as-is
+                    pass
+
+            processed_results.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": result["tool_use_id"],
+                    "output": json.dumps({"result": content}, ensure_ascii=False),
+                }
+            )
+
+        # Add image message if there are images
+        if image_contents:
+            processed_results.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "Here are the images from the website:"}
+                    ]
+                    + image_contents,
+                }
+            )
+
+        return processed_results

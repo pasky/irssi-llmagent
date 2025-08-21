@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from .agent import AIAgent
-from .base_client import build_system_prompt
 from .history import ChatHistory
 from .model_router import ModelRouter
 from .perplexity import PerplexityClient
@@ -542,7 +541,8 @@ class IRSSILLMAgent:
         async with AIAgent(
             self.config,
             mynick,
-            extra_prompt,
+            mode="serious",
+            extra_prompt=extra_prompt,
             model_override=model_override,
         ) as agent:
             # Configure progress after entering (avoid changing call signature used in tests)
@@ -575,17 +575,18 @@ class IRSSILLMAgent:
     async def _handle_sarcastic_mode(
         self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
     ) -> None:
-        """Handle sarcastic mode using direct AI calls."""
-        system_prompt = build_system_prompt(self.config, "sarcastic", mynick)
+        """Handle sarcastic mode using AIAgent with limited tools."""
+        context = await self.history.get_context(server, chan_name)
         sarcastic_model = self.config["command"]["models"]["sarcastic"]
 
-        context = await self.history.get_context(server, chan_name)
-        if self.model_router is None:
-            self.model_router = await ModelRouter(self.config).__aenter__()
-        resp, client, _ = await self.model_router.call_raw_with_model(
-            sarcastic_model, context, system_prompt
-        )
-        response = client.extract_text_from_response(resp)
+        async with AIAgent(
+            self.config,
+            mynick,
+            mode="sarcastic",
+            model_override=sarcastic_model,
+            allowed_tools=["visit_webpage"],
+        ) as agent:
+            response = await agent.run_agent(context, reasoning_effort="minimal")
 
         if response:
             logger.info(f"Sending sarcastic response to {target}: {response}")
@@ -705,6 +706,13 @@ async def cli_mode(message: str, config_path: str | None = None) -> None:
 
             async def get_context(self, server: str, channel: str):
                 return await history.get_context(server, channel)
+
+            async def get_recent_messages_since(
+                self, server_tag: str, channel_name: str, nick: str, timestamp: float
+            ):
+                return await history.get_recent_messages_since(
+                    server_tag, channel_name, nick, timestamp
+                )
 
         agent.varlink_sender = MockSender()  # type: ignore
         agent.history = MockHistory()  # type: ignore

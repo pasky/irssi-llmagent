@@ -96,7 +96,7 @@ class AnthropicClient(BaseAPIClient):
         if tools:
             payload["tools"] = tools
         if tool_choice:
-            payload["tool_choice"] = tool_choice
+            payload["tool_choice"] = {"type": tool_choice}
 
         logger.debug(f"Calling Anthropic API with model: {model}")
         logger.debug(f"Anthropic request payload: {json.dumps(payload, indent=2)}")
@@ -152,4 +152,45 @@ class AnthropicClient(BaseAPIClient):
 
     def format_tool_results(self, tool_results: list[dict]) -> dict:
         """Format tool results for Claude API."""
-        return {"role": "user", "content": tool_results}
+        processed_results = []
+        for result in tool_results:
+            content = result["content"]
+            # Check if content is image data
+            if isinstance(content, str) and content.startswith("IMAGE_DATA:"):
+                try:
+                    _, content_type, size, base64_data = content.split(":", 3)
+                    # Extract the base format (e.g., "jpeg" from "image/jpeg")
+                    media_type = content_type.split("/")[-1]
+                    if media_type in ["jpeg", "png", "gif", "webp"]:
+                        processed_results.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": result["tool_use_id"],
+                                "content": [
+                                    {
+                                        "type": "image",
+                                        "source": {
+                                            "type": "base64",
+                                            "media_type": content_type,
+                                            "data": base64_data,
+                                        },
+                                    }
+                                ],
+                            }
+                        )
+                    else:
+                        # Fallback for unsupported image types
+                        processed_results.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": result["tool_use_id"],
+                                "content": f"Downloaded image ({content_type}, {size} bytes)",
+                            }
+                        )
+                except ValueError:
+                    # Malformed image data, treat as text
+                    processed_results.append(result)
+            else:
+                # Regular text content
+                processed_results.append(result)
+        return {"role": "user", "content": processed_results}

@@ -1,6 +1,7 @@
 """Tool definitions and executors for AI agent."""
 
 import asyncio
+import base64
 import logging
 import re
 import time
@@ -35,7 +36,7 @@ TOOLS: list[Tool] = [
     },
     {
         "name": "visit_webpage",
-        "description": "Visit a webpage at the given URL and return its content as markdown text.",
+        "description": "Visit the given URL and return its content as markdown text if HTML website, or picture if an image URL.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -137,14 +138,15 @@ class WebSearchExecutor:
 class WebpageVisitorExecutor:
     """Async webpage visitor and content extractor."""
 
-    def __init__(self, max_content_length: int = 40000, timeout: int = 20):
+    def __init__(
+        self, max_content_length: int = 40000, timeout: int = 20, max_image_size: int = 5_000_000
+    ):
         self.max_content_length = max_content_length
         self.timeout = timeout
+        self.max_image_size = max_image_size  # 5MB default limit
 
     async def execute(self, url: str) -> str:
-        """Visit webpage and return content as markdown."""
-        from markdownify import markdownify
-
+        """Visit webpage and return content as markdown, or image data for images."""
         logger.info(f"Visiting {url}")
 
         # Basic URL validation
@@ -159,9 +161,35 @@ class WebpageVisitorExecutor:
                 headers={"User-Agent": "irssi-llmagent/1.0"},
             ) as response:
                 response.raise_for_status()
+
+                # Check content type for images
+                content_type = response.headers.get("content-type", "").lower()
+                if content_type.startswith("image/"):
+                    # Check content length to avoid huge token costs
+                    content_length = response.headers.get("content-length")
+                    if content_length and int(content_length) > self.max_image_size:
+                        return f"Error: Image too large ({content_length} bytes). Maximum allowed: {self.max_image_size} bytes"
+
+                    # Handle image content
+                    image_data = await response.read()
+
+                    # Double-check actual size after download
+                    if len(image_data) > self.max_image_size:
+                        return f"Error: Image too large ({len(image_data)} bytes). Maximum allowed: {self.max_image_size} bytes"
+
+                    # Convert to base64 directly
+                    image_b64 = base64.b64encode(image_data).decode()
+                    logger.info(
+                        f"Downloaded image from {url}, content-type: {content_type}, size: {len(image_data)} bytes"
+                    )
+                    return f"IMAGE_DATA:{content_type}:{len(image_data)}:{image_b64}"
+
+                # Handle text/HTML content
                 html_content = await response.text()
 
         # Convert HTML to markdown
+        from markdownify import markdownify
+
         markdown_content = markdownify(html_content).strip()
 
         # Clean up multiple line breaks

@@ -99,7 +99,9 @@ async def test_progress_report_tool_emits_callback(monkeypatch):
         },
     }
 
-    agent = AIAgent(config, mynick="bot", progress_enabled=True, progress_callback=progress_cb)
+    agent = AIAgent(
+        config, mynick="bot", mode="serious", progress_enabled=True, progress_callback=progress_cb
+    )
 
     # Patch router to use FakeAPIClient
     fake_client = FakeAPIClient()

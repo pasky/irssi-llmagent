@@ -18,14 +18,17 @@ class AIAgent:
         self,
         config: dict[str, Any],
         mynick: str,
+        mode: str = "serious",
         extra_prompt: str = "",
         model_override: str | None = None,
         *,
         progress_enabled: bool = False,
         progress_callback: Any | None = None,
+        allowed_tools: list[str] | None = None,
     ):
         self.config = config
         self.mynick = mynick
+        self.mode = mode
         self.model_router: ModelRouter | None = None
         self.max_iterations = 7
         self.extra_prompt = extra_prompt
@@ -38,10 +41,11 @@ class AIAgent:
         self._progress_can_send: bool = bool(progress_callback)
         # Tool executors with progress callback
         self.tool_executors = create_tool_executors(config, progress_callback=progress_callback)
+        self.allowed_tools = allowed_tools
 
     def _get_system_prompt(self, current_model: str = "") -> str:
-        """Get the system prompt for the agent based on serious mode prompt."""
-        base_prompt = build_system_prompt(self.config, "serious", self.mynick)
+        """Get the system prompt for the agent based on mode."""
+        base_prompt = build_system_prompt(self.config, self.mode, self.mynick)
         return base_prompt + self.extra_prompt
 
     async def __aenter__(self):
@@ -133,12 +137,17 @@ class AIAgent:
             try:
                 if self.model_router is None:
                     self.model_router = await ModelRouter(self.config).__aenter__()
+                # Filter tools if allowed_tools is specified
+                available_tools = TOOLS
+                if self.allowed_tools is not None:
+                    available_tools = [tool for tool in TOOLS if tool["name"] in self.allowed_tools]
+
                 system_prompt = self._get_system_prompt(model)
                 response, client, _ = await self.model_router.call_raw_with_model(
                     model,
                     messages + extra_messages,
                     system_prompt,
-                    tools=TOOLS,
+                    tools=available_tools,
                     tool_choice="auto" if iteration < self.max_iterations - 1 else "none",
                     reasoning_effort=reasoning_effort,
                 )

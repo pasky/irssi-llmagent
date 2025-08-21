@@ -19,7 +19,7 @@ class TestAPIAgent:
         test_config["command"]["prompts"][
             "serious"
         ] = "You are IRC user {mynick}. Be helpful and informative. Available models: serious={serious_model}, sarcastic={sarcastic_model}."
-        return AIAgent(test_config, "testbot")
+        return AIAgent(test_config, "testbot", mode="serious")
 
     def create_text_response(self, api_type: str, text: str) -> dict:
         """Create a text response in the appropriate format for the API type."""
