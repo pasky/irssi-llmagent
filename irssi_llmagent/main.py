@@ -107,6 +107,22 @@ class IRSSILLMAgent:
                 return None
         return self.server_nicks[server]
 
+    def get_channel_mode(self, chan_name: str) -> str:
+        """Get the configured mode for a channel, falling back to default_mode if not specified.
+
+        Args:
+            chan_name: Channel name to check
+
+        Returns:
+            Mode string: 'sarcastic', 'serious', or 'classifier'
+        """
+        channel_modes = self.config.get("command", {}).get("channel_modes", {})
+        if chan_name in channel_modes:
+            return channel_modes[chan_name]
+
+        default_mode = self.config.get("command", {}).get("default_mode", "classifier")
+        return default_mode
+
     async def classify_mode(self, context: list[dict[str, str]]) -> str:
         """Use preprocessing model to classify whether message should use sarcastic or serious mode.
 
@@ -439,7 +455,16 @@ class IRSSILLMAgent:
                 serious_cfg[0] if isinstance(serious_cfg, list) and serious_cfg else serious_cfg
             )
             classifier_model = self.config["command"]["models"]["classifier"]
-            help_msg = f"default is automatic mode ({classifier_model} decides), !d is explicit sarcastic diss mode ({sarcastic_model}), !a is serious agentic mode with web tools ({serious_model}), !p is Perplexity (prefer English!)"
+
+            channel_mode = self.get_channel_mode(chan_name)
+            if channel_mode == "serious":
+                default_desc = f"serious agentic mode with web tools ({serious_model}), !d is explicit sarcastic diss mode ({sarcastic_model}), !a forces thinking"
+            elif channel_mode == "sarcastic":
+                default_desc = f"sarcastic mode ({sarcastic_model}), !s (quick) & !a (thinking) is serious agentic mode with web tools ({serious_model})"
+            else:
+                default_desc = f"automatic mode ({classifier_model} decides), !d is explicit sarcastic diss mode ({sarcastic_model}), !s (quick) & !a (thinking) is serious agentic mode with web tools ({serious_model})"
+
+            help_msg = f"default is {default_desc}, !p is Perplexity (prefer English!)"
             await self.varlink_sender.send_message(target, help_msg, server)
 
         elif message.startswith("!p ") or message == "!p":
@@ -466,6 +491,13 @@ class IRSSILLMAgent:
             logger.debug(f"Processing explicit sarcastic request from {nick}: {message}")
             await self._handle_sarcastic_mode(server, chan_name, target, nick, message, mynick)
 
+        elif message.startswith("!D "):  # easter egg
+            message = message[3:].strip()
+            logger.debug(f"Processing explicit thinking sarcastic request from {nick}: {message}")
+            await self._handle_sarcastic_mode(
+                server, chan_name, target, nick, message, mynick, "high"
+            )
+
         elif message.startswith("!s "):
             message = message[3:].strip()
             logger.debug(f"Processing explicit serious request from {nick}: {message}")
@@ -489,8 +521,21 @@ class IRSSILLMAgent:
         else:
             logger.debug(f"Processing automatic mode request from {nick}: {message}")
             context = await self.history.get_context(server, chan_name)
-            classified_mode = await self.classify_mode(context)
-            logger.debug(f"Auto-classified message as {classified_mode} mode")
+
+            # Check for channel-specific or default mode override
+            channel_mode = self.get_channel_mode(chan_name)
+            if channel_mode == "serious":
+                classified_mode = await self.classify_mode(context)
+                logger.debug(f"Auto-classified message as {classified_mode} mode")
+                if classified_mode == "SARCASTIC":
+                    classified_mode = "EASY_SERIOUS"
+                    logger.debug(f"...but forcing channel-configured serious mode for {chan_name}")
+            elif channel_mode == "sarcastic":
+                classified_mode = "SARCASTIC"
+                logger.debug(f"Using channel-configured sarcastic mode for {chan_name}")
+            else:
+                classified_mode = await self.classify_mode(context)
+                logger.debug(f"Auto-classified message as {classified_mode} mode")
 
             if classified_mode.endswith("SERIOUS"):
                 await self._handle_serious_mode(
@@ -573,7 +618,14 @@ class IRSSILLMAgent:
         return response
 
     async def _handle_sarcastic_mode(
-        self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
+        self,
+        server: str,
+        chan_name: str,
+        target: str,
+        nick: str,
+        message: str,
+        mynick: str,
+        reasoning_effort: str = "minimal",
     ) -> None:
         """Handle sarcastic mode using AIAgent with limited tools."""
         context = await self.history.get_context(server, chan_name)
@@ -586,7 +638,7 @@ class IRSSILLMAgent:
             model_override=sarcastic_model,
             allowed_tools=["visit_webpage"],
         ) as agent:
-            response = await agent.run_agent(context, reasoning_effort="minimal")
+            response = await agent.run_agent(context, reasoning_effort=reasoning_effort)
 
         if response:
             logger.info(f"Sending sarcastic response to {target}: {response}")

@@ -110,6 +110,28 @@ class TestIRSSILLMAgent:
             # Should call handle_command
             agent.varlink_sender.send_message.assert_called()
 
+    def test_get_channel_mode(self, temp_config_file):
+        """Test channel mode configuration retrieval."""
+        agent = IRSSILLMAgent(temp_config_file)
+
+        # Test default behavior
+        agent.config["command"]["default_mode"] = "classifier"
+        agent.config["command"]["channel_modes"] = {
+            "#serious-work": "serious",
+            "#sarcasm-corner": "sarcastic",
+        }
+
+        # Test channel-specific modes
+        assert agent.get_channel_mode("#serious-work") == "serious"
+        assert agent.get_channel_mode("#sarcasm-corner") == "sarcastic"
+
+        # Test fallback to default
+        assert agent.get_channel_mode("#random-channel") == "classifier"
+
+        # Test when no config exists
+        agent.config["command"] = {}
+        assert agent.get_channel_mode("#any-channel") == "classifier"  # Default fallback
+
     @pytest.mark.asyncio
     async def test_help_command(self, temp_config_file):
         """Test help command functionality."""
@@ -122,6 +144,31 @@ class TestIRSSILLMAgent:
         agent.varlink_sender.send_message.assert_called_once()
         call_args = agent.varlink_sender.send_message.call_args[0]
         assert "automatic mode" in call_args[1]  # Help text should mention automatic mode
+
+    @pytest.mark.asyncio
+    async def test_help_command_with_channel_modes(self, temp_config_file):
+        """Test help command shows channel-specific mode info."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.varlink_sender = AsyncMock()
+
+        # Set up channel modes
+        agent.config["command"]["channel_modes"] = {
+            "#serious-work": "serious",
+            "#sarcasm-corner": "sarcastic",
+        }
+
+        # Test help in serious channel
+        await agent.handle_command("test", "#serious-work", "#serious-work", "user", "!h", "mybot")
+        call_args = agent.varlink_sender.send_message.call_args[0]
+        assert "default is serious agentic mode" in call_args[1]
+
+        # Test help in sarcastic channel
+        agent.varlink_sender.reset_mock()
+        await agent.handle_command(
+            "test", "#sarcasm-corner", "#sarcasm-corner", "user", "!h", "mybot"
+        )
+        call_args = agent.varlink_sender.send_message.call_args[0]
+        assert "default is sarcastic mode" in call_args[1]
 
     @pytest.mark.asyncio
     async def test_command_debouncing_end_to_end(self, temp_config_file, temp_db_path):
@@ -139,7 +186,9 @@ class TestIRSSILLMAgent:
         # Capture the final consolidated message
         captured_message = None
 
-        async def capture_message(server, chan_name, target, nick, message, mynick):
+        async def capture_message(
+            server, chan_name, target, nick, message, mynick, reasoning_effort="minimal"
+        ):
             nonlocal captured_message
             captured_message = message
 
