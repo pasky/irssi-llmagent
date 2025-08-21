@@ -80,9 +80,9 @@ class AnthropicClient(BaseAPIClient):
         if reasoning_effort == "low":
             thinking_budget = 1024
         elif reasoning_effort == "medium":
-            thinking_budget = 2048
+            thinking_budget = 4096
         elif reasoning_effort == "high":
-            thinking_budget = 8192
+            thinking_budget = 16000
 
         payload = {
             "model": model,
@@ -92,7 +92,7 @@ class AnthropicClient(BaseAPIClient):
         }
 
         if thinking_budget:
-            payload["thinking_budget"] = thinking_budget
+            payload["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
         if tools:
             payload["tools"] = tools
         if tool_choice:
@@ -103,8 +103,13 @@ class AnthropicClient(BaseAPIClient):
 
         try:
             async with self.session.post(self.config["url"], json=payload) as response:
-                response.raise_for_status()
                 data = await response.json()
+
+                if not response.ok:
+                    error_body = json.dumps(data) if data else f"HTTP {response.status}"
+                    raise aiohttp.ClientError(
+                        f"Anthropic HTTP status {response.status}: {error_body}"
+                    )
 
             logger.debug(f"Anthropic response: {json.dumps(data, indent=2)}")
             return data
