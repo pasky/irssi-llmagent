@@ -172,7 +172,7 @@ class TestIRSSILLMAgent:
 
     @pytest.mark.asyncio
     async def test_command_debouncing_end_to_end(self, temp_config_file, temp_db_path):
-        """Test end-to-end command debouncing with message consolidation."""
+        """Test end-to-end command debouncing with message consolidation and context isolation."""
         agent = IRSSILLMAgent(temp_config_file)
         agent.config["command"]["debounce"] = 1.0
         agent.varlink_sender = AsyncMock()
@@ -183,16 +183,22 @@ class TestIRSSILLMAgent:
         agent.history = ChatHistory(temp_db_path)
         await agent.history.initialize()
 
-        # Capture the final consolidated message
+        # Set up pre-existing conversation context
+        await agent.history.add_message("test", "#test", "earlier message", "alice", "mybot")
+        await agent.history.add_message("test", "#test", "some context", "bob", "mybot")
+
+        # Capture the final consolidated message and context
         captured_message = None
+        captured_context = None
 
-        async def capture_message(
-            server, chan_name, target, nick, message, mynick, reasoning_effort="minimal"
+        async def capture_message_and_context(
+            server, chan_name, target, nick, message, mynick, context, reasoning_effort="minimal"
         ):
-            nonlocal captured_message
+            nonlocal captured_message, captured_context
             captured_message = message
+            captured_context = context
 
-        agent._handle_sarcastic_mode = capture_message
+        agent._handle_sarcastic_mode = capture_message_and_context
         agent.classify_mode = AsyncMock(return_value="SARCASTIC")
 
         # Control timing with precise timestamp mocking
@@ -217,6 +223,11 @@ class TestIRSSILLMAgent:
                 "test", "#test2", "blahblah", "user", "mybot"
             )  # Different channel - should be ignored
             await agent.history.add_message("test", "#test", "and one more", "user", "mybot")
+            # Add interfering messages from other users
+            await agent.history.add_message(
+                "test", "#test", "interfering message", "charlie", "mybot"
+            )
+            await agent.history.add_message("test", "#test", "final interfering", "dave", "mybot")
 
         with patch("time.time", side_effect=mock_time):
             # Run both tasks concurrently
@@ -225,10 +236,23 @@ class TestIRSSILLMAgent:
                 add_followup_messages(),
             )
 
-        # Verify the consolidated message contains all parts
+        # Verify message consolidation worked
         assert captured_message is not None
         print(f"Captured message: '{captured_message}'")
         assert captured_message == "original command\noops typo fix\nand one more"
+
+        # Verify context isolation worked - last message should be synthetic debounced command
+        assert captured_context is not None
+        last_message = captured_context[-1]["content"]
+        print(f"Last message in context: {last_message}")
+        assert (
+            "original command" in last_message
+            and "oops typo fix" in last_message
+            and "and one more" in last_message
+        )
+        assert "dave" not in last_message
+        assert "charlie" not in last_message
+        assert "<user>" in last_message
 
     @pytest.mark.asyncio
     async def test_rate_limiting_triggers(self, temp_config_file):

@@ -314,6 +314,7 @@ class IRSSILLMAgent:
                         logger.info(
                             f"[TEST MODE] {test_reason} Would interject proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
                         )
+                        proactive_context = await self.history.get_context(server, chan_name)
                         await self._handle_serious_mode(
                             server,
                             chan_name,
@@ -322,6 +323,7 @@ class IRSSILLMAgent:
                             message,
                             mynick,
                             classified_mode,
+                            proactive_context,
                             is_proactive=True,
                             send_message=False,
                         )
@@ -330,6 +332,7 @@ class IRSSILLMAgent:
                         logger.info(
                             f"Interjecting proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
                         )
+                        proactive_context = await self.history.get_context(server, chan_name)
                         await self._handle_serious_mode(
                             server,
                             chan_name,
@@ -338,6 +341,7 @@ class IRSSILLMAgent:
                             message,
                             mynick,
                             classified_mode,
+                            proactive_context,
                             is_proactive=True,
                         )
                 else:
@@ -434,18 +438,24 @@ class IRSSILLMAgent:
         """Handle IRC commands and generate responses."""
         import time
 
-        # Debounce to catch quick followup messages
-        original_timestamp = time.time()
         debounce = self.config["command"].get("debounce", 0)
         if debounce > 0:
+            original_timestamp = time.time()
+            context = await self.history.get_context(server, chan_name)
+
             await asyncio.sleep(debounce)
+
             followups = await self.history.get_recent_messages_since(
                 server, chan_name, nick, original_timestamp
             )
             if followups:
+                logger.debug(f"Debounced {len(followups)} followup messages from {nick}")
                 followup_texts = [m["message"] for m in followups]
                 message = message + "\n" + "\n".join(followup_texts)
-                logger.debug(f"Debounced {len(followups)} followup messages from {nick}")
+                context[-1]["content"] = message
+
+        else:
+            context = await self.history.get_context(server, chan_name)
 
         if message.startswith("!h") or message == "!h":
             logger.debug(f"Sending help message to {nick}")
@@ -467,7 +477,6 @@ class IRSSILLMAgent:
         elif message.startswith("!p ") or message == "!p":
             # Perplexity call
             logger.debug(f"Processing Perplexity request from {nick}: {message}")
-            context = await self.history.get_context(server, chan_name)
             async with PerplexityClient(self.config) as perplexity:
                 response = await perplexity.call_perplexity(context)
             if response:
@@ -486,27 +495,29 @@ class IRSSILLMAgent:
         elif message.startswith("!S ") or message.startswith("!d "):
             message = message[3:].strip()
             logger.debug(f"Processing explicit sarcastic request from {nick}: {message}")
-            await self._handle_sarcastic_mode(server, chan_name, target, nick, message, mynick)
+            await self._handle_sarcastic_mode(
+                server, chan_name, target, nick, message, mynick, context
+            )
 
         elif message.startswith("!D "):  # easter egg
             message = message[3:].strip()
             logger.debug(f"Processing explicit thinking sarcastic request from {nick}: {message}")
             await self._handle_sarcastic_mode(
-                server, chan_name, target, nick, message, mynick, "high"
+                server, chan_name, target, nick, message, mynick, context, "high"
             )
 
         elif message.startswith("!s "):
             message = message[3:].strip()
             logger.debug(f"Processing explicit serious request from {nick}: {message}")
             await self._handle_serious_mode(
-                server, chan_name, target, nick, message, mynick, "EASY_SERIOUS"
+                server, chan_name, target, nick, message, mynick, "EASY_SERIOUS", context
             )
 
         elif message.startswith("!a "):
             message = message[3:].strip()
             logger.debug(f"Processing explicit agentic request from {nick}: {message}")
             await self._handle_serious_mode(
-                server, chan_name, target, nick, message, mynick, "THINKING_SERIOUS"
+                server, chan_name, target, nick, message, mynick, "THINKING_SERIOUS", context
             )
 
         elif re.match(r"^!.", message):
@@ -517,7 +528,6 @@ class IRSSILLMAgent:
 
         else:
             logger.debug(f"Processing automatic mode request from {nick}: {message}")
-            context = await self.history.get_context(server, chan_name)
 
             # Check for channel-specific or default mode override
             channel_mode = self.get_channel_mode(chan_name)
@@ -536,10 +546,12 @@ class IRSSILLMAgent:
 
             if classified_mode.endswith("SERIOUS"):
                 await self._handle_serious_mode(
-                    server, chan_name, target, nick, message, mynick, classified_mode
+                    server, chan_name, target, nick, message, mynick, classified_mode, context
                 )
             else:
-                await self._handle_sarcastic_mode(server, chan_name, target, nick, message, mynick)
+                await self._handle_sarcastic_mode(
+                    server, chan_name, target, nick, message, mynick, context
+                )
 
         # Cancel any pending proactive interjection for this channel AGAIN, as
         # we might have queued up another one if we received a message while
@@ -555,11 +567,11 @@ class IRSSILLMAgent:
         message: str,
         mynick: str,
         classified_mode: str,
+        context: list[dict[str, str]],
         is_proactive: bool = False,
         send_message: bool = True,
     ) -> str | None:
         """Handle serious mode using an agent with tools."""
-        context = await self.history.get_context(server, chan_name)
 
         # Add extra prompt for proactive interjections to allow null response
         extra_prompt = ""
@@ -622,10 +634,10 @@ class IRSSILLMAgent:
         nick: str,
         message: str,
         mynick: str,
+        context: list[dict[str, str]],
         reasoning_effort: str = "minimal",
     ) -> None:
         """Handle sarcastic mode using AIAgent with limited tools."""
-        context = await self.history.get_context(server, chan_name)
         sarcastic_model = self.config["command"]["models"]["sarcastic"]
 
         async with AIAgent(
