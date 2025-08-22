@@ -52,7 +52,7 @@ class AnthropicClient(BaseAPIClient):
         system_prompt: str,
         model: str,
         tools: list | None = None,
-        tool_choice: str | dict | None = None,
+        tool_choice: str | dict = "auto",
         reasoning_effort: str = "minimal",
     ) -> dict:
         """Call Claude API with context and system prompt."""
@@ -65,7 +65,9 @@ class AnthropicClient(BaseAPIClient):
                 messages.append(
                     {
                         "role": "assistant",
-                        "content": "<tools>" + json.dumps(m.get("tool_calls")) + "</tools>",
+                        "content": "<tools>"
+                        + json.dumps(m.get("tool_calls"))
+                        + "</tools> <meta>! do not write like this again, use a proper tool call template</meta>",
                     }
                 )
             elif m.get("type") == "function_call_output":
@@ -108,15 +110,14 @@ class AnthropicClient(BaseAPIClient):
             "system": system_prompt,
         }
 
-        if thinking_budget:
-            payload["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
         if tools:
             payload["tools"] = tools
-        if tool_choice:
-            if tool_choice == "auto":
-                payload["tool_choice"] = {"type": "auto"}
-            else:
-                payload["tool_choice"] = {"type": "tool", "name": tool_choice}
+        if tool_choice != "auto":
+            payload["tool_choice"] = {"type": "auto"}
+            if thinking_budget:
+                payload["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
+        else:
+            payload["tool_choice"] = {"type": "tool", "name": tool_choice}
 
         logger.debug(f"Calling Anthropic API with model: {model}")
         logger.debug(f"Anthropic request payload: {json.dumps(payload, indent=2)}")
