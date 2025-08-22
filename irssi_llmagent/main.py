@@ -450,10 +450,7 @@ class IRSSILLMAgent:
         if message.startswith("!h") or message == "!h":
             logger.debug(f"Sending help message to {nick}")
             sarcastic_model = self.config["command"]["models"]["sarcastic"]
-            serious_cfg = self.config["command"]["models"]["serious"]
-            serious_model = (
-                serious_cfg[0] if isinstance(serious_cfg, list) and serious_cfg else serious_cfg
-            )
+            serious_model = self.config["command"]["models"]["serious"]
             classifier_model = self.config["command"]["models"]["classifier"]
 
             channel_mode = self.get_channel_mode(chan_name)

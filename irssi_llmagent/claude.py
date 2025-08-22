@@ -59,10 +59,25 @@ class AnthropicClient(BaseAPIClient):
         if not self.session:
             raise RuntimeError("AnthropicClient not initialized as async context manager")
 
-        # Build Claude-friendly messages (skip function_call and function_call_output artifacts)
         messages = []
         for m in context:
-            if isinstance(m, dict) and m.get("role") in ("user", "assistant"):
+            if m.get("tool_calls"):
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": "<tools>" + json.dumps(m.get("tool_calls")) + "</tools>",
+                    }
+                )
+            elif m.get("type") == "function_call_output":
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "<tool_results>"
+                        + json.dumps(m.get("output"))
+                        + "</tool_results>",
+                    }
+                )
+            elif m.get("role") in ("user", "assistant"):
                 messages.append({"role": m.get("role"), "content": m.get("content") or "..."})
         # Ensure first message is from user
         if messages and messages[0].get("role") != "user":
@@ -74,6 +89,8 @@ class AnthropicClient(BaseAPIClient):
         if messages[-1]["role"] == "assistant":
             # may happen in some race conditions with proactive checks or
             # multiple commands
+            logger.debug(context)
+            logger.debug(messages)
             return {"cancel": "(wait, I just replied)"}
 
         thinking_budget = 0

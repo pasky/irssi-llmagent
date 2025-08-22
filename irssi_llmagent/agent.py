@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from .base_client import build_system_prompt
-from .model_router import ModelRouter, parse_model_spec
+from .model_router import ModelRouter
 from .tools import TOOLS, create_tool_executors, execute_tool
 
 logger = logging.getLogger(__name__)
@@ -76,7 +76,6 @@ class AIAgent:
         messages: list[dict[str, Any]] = copy.deepcopy(context)
 
         # Tool execution loop
-        cross_provider_next: bool = False
         for iteration in range(self.max_iterations):
             if iteration > 0:
                 logger.info(f"Agent iteration {iteration + 1}/{self.max_iterations}")
@@ -84,28 +83,14 @@ class AIAgent:
             # Select serious model per iteration; last element repeats thereafter
             if self.model_override:
                 model = self.model_override
-                next_model = self.model_override
             else:
                 serious_cfg = self.config["command"]["models"]["serious"]
                 if isinstance(serious_cfg, list):
                     model = (
                         serious_cfg[iteration] if iteration < len(serious_cfg) else serious_cfg[-1]
                     )
-                    next_model = (
-                        serious_cfg[iteration + 1]
-                        if (iteration + 1) < len(serious_cfg)
-                        else serious_cfg[-1]
-                    )
                 else:
                     model = serious_cfg
-                    next_model = serious_cfg
-            # Determine if next iteration switches providers
-            try:
-                cur_provider = parse_model_spec(model).provider
-                nxt_provider = parse_model_spec(next_model).provider
-                cross_provider_next = cur_provider != nxt_provider
-            except Exception:
-                cross_provider_next = False
 
             # Conditional progress nudge appended only when threshold elapsed
             extra_messages = []
@@ -158,7 +143,7 @@ class AIAgent:
 
                 if result["type"] == "error":
                     logger.error(f"Invalid AI response: {result['message']}")
-                    break
+                    return f"Error: {result['message']}"
                 elif result["type"] == "final_text":
                     return result["text"]
                 elif result["type"] == "tool_use":
@@ -191,22 +176,6 @@ class AIAgent:
                         messages.extend(results_msg)
                     else:
                         messages.append(results_msg)
-                    # Also add provider-agnostic summary only when provider switches next
-                    if cross_provider_next:
-                        try:
-                            summarized = "; ".join(
-                                [str(r.get("content", "")) for r in tool_results]
-                            )[:800]
-                            if summarized:
-                                logger.warning(
-                                    "Cross-provider handoff detected; injecting TOOL RESULTS summary for interoperability"
-                                )
-                                messages.append(
-                                    {"role": "user", "content": f"TOOL RESULTS: {summarized}"}
-                                )
-                        except Exception:
-                            pass
-                    continue
 
             except Exception as e:
                 logger.error(f"Agent iteration {iteration + 1} failed: {e}")
@@ -240,4 +209,5 @@ class AIAgent:
         if text_response and text_response != "...":
             return {"type": "final_text", "text": text_response}
 
+        logger.debug(response)
         return {"type": "error", "message": "No valid text or tool use found in response"}

@@ -174,7 +174,7 @@ class TestIRSSILLMAgent:
     async def test_command_debouncing_end_to_end(self, temp_config_file, temp_db_path):
         """Test end-to-end command debouncing with message consolidation."""
         agent = IRSSILLMAgent(temp_config_file)
-        agent.config["command"]["debounce"] = 0.5
+        agent.config["command"]["debounce"] = 1.0
         agent.varlink_sender = AsyncMock()
 
         # Use isolated database for this test
