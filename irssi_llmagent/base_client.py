@@ -50,16 +50,14 @@ class BaseAPIClient(ABC):
             return f"Error - {response['error']}"
 
         text = self._extract_raw_text(response)
+        return self.cleanup_raw_text(text)
+
+    def cleanup_raw_text(self, text: str) -> str:
         if not text:
             return "..."
 
-        # Clean up response for IRC
         text = text.strip()
-
-        # Remove thinking tags and content if present
         text = re.sub(r"<thinking>.*?</thinking>\s*", "", text, flags=re.DOTALL)
-
-        # For IRC: single line only, take first line of remaining content
         text = text.replace("\n", "; ").strip()
 
         # Remove IRC nick prefix

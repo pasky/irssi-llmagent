@@ -162,7 +162,7 @@ class AIAgent:
 
                             # If this is the final_answer tool, return its result directly
                             if tool["name"] == "final_answer":
-                                return tool_result
+                                return client.cleanup_raw_text(tool_result)
 
                         except Exception as e:
                             tool_result = str(e)
