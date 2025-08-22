@@ -80,6 +80,20 @@ TOOLS: list[Tool] = [
             "required": ["text"],
         },
     },
+    {
+        "name": "final_answer",
+        "description": "Provide the final answer to the user's question. This tool MUST be used when the agent is ready to give its final response.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "answer": {
+                    "type": "string",
+                    "description": "The final answer or response to the user's question.",
+                }
+            },
+            "required": ["answer"],
+        },
+    },
 ]
 
 
@@ -342,6 +356,15 @@ class ProgressReportExecutor:
         return "OK"
 
 
+class FinalAnswerExecutor:
+    """Executor for providing final answers."""
+
+    async def execute(self, answer: str) -> str:
+        """Return the final answer."""
+        logger.info(f"Final answer provided: {answer[:100]}...")
+        return answer
+
+
 def create_tool_executors(
     config: dict | None = None, *, progress_callback: Any | None = None
 ) -> dict[str, Any]:
@@ -361,6 +384,7 @@ def create_tool_executors(
         "progress_report": ProgressReportExecutor(
             send_callback=progress_callback, min_interval_seconds=min_interval
         ),
+        "final_answer": FinalAnswerExecutor(),
     }
 
 

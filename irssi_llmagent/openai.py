@@ -78,7 +78,7 @@ class OpenAIClient(BaseAPIClient):
         system_prompt: str,
         model: str,
         tools: list | None = None,
-        tool_choice: str | None = None,
+        tool_choice: str | dict | None = None,
         reasoning_effort: str = "minimal",
     ) -> dict:
         """Call the OpenAI Responses API and return native response dict."""

@@ -52,7 +52,7 @@ class AnthropicClient(BaseAPIClient):
         system_prompt: str,
         model: str,
         tools: list | None = None,
-        tool_choice: str | None = None,
+        tool_choice: str | dict | None = None,
         reasoning_effort: str = "minimal",
     ) -> dict:
         """Call Claude API with context and system prompt."""
@@ -113,7 +113,10 @@ class AnthropicClient(BaseAPIClient):
         if tools:
             payload["tools"] = tools
         if tool_choice:
-            payload["tool_choice"] = {"type": tool_choice}
+            if tool_choice == "auto":
+                payload["tool_choice"] = {"type": "auto"}
+            else:
+                payload["tool_choice"] = {"type": "tool", "name": tool_choice}
 
         logger.debug(f"Calling Anthropic API with model: {model}")
         logger.debug(f"Anthropic request payload: {json.dumps(payload, indent=2)}")

@@ -30,7 +30,7 @@ class BaseAPIClient(ABC):
         system_prompt: str,
         model: str,
         tools: list | None = None,
-        tool_choice: str | None = None,
+        tool_choice: str | dict | None = None,
         reasoning_effort: str = "minimal",
     ) -> dict:
         """Call API with context and system prompt, returning raw response."""

@@ -134,7 +134,7 @@ class AIAgent:
                     messages + extra_messages,
                     system_prompt,
                     tools=available_tools,
-                    tool_choice="auto" if iteration < self.max_iterations - 2 else "none",
+                    tool_choice="auto" if iteration < self.max_iterations - 1 else "final_answer",
                     reasoning_effort=reasoning_effort,
                 )
 
@@ -159,6 +159,11 @@ class AIAgent:
                                 tool["name"], self.tool_executors, **tool["input"]
                             )
                             logger.info(f"Tool {tool['name']} executed: {tool_result[:100]}...")
+
+                            # If this is the final_answer tool, return its result directly
+                            if tool["name"] == "final_answer":
+                                return tool_result
+
                         except Exception as e:
                             tool_result = str(e)
                             logger.warning(f"Tool {tool['name']} failed: {e}")
