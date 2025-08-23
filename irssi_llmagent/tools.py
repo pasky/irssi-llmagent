@@ -156,11 +156,11 @@ class WebpageVisitorExecutor:
     """Async webpage visitor and content extractor."""
 
     def __init__(
-        self, max_content_length: int = 40000, timeout: int = 20, max_image_size: int = 5_000_000
+        self, max_content_length: int = 40000, timeout: int = 20, max_image_size: int = 3_500_000
     ):
         self.max_content_length = max_content_length
         self.timeout = timeout
-        self.max_image_size = max_image_size  # 5MB default limit
+        self.max_image_size = max_image_size  # 5MB default limit post base64 encode
 
     async def execute(self, url: str) -> str:
         """Visit webpage and return content as markdown, or image data for images."""
