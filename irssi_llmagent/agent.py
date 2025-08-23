@@ -165,7 +165,10 @@ class AIAgent:
                                 return client.cleanup_raw_text(tool_result)
 
                         except Exception as e:
-                            tool_result = str(e)
+                            import traceback
+
+                            traceback.print_exc()
+                            tool_result = repr(e)
                             logger.warning(f"Tool {tool['name']} failed: {e}")
                         tool_results.append(
                             {
