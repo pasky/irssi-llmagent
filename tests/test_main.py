@@ -189,7 +189,7 @@ class TestIRSSILLMAgent:
 
         # Capture the final consolidated message and context
         captured_message = None
-        captured_context = None
+        captured_context = []
 
         async def capture_message_and_context(
             server, chan_name, target, nick, message, mynick, context, reasoning_effort="minimal"
@@ -240,19 +240,7 @@ class TestIRSSILLMAgent:
         assert captured_message is not None
         print(f"Captured message: '{captured_message}'")
         assert captured_message == "original command\noops typo fix\nand one more"
-
-        # Verify context isolation worked - last message should be synthetic debounced command
-        assert captured_context is not None
-        last_message = captured_context[-1]["content"]
-        print(f"Last message in context: {last_message}")
-        assert (
-            "original command" in last_message
-            and "oops typo fix" in last_message
-            and "and one more" in last_message
-        )
-        assert "dave" not in last_message
-        assert "charlie" not in last_message
-        assert "<user>" in last_message
+        assert captured_message == captured_context[-1]["content"]
 
     @pytest.mark.asyncio
     async def test_rate_limiting_triggers(self, temp_config_file):
