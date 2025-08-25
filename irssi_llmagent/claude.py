@@ -112,13 +112,22 @@ class AnthropicClient(BaseAPIClient):
 
         if tools:
             payload["tools"] = tools
-        if tool_choice and tool_choice != "auto":
-            payload["tool_choice"] = {"type": "tool", "name": tool_choice}
-        else:
-            if tool_choice == "auto":
-                payload["tool_choice"] = {"type": "auto"}
-            if thinking_budget:
-                payload["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
+        if thinking_budget:
+            payload["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
+        if tool_choice == "auto":
+            payload["tool_choice"] = {"type": "auto"}
+        elif tool_choice:
+            if not thinking_budget:
+                payload["tool_choice"] = {"type": "tool", "name": tool_choice}
+            else:
+                # As per this documentation: https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#extended-thinking-with-tool-use
+                # > Tool choice limitation: Tool use with thinking only supports tool_choice: {"type": "auto"} (the default) or tool_choice: {"type": "none"}. Using tool_choice: {"type": "any"} or tool_choice: {"type": "tool", "name": "..."} will result in an error because these options force tool use, which is incompatible with extended thinking.
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": f"<meta>tool {tool_choice} must be called now</meta>",
+                    }
+                )
 
         logger.debug(f"Calling Anthropic API with model: {model}")
         logger.debug(f"Anthropic request payload: {json.dumps(payload, indent=2)}")

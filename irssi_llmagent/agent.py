@@ -76,9 +76,11 @@ class AIAgent:
         messages: list[dict[str, Any]] = copy.deepcopy(context)
 
         # Tool execution loop
-        for iteration in range(self.max_iterations):
+        for iteration in range(self.max_iterations * 2):
             if iteration > 0:
                 logger.info(f"Agent iteration {iteration + 1}/{self.max_iterations}")
+            if iteration >= self.max_iterations:
+                logger.warn("Exceeding max iterations...")
 
             # Select serious model per iteration; last element repeats thereafter
             if self.model_override:

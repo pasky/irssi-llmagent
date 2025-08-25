@@ -787,3 +787,147 @@ class TestAPIAgent:
         result = agent._process_ai_response_provider({"invalid": "response"}, FakeClient())
         assert result["type"] == "error"
         assert "No valid text" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_claude_thinking_budget_with_non_auto_tool_choice(self):
+        """Test Claude's special handling when thinking budget is set with non-auto tool_choice."""
+
+        # Create a Claude client instance for direct testing
+        from irssi_llmagent.claude import AnthropicClient
+
+        test_config = {
+            "providers": {
+                "anthropic": {"key": "test-key", "url": "https://api.anthropic.com/v1/messages"}
+            }
+        }
+
+        claude_client = AnthropicClient(test_config)
+
+        # Mock the HTTP session to capture the payload
+        captured_payload = {}
+
+        class MockResponse:
+            def __init__(self):
+                self.ok = True
+                self.status = 200
+
+            async def json(self):
+                return {
+                    "content": [{"type": "text", "text": "Final answer"}],
+                    "stop_reason": "end_turn",
+                }
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        class MockSession:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def post(self, url, json=None):
+                captured_payload.update(json or {})
+                return MockResponse()
+
+            async def close(self):
+                pass
+
+        # Test the scenario: thinking budget + non-auto tool_choice
+        messages = [{"role": "user", "content": "Test query"}]
+
+        with patch("aiohttp.ClientSession", MockSession):
+            async with claude_client:
+                await claude_client.call_raw(
+                    messages,
+                    "Test system prompt",
+                    "claude-3-5-sonnet-20241022",
+                    tools=[{"name": "final_answer", "description": "test tool"}],
+                    tool_choice="final_answer",  # Non-auto tool choice
+                    reasoning_effort="medium",  # Sets thinking budget
+                )
+
+        # Verify the special case was handled correctly
+        assert "thinking" in captured_payload  # Thinking budget was set
+        assert captured_payload["thinking"]["budget_tokens"] == 4096  # Medium effort
+
+        # Assert exact literal value of messages[]
+        expected_messages = [
+            {"role": "user", "content": "Test query"},
+            {"role": "user", "content": "<meta>tool final_answer must be called now</meta>"},
+        ]
+        assert captured_payload["messages"] == expected_messages
+
+        # Verify tool_choice is not set in payload due to thinking budget incompatibility
+        assert "tool_choice" not in captured_payload
+
+    @pytest.mark.asyncio
+    async def test_openai_thinking_budget_with_non_auto_tool_choice(self):
+        """Test OpenAI's handling when reasoning effort is set with non-auto tool_choice."""
+
+        # Create an OpenAI client instance for direct testing
+        from irssi_llmagent.openai import OpenAIClient
+
+        test_config = {"providers": {"openai": {"key": "test-key"}}}
+
+        openai_client = OpenAIClient(test_config)
+
+        # Mock the OpenAI SDK client to capture the payload
+        captured_kwargs = {}
+
+        class MockResponse:
+            def model_dump(self):
+                return {
+                    "output_text": "Final answer",
+                    "output": [
+                        {
+                            "type": "message",
+                            "message": {
+                                "role": "assistant",
+                                "content": [{"type": "text", "text": "Final answer"}],
+                            },
+                        }
+                    ],
+                }
+
+        class MockAsyncOpenAI:
+            def __init__(self, *args, **kwargs):
+                self.responses = self
+
+            async def create(self, **kwargs):
+                captured_kwargs.update(kwargs)
+                return MockResponse()
+
+        # Test the scenario: reasoning effort + non-auto tool_choice
+        messages = [{"role": "user", "content": "Test query"}]
+
+        with patch("irssi_llmagent.openai._AsyncOpenAI", MockAsyncOpenAI):
+            async with openai_client:
+                await openai_client.call_raw(
+                    messages,
+                    "Test system prompt",
+                    "gpt-4",
+                    tools=[
+                        {"name": "final_answer", "description": "test tool", "input_schema": {}}
+                    ],
+                    tool_choice="final_answer",  # Non-auto tool choice
+                    reasoning_effort="medium",  # Sets reasoning effort
+                )
+
+        # Assert exact literal value of input messages
+        expected_input = [
+            {"role": "system", "content": "Test system prompt"},
+            {"role": "user", "content": "Test query"},
+        ]
+        assert captured_kwargs["input"] == expected_input
+
+        # Verify reasoning effort was set
+        assert captured_kwargs["reasoning"]["effort"] == "medium"
+
+        # Verify tool_choice was preserved (OpenAI doesn't have Claude's limitation)
+        assert captured_kwargs["tool_choice"] == "final_answer"
+
+        # Verify tools were converted properly
+        assert len(captured_kwargs["tools"]) == 1
+        assert captured_kwargs["tools"][0]["name"] == "final_answer"
