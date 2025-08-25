@@ -158,7 +158,7 @@ class WebpageVisitorExecutor:
     def __init__(
         self,
         max_content_length: int = 40000,
-        timeout: int = 20,
+        timeout: int = 30,
         max_image_size: int = 3_500_000,
         progress_callback: Any | None = None,
     ):
