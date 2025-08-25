@@ -156,11 +156,16 @@ class WebpageVisitorExecutor:
     """Async webpage visitor and content extractor."""
 
     def __init__(
-        self, max_content_length: int = 40000, timeout: int = 20, max_image_size: int = 3_500_000
+        self,
+        max_content_length: int = 40000,
+        timeout: int = 20,
+        max_image_size: int = 3_500_000,
+        progress_callback: Any | None = None,
     ):
         self.max_content_length = max_content_length
         self.timeout = timeout
         self.max_image_size = max_image_size  # 5MB default limit post base64 encode
+        self.progress_callback = progress_callback
 
     async def execute(self, url: str) -> str:
         """Visit webpage and return content as markdown, or image data for images."""
@@ -211,14 +216,7 @@ class WebpageVisitorExecutor:
 
             # Handle text/HTML content - use jina.ai reader service
             jina_url = f"https://r.jina.ai/{url}"
-            async with session.get(
-                jina_url,
-                timeout=aiohttp.ClientTimeout(total=self.timeout),
-                headers={"User-Agent": "irssi-llmagent/1.0"},
-            ) as response:
-                response.raise_for_status()
-                markdown_content = await response.text()
-                markdown_content = markdown_content.strip()
+            markdown_content = await self._fetch(session, jina_url)
 
         # Clean up multiple line breaks
         markdown_content = re.sub(r"\n{3,}", "\n\n", markdown_content)
@@ -234,6 +232,36 @@ class WebpageVisitorExecutor:
             )
 
         return f"## Content from {url}\n\n{markdown_content}"
+
+    async def _fetch(self, session: aiohttp.ClientSession, jina_url: str) -> str:
+        """Fetch from jina.ai with backoff on HTTP 451."""
+        backoff_delays = [0, 30, 90]  # No delay, then 30s, then 90s
+
+        for attempt, delay in enumerate(backoff_delays):
+            if delay > 0:
+                logger.info(f"Waiting {delay}s before retry {attempt + 1}/3 for jina.ai")
+                await asyncio.sleep(delay)
+
+            try:
+                async with session.get(
+                    jina_url,
+                    timeout=aiohttp.ClientTimeout(total=self.timeout),
+                    headers={"User-Agent": "irssi-llmagent/1.0"},
+                ) as response:
+                    response.raise_for_status()
+                    content = await response.text()
+                    return content.strip()
+
+            except aiohttp.ClientResponseError as e:
+                if (e.status == 451 or e.status >= 500) and attempt < len(backoff_delays) - 1:
+                    if self.progress_callback:
+                        await self.progress_callback(
+                            f"r.jina.ai HTTP {e.status}, retrying in a bit..."
+                        )
+                    continue
+                raise
+
+        raise RuntimeError("This should not be reached")
 
 
 class PythonExecutorE2B:
@@ -379,7 +407,7 @@ def create_tool_executors(
 
     return {
         "web_search": WebSearchExecutor(),
-        "visit_webpage": WebpageVisitorExecutor(),
+        "visit_webpage": WebpageVisitorExecutor(progress_callback=progress_callback),
         "execute_python": PythonExecutorE2B(api_key=e2b_api_key),
         "progress_report": ProgressReportExecutor(
             send_callback=progress_callback, min_interval_seconds=min_interval

@@ -1,8 +1,9 @@
 """Tests for tool functionality."""
 
 import base64
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
+import aiohttp
 import pytest
 
 from irssi_llmagent.claude import AnthropicClient
@@ -116,6 +117,96 @@ class TestToolExecutors:
 
             expected_b64 = base64.b64encode(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR").decode()
             assert expected_b64 in result
+
+    @pytest.mark.asyncio
+    async def test_webpage_visitor_http_451_backoff(self):
+        """Test webpage visitor HTTP 451 backoff retry logic."""
+        progress_calls = []
+
+        async def mock_progress_callback(text: str):
+            progress_calls.append(text)
+
+        executor = WebpageVisitorExecutor(progress_callback=mock_progress_callback)
+
+        # Mock head response (non-image)
+        mock_head_response = AsyncMock()
+        mock_head_response.headers = {"content-type": "text/html"}
+        mock_head_response.raise_for_status = MagicMock()
+
+        # Mock GET responses: first 451, then 451, then success
+        mock_get_response_451_1 = AsyncMock()
+        mock_get_response_451_1.status = 451
+        mock_get_response_451_1.request_info = MagicMock()
+        mock_get_response_451_1.history = []
+        mock_get_response_451_1.raise_for_status = MagicMock(
+            side_effect=aiohttp.ClientResponseError(
+                request_info=mock_get_response_451_1.request_info,
+                history=mock_get_response_451_1.history,
+                status=451,
+                message="Unavailable For Legal Reasons",
+            )
+        )
+
+        mock_get_response_451_2 = AsyncMock()
+        mock_get_response_451_2.status = 451
+        mock_get_response_451_2.request_info = MagicMock()
+        mock_get_response_451_2.history = []
+        mock_get_response_451_2.raise_for_status = MagicMock(
+            side_effect=aiohttp.ClientResponseError(
+                request_info=mock_get_response_451_2.request_info,
+                history=mock_get_response_451_2.history,
+                status=451,
+                message="Unavailable For Legal Reasons",
+            )
+        )
+
+        mock_get_response_success = AsyncMock()
+        mock_get_response_success.status = 200
+        mock_get_response_success.text = AsyncMock(
+            return_value="# Success\n\nContent loaded successfully"
+        )
+        mock_get_response_success.raise_for_status = MagicMock()
+
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        # Setup context managers
+        mock_head_context = AsyncMock()
+        mock_head_context.__aenter__ = AsyncMock(return_value=mock_head_response)
+        mock_head_context.__aexit__ = AsyncMock(return_value=None)
+
+        mock_get_context_451_1 = AsyncMock()
+        mock_get_context_451_1.__aenter__ = AsyncMock(return_value=mock_get_response_451_1)
+        mock_get_context_451_1.__aexit__ = AsyncMock(return_value=None)
+
+        mock_get_context_451_2 = AsyncMock()
+        mock_get_context_451_2.__aenter__ = AsyncMock(return_value=mock_get_response_451_2)
+        mock_get_context_451_2.__aexit__ = AsyncMock(return_value=None)
+
+        mock_get_context_success = AsyncMock()
+        mock_get_context_success.__aenter__ = AsyncMock(return_value=mock_get_response_success)
+        mock_get_context_success.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.head = MagicMock(return_value=mock_head_context)
+        mock_session.get = MagicMock(
+            side_effect=[mock_get_context_451_1, mock_get_context_451_2, mock_get_context_success]
+        )
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            with patch("asyncio.sleep") as mock_sleep:
+                result = await executor.execute("https://example.com/test")
+
+                # Verify result contains expected content
+                assert "Content loaded successfully" in result
+
+                # Verify progress callbacks were made
+                assert len(progress_calls) == 2
+                assert "r.jina.ai HTTP 451" in progress_calls[0]
+                assert "r.jina.ai HTTP 451" in progress_calls[1]
+
+                # Verify asyncio.sleep was called with correct delays
+                mock_sleep.assert_has_calls([call(30), call(90)])
 
     @pytest.mark.asyncio
     async def test_python_executor_e2b_success(self):
