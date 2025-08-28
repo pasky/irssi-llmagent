@@ -319,6 +319,147 @@ class TestToolDefinitions:
         assert python_executor.api_key is None
 
 
+class TestAnthropicRetryLogic:
+    """Test Anthropic API retry logic for 529 errors."""
+
+    @pytest.mark.asyncio
+    async def test_529_retry_with_eventual_success(self):
+        """Test that 529 errors are retried with exponential backoff until success."""
+        config = {
+            "providers": {
+                "anthropic": {"key": "test-key", "url": "https://api.anthropic.com/v1/messages"}
+            }
+        }
+
+        call_count = 0
+
+        class MockResponse:
+            def __init__(self, status, data):
+                self.status = status
+                self.ok = status == 200
+                self._data = data
+
+            async def json(self):
+                return self._data
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        class MockContextManager:
+            def __init__(self, response):
+                self.response = response
+
+            async def __aenter__(self):
+                return self.response
+
+            async def __aexit__(self, *args):
+                pass
+
+        def mock_post(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+
+            # Fail first 2 attempts with 529, succeed on 3rd
+            if call_count <= 2:
+                response = MockResponse(
+                    529,
+                    {
+                        "type": "error",
+                        "error": {"type": "overloaded_error", "message": "Overloaded"},
+                    },
+                )
+            else:
+                response = MockResponse(200, {"content": [{"type": "text", "text": "Success!"}]})
+
+            return MockContextManager(response)
+
+        client = AnthropicClient(config)
+        async with client:
+            with patch.object(client.session, "post", side_effect=mock_post):
+                with patch("asyncio.sleep") as mock_sleep:
+                    result = await client.call_raw(
+                        context=[{"role": "user", "content": "test"}],
+                        system_prompt="test",
+                        model="claude-3-sonnet-20240229",
+                    )
+
+                    # Should have made 3 attempts total
+                    assert call_count == 3
+                    # Should have called sleep twice (for retries)
+                    assert mock_sleep.call_count == 2
+                    # Should have succeeded eventually
+                    assert "content" in result
+                    assert result["content"][0]["text"] == "Success!"
+
+    @pytest.mark.asyncio
+    async def test_529_retry_exhausted(self):
+        """Test that after exhausting retries, 529 error is returned."""
+        config = {
+            "providers": {
+                "anthropic": {"key": "test-key", "url": "https://api.anthropic.com/v1/messages"}
+            }
+        }
+
+        call_count = 0
+
+        class MockResponse:
+            def __init__(self, status, data):
+                self.status = status
+                self.ok = status == 200
+                self._data = data
+
+            async def json(self):
+                return self._data
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        class MockContextManager:
+            def __init__(self, response):
+                self.response = response
+
+            async def __aenter__(self):
+                return self.response
+
+            async def __aexit__(self, *args):
+                pass
+
+        def mock_post(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+
+            # Always fail with 529
+            response = MockResponse(
+                529,
+                {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}},
+            )
+            return MockContextManager(response)
+
+        client = AnthropicClient(config)
+        async with client:
+            with patch.object(client.session, "post", side_effect=mock_post):
+                with patch("asyncio.sleep") as mock_sleep:
+                    result = await client.call_raw(
+                        context=[{"role": "user", "content": "test"}],
+                        system_prompt="test",
+                        model="claude-3-sonnet-20240229",
+                    )
+
+                    # Should have made 5 attempts total (all backoff_delays)
+                    assert call_count == 5
+                    # Should have called sleep 4 times (for retries)
+                    assert mock_sleep.call_count == 4
+                    # Should have failed with error
+                    assert "error" in result
+                    assert "529" in result["error"]
+
+
 class TestImageHandling:
     """Test image handling in tool results for different providers."""
 

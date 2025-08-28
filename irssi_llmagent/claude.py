@@ -1,5 +1,6 @@
 """Anthropic Claude API client implementation."""
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -132,22 +133,46 @@ class AnthropicClient(BaseAPIClient):
         logger.debug(f"Calling Anthropic API with model: {model}")
         logger.debug(f"Anthropic request payload: {json.dumps(payload, indent=2)}")
 
-        try:
-            async with self.session.post(self.config["url"], json=payload) as response:
-                data = await response.json()
+        # Exponential backoff retry for 529 (overloaded) errors
+        backoff_delays = [0, 2, 5, 10, 20]  # No delay, then 2s, 5s, 10s, 20s
 
-                if not response.ok:
-                    error_body = json.dumps(data) if data else f"HTTP {response.status}"
-                    raise aiohttp.ClientError(
-                        f"Anthropic HTTP status {response.status}: {error_body}"
-                    )
+        for attempt, delay in enumerate(backoff_delays):
+            if delay > 0:
+                logger.info(
+                    f"Waiting {delay}s before retry {attempt + 1}/{len(backoff_delays)} for Anthropic API"
+                )
+                await asyncio.sleep(delay)
 
-            logger.debug(f"Anthropic response: {json.dumps(data, indent=2)}")
-            return data
+            try:
+                async with self.session.post(self.config["url"], json=payload) as response:
+                    data = await response.json()
 
-        except aiohttp.ClientError as e:
-            logger.error(f"Anthropic API error: {e}")
-            return {"error": f"API error: {e}"}
+                    if not response.ok:
+                        # Check for 529 overloaded error and retry if not last attempt
+                        if response.status == 529 and attempt < len(backoff_delays) - 1:
+                            error_body = json.dumps(data) if data else f"HTTP {response.status}"
+                            logger.warning(
+                                f"Anthropic overloaded (HTTP 529), retrying in {backoff_delays[attempt + 1]}s..."
+                            )
+                            continue
+
+                        error_body = json.dumps(data) if data else f"HTTP {response.status}"
+                        raise aiohttp.ClientError(
+                            f"Anthropic HTTP status {response.status}: {error_body}"
+                        )
+
+                logger.debug(f"Anthropic response: {json.dumps(data, indent=2)}")
+                return data
+
+            except aiohttp.ClientError as e:
+                # Only retry 529 errors, fail fast on other errors
+                if "HTTP status 529" in str(e) and attempt < len(backoff_delays) - 1:
+                    continue
+                logger.error(f"Anthropic API error: {e}")
+                return {"error": f"API error: {e}"}
+
+        # This should never be reached, but added for type safety
+        return {"error": "All retry attempts exhausted"}
 
     def _extract_raw_text(self, response: dict) -> str:
         """Extract raw text content from Claude response format."""
