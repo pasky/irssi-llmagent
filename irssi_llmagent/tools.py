@@ -132,12 +132,65 @@ class RateLimiter:
         self.last_call_time = time.time()
 
 
-class WebSearchExecutor:
-    """Async DuckDuckGo web search executor."""
+class BraveSearchExecutor:
+    """Async Brave Search API executor."""
 
-    def __init__(self, max_results: int = 5, max_calls_per_second: float = 1.0):
+    def __init__(self, api_key: str, max_results: int = 5, max_calls_per_second: float = 1.0):
+        self.api_key = api_key
         self.max_results = max_results
         self.rate_limiter = RateLimiter(max_calls_per_second)
+
+    async def execute(self, query: str) -> str:
+        """Execute Brave search and return formatted results."""
+        await self.rate_limiter.wait_if_needed()
+
+        url = "https://api.search.brave.com/res/v1/web/search"
+        headers = {
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
+            "X-Subscription-Token": self.api_key,
+        }
+        params = {
+            "q": query,
+            "count": self.max_results,
+        }
+
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(url, headers=headers, params=params) as response:
+                    response.raise_for_status()
+                    data = await response.json()
+
+                    results = data.get("web", {}).get("results", [])
+                    logger.info(f"Brave searching '{query}': {len(results)} results")
+
+                    if not results:
+                        return "No search results found. Try a different query."
+
+                    # Format results as markdown
+                    formatted_results = []
+                    for result in results:
+                        title = result.get("title", "No title")
+                        url = result.get("url", "#")
+                        description = result.get("description", "No description")
+                        formatted_results.append(f"[{title}]({url})\n{description}")
+
+                    return "## Search Results\n\n" + "\n\n".join(formatted_results)
+
+            except Exception as e:
+                logger.error(f"Brave search failed: {e}")
+                return f"Search failed: {e}"
+
+
+class WebSearchExecutor:
+    """Async ddgs web search executor."""
+
+    def __init__(
+        self, max_results: int = 10, max_calls_per_second: float = 1.0, backend: str = "auto"
+    ):
+        self.max_results = max_results
+        self.rate_limiter = RateLimiter(max_calls_per_second)
+        self.backend = backend
 
     async def execute(self, query: str) -> str:
         """Execute web search and return formatted results."""
@@ -147,7 +200,8 @@ class WebSearchExecutor:
         loop = asyncio.get_event_loop()
         with DDGS() as ddgs:
             results = await loop.run_in_executor(
-                None, lambda: list(ddgs.text(query, max_results=self.max_results))
+                None,
+                lambda: list(ddgs.text(query, max_results=self.max_results, backend=self.backend)),
             )
 
         logger.info(f"Searching '{query}': {len(results)} results")
@@ -175,11 +229,13 @@ class WebpageVisitorExecutor:
         timeout: int = 60,
         max_image_size: int = 3_500_000,
         progress_callback: Any | None = None,
+        api_key: str | None = None,
     ):
         self.max_content_length = max_content_length
         self.timeout = timeout
         self.max_image_size = max_image_size  # 5MB default limit post base64 encode
         self.progress_callback = progress_callback
+        self.api_key = api_key
 
     async def execute(self, url: str) -> str:
         """Visit webpage and return content as markdown, or image data for images."""
@@ -257,10 +313,13 @@ class WebpageVisitorExecutor:
                 await asyncio.sleep(delay)
 
             try:
+                headers = {"User-Agent": "irssi-llmagent/1.0"}
+                if self.api_key:
+                    headers["Authorization"] = f"Bearer {self.api_key}"
                 async with session.get(
                     jina_url,
                     timeout=aiohttp.ClientTimeout(total=self.timeout),
-                    headers={"User-Agent": "irssi-llmagent/1.0"},
+                    headers=headers,
                 ) as response:
                     response.raise_for_status()
                     content = await response.text()
@@ -420,8 +479,31 @@ def create_tool_executors(
     config: dict | None = None, *, progress_callback: Any | None = None
 ) -> dict[str, Any]:
     """Create tool executors with configuration."""
-    e2b_config = config["providers"].get("e2b", {}) if config else {}
+    providers = config.get("providers", {}) if config else {}
+
+    # E2B config
+    e2b_config = providers.get("e2b", {})
     e2b_api_key = e2b_config.get("api_key")
+
+    # Jina config
+    jina_config = providers.get("jina", {})
+    jina_api_key = jina_config.get("api_key")
+
+    # Search provider config
+    agent_config = config.get("agent", {}) if config else {}
+    search_provider = agent_config.get("search_provider", "auto")
+
+    # Create appropriate search executor based on provider
+    if search_provider == "brave":
+        brave_config = providers.get("brave", {})
+        brave_api_key = brave_config.get("api_key")
+        if not brave_api_key:
+            logger.warning("Brave search configured but no API key found, falling back to ddgs")
+            search_executor = WebSearchExecutor(backend="brave")
+        else:
+            search_executor = BraveSearchExecutor(api_key=brave_api_key)
+    else:
+        search_executor = WebSearchExecutor(backend=search_provider)
 
     # Progress executor settings
     behavior = (config or {}).get("behavior", {})
@@ -429,8 +511,10 @@ def create_tool_executors(
     min_interval = int(progress_cfg.get("min_interval_seconds", 15))
 
     return {
-        "web_search": WebSearchExecutor(),
-        "visit_webpage": WebpageVisitorExecutor(progress_callback=progress_callback),
+        "web_search": search_executor,
+        "visit_webpage": WebpageVisitorExecutor(
+            progress_callback=progress_callback, api_key=jina_api_key
+        ),
         "execute_python": PythonExecutorE2B(api_key=e2b_api_key),
         "progress_report": ProgressReportExecutor(
             send_callback=progress_callback, min_interval_seconds=min_interval

@@ -18,6 +18,12 @@
     },
     "e2b": {
       "api_key": "your-e2b-api-key-here"
+    },
+    "brave": {
+      "api_key": "your-brave-api-key-here"
+    },
+    "jina": {
+      "_comment": "You may optionally set the api_key key here (for 20rpm->500rpm NC use)"
     }
   },
 
@@ -73,6 +79,7 @@
   },
 
   "agent": {
+    "search_provider": "wikipedia,google,bing,brave",
     "progress": {
       "threshold_seconds": 10,
       "min_interval_seconds": 8
