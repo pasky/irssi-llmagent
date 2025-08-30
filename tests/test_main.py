@@ -110,6 +110,69 @@ class TestIRSSILLMAgent:
             # Should call handle_command
             agent.varlink_sender.send_message.assert_called()
 
+    @pytest.mark.asyncio
+    async def test_privmsg_commands_without_nick_prefix(self, temp_config_file):
+        """Test that private messages are treated as commands without requiring nick prefix."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.varlink_sender = AsyncMock()
+        agent.history = AsyncMock()
+        agent.history.add_message = AsyncMock()
+        agent.history.get_context = AsyncMock(return_value=[])
+        agent.rate_limiter.check_limit = lambda: True
+        agent.server_nicks["test"] = "mybot"
+
+        # Mock the model router call
+        async def fake_call_raw_with_model(*args, **kwargs):
+            resp = {"output_text": "Test response"}
+            return resp, MockAPIClient("Test response"), None
+
+        with patch(
+            "irssi_llmagent.main.ModelRouter.call_raw_with_model",
+            new=AsyncMock(side_effect=fake_call_raw_with_model),
+        ):
+            # Test private message without nick prefix (should be treated as command)
+            event = {
+                "type": "message",
+                "subtype": "private",
+                "server": "test",
+                "target": "mybot",
+                "nick": "testuser",
+                "message": "hello there",
+            }
+
+            await agent.process_message_event(event)
+
+            # Should call handle_command even without nick prefix
+            agent.varlink_sender.send_message.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_channel_messages_without_nick_prefix_ignored(self, temp_config_file):
+        """Test that channel messages without nick prefix are ignored (no response)."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.varlink_sender = AsyncMock()
+        agent.history = AsyncMock()
+        agent.history.add_message = AsyncMock()
+        agent.server_nicks["test"] = "mybot"
+
+        # Ensure no proactive interjecting channels configured
+        agent.config["proactive"]["interjecting"] = []
+        agent.config["proactive"]["interjecting_test"] = []
+
+        # Test channel message without nick prefix (should be ignored)
+        event = {
+            "type": "message",
+            "subtype": "public",
+            "server": "test",
+            "target": "#test",
+            "nick": "testuser",
+            "message": "just a regular message",
+        }
+
+        await agent.process_message_event(event)
+
+        # Should NOT call send_message (bot should not respond)
+        agent.varlink_sender.send_message.assert_not_called()
+
     def test_get_channel_mode(self, temp_config_file):
         """Test channel mode configuration retrieval."""
         agent = IRSSILLMAgent(temp_config_file)

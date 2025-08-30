@@ -398,8 +398,11 @@ class IRSSILLMAgent:
         pattern = rf"^\s*(<.*?>\s*)?{re.escape(mynick)}[,:]\s*(.*?)$"
         match = re.match(pattern, message, re.IGNORECASE)
 
-        # If not directly addressed, check for proactive interjecting
-        if not match:
+        # For private messages, treat all messages as commands
+        is_private = subtype != "public"
+
+        # If not directly addressed and not a private message, check for proactive interjecting
+        if not match and not is_private:
             # Check both live and test channels for proactive interjecting
             proactive_channels = self.config["proactive"]["interjecting"]
             test_channels = self.config["proactive"]["interjecting_test"]
@@ -413,9 +416,17 @@ class IRSSILLMAgent:
                 )
             return
 
-        if match.group(1):
-            nick = match.group(1).strip("<> ")
-        cleaned_msg = match.group(2)
+        # Process command if directly addressed or if it's a private message
+        if not match and not is_private:
+            return
+
+        # For private messages, use entire message; for channel messages, extract after nick prefix
+        if is_private:
+            cleaned_msg = message
+        else:
+            if match and match.group(1):
+                nick = match.group(1).strip("<> ")
+            cleaned_msg = match.group(2) if match else message
         logger.info(f"Received command from {nick} on {server}/{chan_name}: {cleaned_msg}")
 
         # Cancel any pending proactive interjection for this channel since we're processing a command
