@@ -4,3 +4,4 @@ chat_history.db
 config.json
 *_analysis.csv
 debug.log
+irssi-data

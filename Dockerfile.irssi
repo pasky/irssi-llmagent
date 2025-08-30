@@ -1,0 +1,30 @@
+FROM debian:trixie-slim
+
+# Install dependencies
+RUN apt-get update && \
+    apt-get install -y \
+        irssi \
+        curl \
+        git \
+        sudo \
+        libjson-perl \
+        && rm -rf /var/lib/apt/lists/*
+
+# Create irssi user
+RUN useradd -m irssi
+
+# Install irssi-varlink plugin
+RUN cd /home/irssi && \
+    git clone https://github.com/pasky/irssi-varlink && \
+    mkdir -p /home/irssi/.irssi/scripts/autorun && \
+    cp irssi-varlink/varlink.pl /home/irssi/.irssi/scripts/autorun/ && \
+    chown -R irssi:irssi /home/irssi/.irssi
+
+# Set environment
+ENV TERM=xterm-256color
+
+# Switch to irssi user and start irssi
+USER irssi
+WORKDIR /home/irssi
+
+CMD ["irssi"]

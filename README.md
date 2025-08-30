@@ -23,6 +23,8 @@ A modern Python-based chatbot service that connects to irssi via varlink protoco
 3. Copy `config.json.example` to `config.json` and configure your API keys
 4. Run the service: `uv run irssi-llmagent`
 
+Alternatively, see `docs/docker.md` for running this + irssi in a Docker compose setup.
+
 ## Development
 
 ```bash

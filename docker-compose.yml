@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  irssi:
+    build:
+      context: .
+      dockerfile: Dockerfile.irssi
+    container_name: irssi-chat
+    volumes:
+      - ./irssi-data:/home/irssi/.irssi
+    networks:
+      - irssi-net
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
+  llmagent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: irssi-llmagent
+    working_dir: /app
+    volumes:
+      - ./irssi-data:/home/irssi/.irssi
+      - ./config.json:/app/config.json
+      - ./chat_history.db:/app/chat_history.db
+      - .:/app/src  # For development - mount source code
+    networks:
+      - irssi-net
+    depends_on:
+      - irssi
+    restart: unless-stopped
+    command: uv run python -m irssi_llmagent.main
+
+networks:
+  irssi-net:
+    driver: bridge
