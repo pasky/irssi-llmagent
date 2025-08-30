@@ -78,7 +78,7 @@ class OpenAIClient(BaseAPIClient):
         system_prompt: str,
         model: str,
         tools: list | None = None,
-        tool_choice: str | dict | None = None,
+        tool_choice: list | None = None,
         reasoning_effort: str = "minimal",
     ) -> dict:
         """Call the OpenAI Responses API and return native response dict."""
@@ -154,7 +154,15 @@ class OpenAIClient(BaseAPIClient):
         }
         if tools:
             sdk_kwargs["tools"] = self._convert_tools(tools)
-            sdk_kwargs["tool_choice"] = tool_choice
+            sdk_kwargs["tool_choice"] = (
+                {
+                    "mode": "required",
+                    "tools": [{"type": "function", "name": tool} for tool in tool_choice],
+                    "type": "allowed_tools",
+                }
+                if tool_choice
+                else "auto"
+            )
 
         logger.debug(f"Calling OpenAI Responses API with model: {model}")
         try:

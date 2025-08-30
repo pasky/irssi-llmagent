@@ -844,7 +844,7 @@ class TestAPIAgent:
                     "Test system prompt",
                     "claude-3-5-sonnet-20241022",
                     tools=[{"name": "final_answer", "description": "test tool"}],
-                    tool_choice="final_answer",  # Non-auto tool choice
+                    tool_choice=["final_answer"],  # Non-auto tool choice
                     reasoning_effort="medium",  # Sets thinking budget
                 )
 
@@ -855,7 +855,10 @@ class TestAPIAgent:
         # Assert exact literal value of messages[]
         expected_messages = [
             {"role": "user", "content": "Test query"},
-            {"role": "user", "content": "<meta>tool final_answer must be called now</meta>"},
+            {
+                "role": "user",
+                "content": "<meta>only tool ['final_answer'] may be called now</meta>",
+            },
         ]
         assert captured_payload["messages"] == expected_messages
 
@@ -911,7 +914,7 @@ class TestAPIAgent:
                     tools=[
                         {"name": "final_answer", "description": "test tool", "input_schema": {}}
                     ],
-                    tool_choice="final_answer",  # Non-auto tool choice
+                    tool_choice=["final_answer"],  # Non-auto tool choice
                     reasoning_effort="medium",  # Sets reasoning effort
                 )
 
@@ -926,7 +929,11 @@ class TestAPIAgent:
         assert captured_kwargs["reasoning"]["effort"] == "medium"
 
         # Verify tool_choice was preserved (OpenAI doesn't have Claude's limitation)
-        assert captured_kwargs["tool_choice"] == "final_answer"
+        assert captured_kwargs["tool_choice"] == {
+            "mode": "required",
+            "tools": [{"name": "final_answer", "type": "function"}],
+            "type": "allowed_tools",
+        }
 
         # Verify tools were converted properly
         assert len(captured_kwargs["tools"]) == 1

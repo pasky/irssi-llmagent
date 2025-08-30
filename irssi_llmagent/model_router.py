@@ -73,7 +73,7 @@ class ModelRouter:
         system_prompt: str,
         *,
         tools: list | None = None,
-        tool_choice: str | dict | None = None,
+        tool_choice: list | None = None,
         reasoning_effort: str = "minimal",
     ) -> tuple[dict, Any, ModelSpec]:
         spec = parse_model_spec(model_str)

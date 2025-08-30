@@ -289,6 +289,12 @@ class TestToolRegistry:
             mock_execute.assert_called_once_with(code="print('test')")
 
     @pytest.mark.asyncio
+    async def test_execute_make_plan_tool(self):
+        """Test executing make_plan tool."""
+        result = await execute_tool("make_plan", plan="Test plan for searching news")
+        assert result.startswith("OK")
+
+    @pytest.mark.asyncio
     async def test_execute_unknown_tool(self):
         """Test executing unknown tool."""
         with pytest.raises(ValueError, match="Unknown tool"):
@@ -317,6 +323,22 @@ class TestToolDefinitions:
         python_executor = executors["execute_python"]
         assert isinstance(python_executor, PythonExecutorE2B)
         assert python_executor.api_key is None
+
+    def test_make_plan_tool_in_tools_list(self):
+        """Test that make_plan tool is included in TOOLS list."""
+        from irssi_llmagent.tools import TOOLS
+
+        tool_names = [tool["name"] for tool in TOOLS]
+        assert "make_plan" in tool_names
+
+        # Find the make_plan tool and verify its structure
+        make_plan_tool = next(tool for tool in TOOLS if tool["name"] == "make_plan")
+        assert make_plan_tool["description"]
+        assert "input_schema" in make_plan_tool
+        assert "properties" in make_plan_tool["input_schema"]
+        assert "plan" in make_plan_tool["input_schema"]["properties"]
+        assert "required" in make_plan_tool["input_schema"]
+        assert "plan" in make_plan_tool["input_schema"]["required"]
 
 
 class TestAnthropicRetryLogic:

@@ -125,10 +125,27 @@ class AIAgent:
             try:
                 if self.model_router is None:
                     self.model_router = await ModelRouter(self.config).__aenter__()
-                # Filter tools if allowed_tools is specified
                 available_tools = TOOLS
+                tool_choice = None
+
+                # On first turn (iteration 0), only allow make_plan tool if models will switch
+                if iteration == 0:
+                    will_switch_models = False
+                    if not self.model_override:
+                        serious_cfg = self.config["command"]["models"]["serious"]
+                        if isinstance(serious_cfg, list) and len(serious_cfg) >= 2:
+                            will_switch_models = serious_cfg[0] != serious_cfg[1]
+                    if will_switch_models:
+                        tool_choice = ["make_plan", "final_answer"]
+
+                elif iteration >= self.max_iterations - 1:
+                    tool_choice = ["final_answer"]
+
+                # Clean up any remaining placeholders in tool descriptions
                 if self.allowed_tools is not None:
                     available_tools = [tool for tool in TOOLS if tool["name"] in self.allowed_tools]
+                    if tool_choice:
+                        tool_choice = [tool for tool in tool_choice if tool in self.allowed_tools]
 
                 system_prompt = self._get_system_prompt(model)
                 response, client, _ = await self.model_router.call_raw_with_model(
@@ -136,7 +153,7 @@ class AIAgent:
                     messages + extra_messages,
                     system_prompt,
                     tools=available_tools,
-                    tool_choice="auto" if iteration < self.max_iterations - 1 else "final_answer",
+                    tool_choice=tool_choice,
                     reasoning_effort=reasoning_effort,
                 )
 

@@ -94,6 +94,20 @@ TOOLS: list[Tool] = [
             "required": ["answer"],
         },
     },
+    {
+        "name": "make_plan",
+        "description": "Consider different approaches and formulate a brief research and/or execution plan. Only use this tool if research or code execution seems necessary.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "type": "string",
+                    "description": "A brief research and/or execution plan to handle the user's request, outlining (a) concerns and key goals that require further actions before responding, (b) the key steps and approach how to address them.",
+                }
+            },
+            "required": ["plan"],
+        },
+    },
 ]
 
 
@@ -158,7 +172,7 @@ class WebpageVisitorExecutor:
     def __init__(
         self,
         max_content_length: int = 40000,
-        timeout: int = 30,
+        timeout: int = 60,
         max_image_size: int = 3_500_000,
         progress_callback: Any | None = None,
     ):
@@ -393,6 +407,15 @@ class FinalAnswerExecutor:
         return answer
 
 
+class MakePlanExecutor:
+    """Executor for making plans (no-op that confirms receipt)."""
+
+    async def execute(self, plan: str) -> str:
+        """Confirm plan receipt."""
+        logger.info(f"Plan formulated: {plan[:200]}...")
+        return "OK, follow this plan"
+
+
 def create_tool_executors(
     config: dict | None = None, *, progress_callback: Any | None = None
 ) -> dict[str, Any]:
@@ -413,6 +436,7 @@ def create_tool_executors(
             send_callback=progress_callback, min_interval_seconds=min_interval
         ),
         "final_answer": FinalAnswerExecutor(),
+        "make_plan": MakePlanExecutor(),
     }
 
 
