@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from irssi_llmagent.main import IRSSILLMAgent, cli_mode
-from irssi_llmagent.proactive_debouncer import ProactiveDebouncer
+from irssi_llmagent.rooms import ProactiveDebouncer
 
 
 class MockAPIClient:

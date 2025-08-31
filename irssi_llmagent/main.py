@@ -11,11 +11,11 @@ from typing import Any
 
 from .agentic_actor import AgenticLLMActor
 from .history import ChatHistory
-from .proactive_debouncer import ProactiveDebouncer
 from .providers import ModelRouter
 from .providers.perplexity import PerplexityClient
 from .rate_limiter import RateLimiter
-from .varlink import VarlinkClient, VarlinkSender
+from .rooms import ProactiveDebouncer
+from .rooms.irc import VarlinkClient, VarlinkSender
 
 # Set up logging
 root_logger = logging.getLogger()

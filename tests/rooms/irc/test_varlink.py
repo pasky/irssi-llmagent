@@ -1,6 +1,6 @@
 import pytest
 
-from irssi_llmagent.varlink import VarlinkSender
+from irssi_llmagent.rooms.irc import VarlinkSender
 
 
 class DummySender(VarlinkSender):
