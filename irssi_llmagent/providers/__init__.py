@@ -116,6 +116,7 @@ def build_system_prompt(config: dict[str, Any], prompt_key: str, mynick: str) ->
     sarcastic_model = irc_config["command"]["modes"]["sarcastic"]["model"]
     serious_cfg = irc_config["command"]["modes"]["serious"]["model"]
     serious_model = serious_cfg[0] if isinstance(serious_cfg, list) and serious_cfg else serious_cfg
+    unsafe_model = irc_config["command"]["modes"].get("unsafe", {}).get("model", "not-configured")
 
     # Get the prompt template from command section
     try:
@@ -128,6 +129,7 @@ def build_system_prompt(config: dict[str, Any], prompt_key: str, mynick: str) ->
         current_time=current_time,
         sarcastic_model=sarcastic_model,
         serious_model=serious_model,
+        unsafe_model=unsafe_model,
     )
 
 

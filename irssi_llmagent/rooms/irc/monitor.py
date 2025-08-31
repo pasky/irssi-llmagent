@@ -86,7 +86,7 @@ class IRCRoomMonitor:
         return default_mode
 
     async def classify_mode(self, context: list[dict[str, str]]) -> str:
-        """Use preprocessing model to classify whether message should use sarcastic or serious mode.
+        """Use preprocessing model to classify whether message should use sarcastic, serious, or unsafe mode.
 
         Args:
             context: Conversation context including the current message as the last entry
@@ -119,8 +119,12 @@ class IRCRoomMonitor:
 
             serious_count = response.count("SERIOUS")
             sarcastic_count = response.count("SARCASTIC")
+            unsafe_count = response.count("UNSAFE")
 
-            if serious_count == 0 and sarcastic_count == 0:
+            # Check for UNSAFE first (highest priority for explicit requests)
+            if unsafe_count > 0:
+                return "UNSAFE"
+            elif serious_count == 0 and sarcastic_count == 0:
                 logger.warning(f"Invalid mode classification response: {response}")
                 return "SARCASTIC"
             elif serious_count <= sarcastic_count:
@@ -420,6 +424,34 @@ class IRCRoomMonitor:
             # Update context with response
             await self.agent.history.add_message(server, chan_name, response, mynick, mynick, True)
 
+    async def _handle_unsafe_mode(
+        self,
+        server: str,
+        chan_name: str,
+        target: str,
+        nick: str,
+        message: str,
+        mynick: str,
+        context: list[dict[str, str]],
+        reasoning_effort: str = "medium",
+    ) -> None:
+        """Handle unsafe mode using AIAgent with full tools access."""
+        unsafe_model = self.irc_config["command"]["modes"]["unsafe"]["model"]
+
+        async with AgenticLLMActor(
+            self.agent.config,
+            mynick,
+            mode="unsafe",
+            model_override=unsafe_model,
+        ) as agent:
+            response = await agent.run_agent(context, reasoning_effort=reasoning_effort)
+
+        if response:
+            logger.info(f"Sending unsafe response to {target}: {response}")
+            await self.varlink_sender.send_message(target, response, server)
+            # Update context with response
+            await self.agent.history.add_message(server, chan_name, response, mynick, mynick, True)
+
     async def process_message_event(self, event: dict[str, Any]) -> None:
         """Process incoming IRC message events."""
         msg_type = event.get("type")
@@ -533,15 +565,18 @@ class IRCRoomMonitor:
             logger.debug(f"Sending help message to {nick}")
             sarcastic_model = self.irc_config["command"]["modes"]["sarcastic"]["model"]
             serious_model = self.irc_config["command"]["modes"]["serious"]["model"]
+            unsafe_model = (
+                self.irc_config["command"]["modes"].get("unsafe", {}).get("model", "not-configured")
+            )
             classifier_model = self.irc_config["command"]["mode_classifier"]["model"]
 
             channel_mode = self.get_channel_mode(chan_name)
             if channel_mode == "serious":
-                default_desc = f"serious agentic mode with web tools ({serious_model}), !d is explicit sarcastic diss mode ({sarcastic_model}), !a forces thinking"
+                default_desc = f"serious agentic mode with web tools ({serious_model}), !d is explicit sarcastic diss mode ({sarcastic_model}), !u is unsafe mode ({unsafe_model}), !a forces thinking"
             elif channel_mode == "sarcastic":
-                default_desc = f"sarcastic mode ({sarcastic_model}), !s (quick) & !a (thinking) is serious agentic mode with web tools ({serious_model})"
+                default_desc = f"sarcastic mode ({sarcastic_model}), !s (quick) & !a (thinking) is serious agentic mode with web tools ({serious_model}), !u is unsafe mode ({unsafe_model})"
             else:
-                default_desc = f"automatic mode ({classifier_model} decides), !d is explicit sarcastic diss mode ({sarcastic_model}), !s (quick) & !a (thinking) is serious agentic mode with web tools ({serious_model})"
+                default_desc = f"automatic mode ({classifier_model} decides), !d is explicit sarcastic diss mode ({sarcastic_model}), !s (quick) & !a (thinking) is serious agentic mode with web tools ({serious_model}), !u is unsafe mode ({unsafe_model})"
 
             help_msg = f"default is {default_desc}, !p is Perplexity (prefer English!)"
             await self.varlink_sender.send_message(target, help_msg, server)
@@ -594,6 +629,13 @@ class IRCRoomMonitor:
                 server, chan_name, target, nick, message, mynick, "THINKING_SERIOUS", context
             )
 
+        elif message.startswith("!u "):
+            message = message[3:].strip()
+            logger.debug(f"Processing explicit unsafe request from {nick}: {message}")
+            await self._handle_unsafe_mode(
+                server, chan_name, target, nick, message, mynick, context
+            )
+
         elif re.match(r"^!.", message):
             logger.warning(f"Unknown command from {nick}: {message}")
             await self.varlink_sender.send_message(
@@ -618,7 +660,20 @@ class IRCRoomMonitor:
                 classified_mode = await self.classify_mode(context)
                 logger.debug(f"Auto-classified message as {classified_mode} mode")
 
-            if classified_mode.endswith("SERIOUS"):
+            if classified_mode == "UNSAFE":
+                # Check if unsafe mode is configured before using it
+                if "unsafe" in self.irc_config["command"]["modes"]:
+                    await self._handle_unsafe_mode(
+                        server, chan_name, target, nick, message, mynick, context
+                    )
+                else:
+                    logger.warning(
+                        "UNSAFE mode classified but not configured, falling back to sarcastic"
+                    )
+                    await self._handle_sarcastic_mode(
+                        server, chan_name, target, nick, message, mynick, context
+                    )
+            elif classified_mode.endswith("SERIOUS"):
                 await self._handle_serious_mode(
                     server, chan_name, target, nick, message, mynick, classified_mode, context
                 )

@@ -145,7 +145,7 @@ class BaseOpenAIClient(BaseAPIClient):
                 messages.append(
                     {
                         "role": "user",
-                        "content": f"<meta>Think step by step (reasoning effort: {reasoning_effort} - more than minimal)</meta>",
+                        "content": f"<meta>Think step by step in <thinking>...</thinking> (reasoning effort: {reasoning_effort} - more than minimal)</meta>",
                     }
                 )
 
@@ -166,7 +166,7 @@ class BaseOpenAIClient(BaseAPIClient):
                     if tool_choice
                     else "auto"
                 )
-            else:
+            elif tool_choice:
                 # tool_choice with multiple tools is not supported
                 messages.append(
                     {

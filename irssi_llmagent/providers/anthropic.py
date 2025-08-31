@@ -301,6 +301,6 @@ class DeepSeekClient(BaseAnthropicAPIClient):
             messages.append(
                 {
                     "role": "user",
-                    "content": f"<meta>Think step by step (reasoning effort: {thinking_budget} tokens)</meta>",
+                    "content": f"<meta>Think step by step in <thinking>...</thinking> (reasoning effort: {thinking_budget} tokens)</meta>",
                 }
             )
