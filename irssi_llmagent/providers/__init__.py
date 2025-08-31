@@ -112,15 +112,15 @@ def build_system_prompt(config: dict[str, Any], prompt_key: str, mynick: str) ->
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     # Get model configurations for context
-    sarcastic_model = config["command"]["models"]["sarcastic"]
-    serious_cfg = config["command"]["models"]["serious"]
+    sarcastic_model = config["command"]["modes"]["sarcastic"]["model"]
+    serious_cfg = config["command"]["modes"]["serious"]["model"]
     serious_model = serious_cfg[0] if isinstance(serious_cfg, list) and serious_cfg else serious_cfg
 
     # Get the prompt template from command section
     try:
-        prompt_template = config["command"]["prompts"][prompt_key]
+        prompt_template = config["command"]["modes"][prompt_key]["prompt"]
     except KeyError:
-        raise ValueError(f"Command prompt key '{prompt_key}' not found in config") from None
+        raise ValueError(f"Command mode '{prompt_key}' not found in config") from None
 
     return prompt_template.format(
         mynick=mynick,

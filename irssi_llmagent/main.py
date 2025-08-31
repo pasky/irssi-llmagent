@@ -143,10 +143,10 @@ class IRSSILLMAgent:
             if message_match:
                 current_message = message_match.group(1).strip()
 
-            prompt = self.config["command"]["prompts"]["mode_classifier"].format(
+            prompt = self.config["command"]["mode_classifier"]["prompt"].format(
                 message=current_message
             )
-            model = self.config["command"]["models"]["classifier"]
+            model = self.config["command"]["mode_classifier"]["model"]
             # Lazy-init router on first use
             if self.model_router is None:
                 self.model_router = await ModelRouter(self.config).__aenter__()
@@ -470,9 +470,9 @@ class IRSSILLMAgent:
 
         if message.startswith("!h") or message == "!h":
             logger.debug(f"Sending help message to {nick}")
-            sarcastic_model = self.config["command"]["models"]["sarcastic"]
-            serious_model = self.config["command"]["models"]["serious"]
-            classifier_model = self.config["command"]["models"]["classifier"]
+            sarcastic_model = self.config["command"]["modes"]["sarcastic"]["model"]
+            serious_model = self.config["command"]["modes"]["serious"]["model"]
+            classifier_model = self.config["command"]["mode_classifier"]["model"]
 
             channel_mode = self.get_channel_mode(chan_name)
             if channel_mode == "serious":
@@ -649,7 +649,7 @@ class IRSSILLMAgent:
         reasoning_effort: str = "minimal",
     ) -> None:
         """Handle sarcastic mode using AIAgent with limited tools."""
-        sarcastic_model = self.config["command"]["models"]["sarcastic"]
+        sarcastic_model = self.config["command"]["modes"]["sarcastic"]["model"]
 
         async with AIAgent(
             self.config,

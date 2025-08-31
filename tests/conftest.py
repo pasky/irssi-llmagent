@@ -33,20 +33,25 @@ def test_config(api_type) -> dict[str, Any]:
             },
         },
         "varlink": {"socket_path": "/tmp/test_varlink.sock"},
+        "tools": {},
         "command": {
             "history_size": 5,
             "rate_limit": 30,
             "rate_period": 900,
             "ignore_users": [],
-            "models": {
-                "sarcastic": f"{api_type}:dummy-sarcastic",
-                "serious": [f"{api_type}:dummy-serious"],
-                "classifier": f"{api_type}:dummy-classifier",
+            "modes": {
+                "sarcastic": {
+                    "model": f"{api_type}:dummy-sarcastic",
+                    "prompt": "You are IRC user {mynick} and you are known for your sharp sarcasm and cynical, dry, rough sense of humor. Test sarcastic prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}.",
+                },
+                "serious": {
+                    "model": [f"{api_type}:dummy-serious"],
+                    "prompt": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. Test serious prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}.",
+                },
             },
-            "prompts": {
-                "serious": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. Test serious prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}.",
-                "sarcastic": "You are IRC user {mynick} and you are known for your sharp sarcasm and cynical, dry, rough sense of humor. Test sarcastic prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}.",
-                "mode_classifier": "Analyze this IRC message and decide whether it should be handled with SARCASTIC or SERIOUS mode. Respond with only one word: 'SARCASTIC' or 'SERIOUS'. Message: {message}",
+            "mode_classifier": {
+                "model": f"{api_type}:dummy-classifier",
+                "prompt": "Analyze this IRC message and decide whether it should be handled with SARCASTIC or SERIOUS mode. Respond with only one word: 'SARCASTIC' or 'SERIOUS'. Message: {message}",
             },
         },
         "proactive": {

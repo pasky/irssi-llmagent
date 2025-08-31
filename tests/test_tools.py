@@ -379,7 +379,7 @@ class TestToolDefinitions:
 
     def test_create_tool_executors_with_config(self):
         """Test that tool executors are created with configuration."""
-        config = {"providers": {"e2b": {"api_key": "test-key-123"}}}
+        config = {"tools": {"e2b": {"api_key": "test-key-123"}}}
 
         executors = create_tool_executors(config)
 

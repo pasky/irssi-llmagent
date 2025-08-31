@@ -536,14 +536,15 @@ def create_tool_executors(
     config: dict | None = None, *, progress_callback: Any | None = None
 ) -> dict[str, Any]:
     """Create tool executors with configuration."""
-    providers = config.get("providers", {}) if config else {}
+    # Tool configs
+    tools = config.get("tools", {}) if config else {}
 
     # E2B config
-    e2b_config = providers.get("e2b", {})
+    e2b_config = tools.get("e2b", {})
     e2b_api_key = e2b_config.get("api_key")
 
     # Jina config
-    jina_config = providers.get("jina", {})
+    jina_config = tools.get("jina", {})
     jina_api_key = jina_config.get("api_key")
 
     # Search provider config
@@ -552,7 +553,7 @@ def create_tool_executors(
 
     # Create appropriate search executor based on provider
     if search_provider == "brave":
-        brave_config = providers.get("brave", {})
+        brave_config = tools.get("brave", {})
         brave_api_key = brave_config.get("api_key")
         if not brave_api_key:
             logger.warning("Brave search configured but no API key found, falling back to ddgs")

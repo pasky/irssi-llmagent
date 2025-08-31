@@ -15,9 +15,9 @@ class TestAPIAgent:
     @pytest.fixture
     def agent(self, test_config):
         """Create agent instance for testing."""
-        # Add missing prompts for agent tests
-        test_config["command"]["prompts"][
-            "serious"
+        # Update serious prompt for agent tests (config structure already has the prompt)
+        test_config["command"]["modes"]["serious"][
+            "prompt"
         ] = "You are IRC user {mynick}. Be helpful and informative. Available models: serious={serious_model}, sarcastic={sarcastic_model}."
         return AIAgent(test_config, "testbot", mode="serious")
 
