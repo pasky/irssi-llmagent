@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .claude import AnthropicClient
+from .deepseek import DeepSeekClient
 from .openai import OpenAIClient
 
 
@@ -50,6 +51,8 @@ class ModelRouter:
             return self._clients[provider]
         if provider == "anthropic":
             client = AnthropicClient(self.config)
+        elif provider == "deepseek":
+            client = DeepSeekClient(self.config)
         elif provider == "openai":
             client = OpenAIClient(self.config)
         else:

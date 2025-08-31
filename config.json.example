@@ -6,6 +6,10 @@
       "url": "https://api.anthropic.com/v1/messages",
       "key": "your-anthropic-api-key-here"
     },
+    "deepseek": {
+      "url": "https://api.deepseek.com/anthropic/v1/messages",
+      "key": "your-deepseek-api-key-here"
+    },
     "openai": {
       "base_url": "https://api.openai.com/v1",
       "key": "your-openai-api-key-here",
