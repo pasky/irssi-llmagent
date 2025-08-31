@@ -229,7 +229,10 @@ class AIAgent:
                         messages.append(results_msg)
 
             except Exception as e:
-                logger.error(f"Agent iteration {iteration + 1} failed: {e}")
+                import traceback
+
+                traceback.print_exc()
+                logger.error(f"Agent iteration {iteration + 1} failed: {str(e)}")
                 break
 
         raise StopIteration("Agent took too many turns to research")
