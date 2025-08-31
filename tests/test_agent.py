@@ -1,4 +1,4 @@
-"""Tests for agent functionality."""
+"""Tests for core agent functionality."""
 
 import json
 from unittest.mock import AsyncMock, patch
@@ -508,7 +508,6 @@ class TestAPIAgent:
                 return calls or None
 
         tool_uses = FakeClient().extract_tool_calls(response)
-
         assert tool_uses is None
 
     @pytest.mark.asyncio
@@ -580,8 +579,7 @@ class TestAPIAgent:
 
     @pytest.mark.asyncio
     async def test_agent_with_context(self, agent):
-        """Test agent receives and uses conversation history context."""
-        # Mock context with previous conversation
+        """Test agent passes through existing context."""
         context = [
             {"role": "user", "content": "What's your favorite color?"},
             {
@@ -593,7 +591,7 @@ class TestAPIAgent:
 
         class FakeClient:
             def extract_text_from_response(self, r):
-                return "Blue represents calm and trust"
+                return "Blue is often associated with calm and serenity."
 
             def has_tool_calls(self, r):
                 return False
@@ -610,7 +608,9 @@ class TestAPIAgent:
         async def fake_call_raw_with_model(model, messages, system_prompt, **kwargs):
             return (
                 {
-                    "content": [{"type": "text", "text": "Blue represents calm and trust"}],
+                    "content": [
+                        {"type": "text", "text": "Blue is often associated with calm and serenity."}
+                    ],
                     "stop_reason": "end_turn",
                 },
                 FakeClient(),
@@ -789,263 +789,6 @@ class TestAPIAgent:
         assert "No valid text" in result["message"]
 
     @pytest.mark.asyncio
-    async def test_claude_thinking_budget_with_non_auto_tool_choice(self):
-        """Test Claude's special handling when thinking budget is set with non-auto tool_choice."""
-
-        # Create a Claude client instance for direct testing
-        from irssi_llmagent.anthropic import AnthropicClient
-
-        test_config = {
-            "providers": {
-                "anthropic": {"key": "test-key", "url": "https://api.anthropic.com/v1/messages"}
-            }
-        }
-
-        claude_client = AnthropicClient(test_config)
-
-        # Mock the HTTP session to capture the payload
-        captured_payload = {}
-
-        class MockResponse:
-            def __init__(self):
-                self.ok = True
-                self.status = 200
-
-            async def json(self):
-                return {
-                    "content": [{"type": "text", "text": "Final answer"}],
-                    "stop_reason": "end_turn",
-                }
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                pass
-
-        class MockSession:
-            def __init__(self, *args, **kwargs):
-                pass
-
-            def post(self, url, json=None):
-                captured_payload.update(json or {})
-                return MockResponse()
-
-            async def close(self):
-                pass
-
-        # Test the scenario: thinking budget + non-auto tool_choice
-        messages = [{"role": "user", "content": "Test query"}]
-
-        with patch("aiohttp.ClientSession", MockSession):
-            async with claude_client:
-                await claude_client.call_raw(
-                    messages,
-                    "Test system prompt",
-                    "claude-3-5-sonnet-20241022",
-                    tools=[{"name": "final_answer", "description": "test tool"}],
-                    tool_choice=["final_answer"],  # Non-auto tool choice
-                    reasoning_effort="medium",  # Sets thinking budget
-                )
-
-        # Verify the special case was handled correctly
-        assert "thinking" in captured_payload  # Thinking budget was set
-        assert captured_payload["thinking"]["budget_tokens"] == 4096  # Medium effort
-
-        # Assert exact literal value of messages[]
-        expected_messages = [
-            {"role": "user", "content": "Test query"},
-            {
-                "role": "user",
-                "content": "<meta>only tool ['final_answer'] may be called now</meta>",
-            },
-        ]
-        assert captured_payload["messages"] == expected_messages
-
-        # Verify tool_choice is not set in payload due to thinking budget incompatibility
-        assert "tool_choice" not in captured_payload
-
-    @pytest.mark.asyncio
-    async def test_openai_thinking_budget_with_non_auto_tool_choice(self):
-        """Test OpenAI's handling when reasoning effort is set with non-auto tool_choice."""
-
-        # Create an OpenAI client instance for direct testing
-        from irssi_llmagent.openai import OpenAIClient
-
-        test_config = {"providers": {"openai": {"key": "test-key"}}}
-
-        openai_client = OpenAIClient(test_config)
-
-        # Mock the OpenAI SDK client to capture the payload
-        captured_kwargs = {}
-
-        class MockResponse:
-            def model_dump(self):
-                return {
-                    "choices": [
-                        {
-                            "message": {
-                                "role": "assistant",
-                                "content": "Final answer",
-                                "tool_calls": [
-                                    {
-                                        "id": "call_123",
-                                        "type": "function",
-                                        "function": {"name": "final_answer", "arguments": "{}"},
-                                    }
-                                ],
-                            }
-                        }
-                    ]
-                }
-
-        class MockAsyncOpenAI:
-            def __init__(self, *args, **kwargs):
-                self.chat = self.MockChat()
-
-            class MockChat:
-                def __init__(self):
-                    self.completions = self.MockCompletions()
-
-                class MockCompletions:
-                    async def create(self, **kwargs):
-                        captured_kwargs.update(kwargs)
-                        return MockResponse()
-
-        # Test the scenario: reasoning effort + non-auto tool_choice
-        messages = [{"role": "user", "content": "Test query"}]
-
-        with patch("irssi_llmagent.openai._AsyncOpenAI", MockAsyncOpenAI):
-            async with openai_client:
-                await openai_client.call_raw(
-                    messages,
-                    "Test system prompt",
-                    "gpt-5",
-                    tools=[
-                        {"name": "final_answer", "description": "test tool", "input_schema": {}}
-                    ],
-                    tool_choice=["final_answer"],  # Non-auto tool choice
-                    reasoning_effort="medium",  # Sets reasoning effort
-                )
-
-        # Assert exact literal value of messages (reasoning models use developer role)
-        expected_messages = [
-            {"role": "developer", "content": "Test system prompt"},
-            {"role": "user", "content": "Test query"},
-        ]
-        assert captured_kwargs["messages"] == expected_messages
-
-        # Chat Completions API doesn't use reasoning parameter for non-o1 models
-
-        # Verify tool_choice was set correctly for Chat Completions API (with allowed_tools)
-        expected_tool_choice = captured_kwargs["tool_choice"]
-        assert expected_tool_choice == {
-            "type": "allowed_tools",
-            "allowed_tools": {
-                "mode": "required",
-                "tools": [{"type": "function", "function": {"name": "final_answer"}}],
-            },
-        }
-
-        # Verify tools were converted properly for Chat Completions format
-        assert len(captured_kwargs["tools"]) == 1
-        assert captured_kwargs["tools"][0]["type"] == "function"
-        assert captured_kwargs["tools"][0]["function"]["name"] == "final_answer"
-
-    @pytest.mark.asyncio
-    async def test_openai_api_reasoning_vs_legacy_model_handling(self):
-        """Test OpenAI API handles reasoning models vs legacy models differently."""
-        from irssi_llmagent.openai import OpenAIClient
-
-        config = {"providers": {"openai": {"key": "test-key"}}}
-
-        # Mock to capture API calls
-        captured_kwargs = {}
-
-        class MockResponse:
-            def model_dump(self):
-                return {"choices": [{"message": {"content": "test response"}}]}
-
-        class MockAsyncOpenAI:
-            def __init__(self, *args, **kwargs):
-                self.chat = self.MockChat()
-
-            class MockChat:
-                def __init__(self):
-                    self.completions = self.MockCompletions()
-
-                class MockCompletions:
-                    async def create(self, **kwargs):
-                        captured_kwargs.update(kwargs)
-                        return MockResponse()
-
-        # Test legacy model (gpt-4o)
-        captured_kwargs.clear()
-        client = OpenAIClient(config)
-
-        with patch("irssi_llmagent.openai._AsyncOpenAI", MockAsyncOpenAI):
-            async with client:
-                await client.call_raw(
-                    [{"role": "user", "content": "Test message"}],
-                    "Test system prompt",
-                    "gpt-4o",  # Legacy model
-                    tools=[
-                        {
-                            "name": "tool_a",
-                            "description": "Tool A",
-                            "input_schema": {"type": "object"},
-                        },
-                        {
-                            "name": "tool_b",
-                            "description": "Tool B",
-                            "input_schema": {"type": "object"},
-                        },
-                    ],
-                    tool_choice=["tool_a", "tool_b"],
-                    reasoning_effort="high",
-                )
-
-        # Legacy model should use system role and max_tokens
-        assert captured_kwargs["messages"][0]["role"] == "system"
-        assert "max_tokens" in captured_kwargs
-        assert "max_completion_tokens" not in captured_kwargs
-        # Legacy should use meta messages for tool choice and reasoning
-        assert "tool_choice" not in captured_kwargs
-        assert "reasoning_effort" not in captured_kwargs
-        meta_messages = [
-            msg for msg in captured_kwargs["messages"] if "meta>" in str(msg.get("content", ""))
-        ]
-        assert len(meta_messages) >= 2  # reasoning + tool choice meta messages
-
-        # Test reasoning model (gpt-5)
-        captured_kwargs.clear()
-
-        with patch("irssi_llmagent.openai._AsyncOpenAI", MockAsyncOpenAI):
-            async with client:
-                await client.call_raw(
-                    [{"role": "user", "content": "Test message"}],
-                    "Test system prompt",
-                    "gpt-5",  # Reasoning model
-                    tools=[
-                        {
-                            "name": "tool_c",
-                            "description": "Tool C",
-                            "input_schema": {"type": "object"},
-                        }
-                    ],
-                    tool_choice=["tool_c"],
-                    reasoning_effort="medium",
-                )
-
-        # Reasoning model should use developer role and max_completion_tokens
-        assert captured_kwargs["messages"][0]["role"] == "developer"
-        assert "max_completion_tokens" in captured_kwargs
-        assert "max_tokens" not in captured_kwargs
-        # Reasoning should use direct API parameters
-        assert "reasoning_effort" in captured_kwargs
-        assert "tool_choice" in captured_kwargs
-
-    @pytest.mark.asyncio
     async def test_agent_max_tokens_tool_retry(self, agent):
         """Test agent handles max_tokens truncated tool calls by retrying."""
         # Create truncated Claude response first, then successful response
@@ -1099,73 +842,3 @@ class TestAPIAgent:
             # Should have made 2 calls - first truncated, then retry
             assert mock_call.call_count == 2
             assert "final answer" in result
-
-
-class TestOpenRouterClient:
-    """Test OpenRouter client functionality."""
-
-    @pytest.mark.asyncio
-    async def test_openrouter_provider_routing_parsing(self):
-        """Test OpenRouter provider routing syntax parsing."""
-        from irssi_llmagent.openai import OpenRouterClient
-
-        test_config = {"providers": {"openrouter": {"key": "test-key"}}}
-        client = OpenRouterClient(test_config)
-
-        # Test without provider routing
-        extra_body, model_name = client._get_extra_body("gpt-4o")
-        assert extra_body is None
-        assert model_name is None
-
-        # Test with provider routing
-        extra_body, model_name = client._get_extra_body("moonshot/kimi-k2#groq,moonshotai")
-        assert extra_body == {"provider": {"only": ["groq", "moonshotai"]}}
-        assert model_name == "moonshot/kimi-k2"
-
-        # Test with single provider
-        extra_body, model_name = client._get_extra_body("gpt-4o#anthropic")
-        assert extra_body == {"provider": {"only": ["anthropic"]}}
-        assert model_name == "gpt-4o"
-
-        # Test with empty provider list
-        extra_body, model_name = client._get_extra_body("gpt-4o#")
-        assert extra_body is None
-        assert model_name is None
-
-    @pytest.mark.asyncio
-    async def test_openrouter_call_raw_with_provider_routing(self):
-        """Test OpenRouter call_raw method with provider routing."""
-        from irssi_llmagent.openai import OpenRouterClient
-
-        test_config = {"providers": {"openrouter": {"key": "test-key"}}}
-        client = OpenRouterClient(test_config)
-
-        # Mock the OpenAI SDK client to capture the payload
-        captured_kwargs = {}
-
-        class MockResponse:
-            def model_dump(self):
-                return {"choices": [{"message": {"role": "assistant", "content": "Test response"}}]}
-
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create.return_value = MockResponse()
-
-        async def capture_kwargs(*args, **kwargs):
-            captured_kwargs.update(kwargs)
-            return MockResponse()
-
-        mock_client.chat.completions.create.side_effect = capture_kwargs
-
-        # Test with provider routing
-        async with client:
-            client._client = mock_client
-            await client.call_raw(
-                context=[],
-                system_prompt="Test prompt",
-                model="moonshot/kimi-k2#groq,moonshotai",
-            )
-
-        # Should have called with extra_body containing provider config
-        assert "extra_body" in captured_kwargs
-        assert captured_kwargs["extra_body"]["provider"]["only"] == ["groq", "moonshotai"]
-        assert captured_kwargs["model"] == "moonshot/kimi-k2"
