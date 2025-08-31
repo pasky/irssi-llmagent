@@ -19,8 +19,9 @@
 - NEVER use `git add -A` blindly, there may be untracked files that must not be committed
 
 ## Architecture
-- **Main Service**: `irssi_llmagent/main.py` - Async Python chatbot connecting via varlink to irssi
-- **Modular Structure**: Split into separate modules for Claude, Perplexity, varlink, and history
+- **Main Service**: `irssi_llmagent/main.py` - Core application coordinator managing shared resources (config, history, model router)
+- **Room Isolation**: IRC-specific functionality isolated in `rooms/irc/monitor.py` (IRCRoomMonitor class)
+- **Modular Structure**: Clean separation between platform-agnostic core and IRC-specific implementation
 - **Varlink Protocol**: Dual async socket architecture (events + sender) over UNIX socket at `~/.irssi/varlink.sock`
 - **APIs**: Anthropic Claude (sarcastic/serious modes with automatic classification using claude-3-5-haiku), Perplexity AI, E2B sandbox for Python code execution
 - **Config**: JSON-based configuration in `config.json` (copy from `config.json.example`)
@@ -30,6 +31,7 @@
 - **Database**: SQLite persistent chat history with configurable inference limits
 - **Proactive Interjecting**: Channel-based whitelist feature using claude-3-haiku to scan non-directed messages and interject in serious conversations when useful. Includes rate limiting, test mode, and channel whitelisting
 - **Key Modules**:
+  - `rooms/irc/monitor.py` - IRCRoomMonitor (main IRC message processing, command handling, mode classification)
   - `rooms/irc/varlink.py` - VarlinkClient (events), VarlinkSender (messages)
   - `rooms/proactive.py` - ProactiveDebouncer (channel-based proactive interjecting)
   - `history.py` - ChatHistory (persistent SQLite storage)

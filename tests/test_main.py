@@ -48,9 +48,9 @@ class TestIRSSILLMAgent:
         agent = IRSSILLMAgent(temp_config_file)
         agent.config["rooms"]["irc"]["command"]["ignore_users"] = ["spammer", "BadBot"]
 
-        assert agent.should_ignore_user("spammer") is True
-        assert agent.should_ignore_user("SPAMMER") is True  # Case insensitive
-        assert agent.should_ignore_user("gooduser") is False
+        assert agent.irc_monitor.should_ignore_user("spammer") is True
+        assert agent.irc_monitor.should_ignore_user("SPAMMER") is True  # Case insensitive
+        assert agent.irc_monitor.should_ignore_user("gooduser") is False
 
     @pytest.mark.asyncio
     async def test_get_mynick_caching(self, temp_config_file):
@@ -60,15 +60,15 @@ class TestIRSSILLMAgent:
         # Mock the varlink sender
         mock_sender = AsyncMock()
         mock_sender.get_server_nick.return_value = "testbot"
-        agent.varlink_sender = mock_sender
+        agent.irc_monitor.varlink_sender = mock_sender
 
         # First call should query the server
-        nick1 = await agent.get_mynick("irc.libera.chat")
+        nick1 = await agent.irc_monitor.get_mynick("irc.libera.chat")
         assert nick1 == "testbot"
         assert mock_sender.get_server_nick.call_count == 1
 
         # Second call should use cache
-        nick2 = await agent.get_mynick("irc.libera.chat")
+        nick2 = await agent.irc_monitor.get_mynick("irc.libera.chat")
         assert nick2 == "testbot"
         assert mock_sender.get_server_nick.call_count == 1  # Not called again
 
@@ -76,10 +76,10 @@ class TestIRSSILLMAgent:
     async def test_message_addressing_detection(self, temp_config_file):
         """Test that messages addressing the bot are detected correctly."""
         agent = IRSSILLMAgent(temp_config_file)
-        agent.server_nicks["test"] = "mybot"
+        agent.irc_monitor.server_nicks["test"] = "mybot"
 
         # Mock dependencies
-        agent.varlink_sender = AsyncMock()
+        agent.irc_monitor.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
         agent.history.add_message = AsyncMock()
         agent.history.get_context = AsyncMock(return_value=[])
@@ -92,7 +92,7 @@ class TestIRSSILLMAgent:
             return resp, MockAPIClient("Test response"), None
 
         with patch(
-            "irssi_llmagent.main.ModelRouter.call_raw_with_model",
+            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
             new=AsyncMock(side_effect=fake_call_raw_with_model),
         ):
             # proceed
@@ -107,21 +107,21 @@ class TestIRSSILLMAgent:
                 "message": "mybot: hello there",
             }
 
-            await agent.process_message_event(event)
+            await agent.irc_monitor.process_message_event(event)
 
             # Should call handle_command
-            agent.varlink_sender.send_message.assert_called()
+            agent.irc_monitor.varlink_sender.send_message.assert_called()
 
     @pytest.mark.asyncio
     async def test_privmsg_commands_without_nick_prefix(self, temp_config_file):
         """Test that private messages are treated as commands without requiring nick prefix."""
         agent = IRSSILLMAgent(temp_config_file)
-        agent.varlink_sender = AsyncMock()
+        agent.irc_monitor.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
         agent.history.add_message = AsyncMock()
         agent.history.get_context = AsyncMock(return_value=[])
-        agent.rate_limiter.check_limit = lambda: True
-        agent.server_nicks["test"] = "mybot"
+        agent.irc_monitor.rate_limiter.check_limit = lambda: True
+        agent.irc_monitor.server_nicks["test"] = "mybot"
 
         # Mock the model router call
         async def fake_call_raw_with_model(*args, **kwargs):
@@ -129,7 +129,7 @@ class TestIRSSILLMAgent:
             return resp, MockAPIClient("Test response"), None
 
         with patch(
-            "irssi_llmagent.main.ModelRouter.call_raw_with_model",
+            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
             new=AsyncMock(side_effect=fake_call_raw_with_model),
         ):
             # Test private message without nick prefix (should be treated as command)
@@ -142,19 +142,19 @@ class TestIRSSILLMAgent:
                 "message": "hello there",
             }
 
-            await agent.process_message_event(event)
+            await agent.irc_monitor.process_message_event(event)
 
             # Should call handle_command even without nick prefix
-            agent.varlink_sender.send_message.assert_called()
+            agent.irc_monitor.varlink_sender.send_message.assert_called()
 
     @pytest.mark.asyncio
     async def test_channel_messages_without_nick_prefix_ignored(self, temp_config_file):
         """Test that channel messages without nick prefix are ignored (no response)."""
         agent = IRSSILLMAgent(temp_config_file)
-        agent.varlink_sender = AsyncMock()
+        agent.irc_monitor.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
         agent.history.add_message = AsyncMock()
-        agent.server_nicks["test"] = "mybot"
+        agent.irc_monitor.server_nicks["test"] = "mybot"
 
         # Ensure no proactive interjecting channels configured
         agent.config["rooms"]["irc"]["proactive"]["interjecting"] = []
@@ -170,10 +170,10 @@ class TestIRSSILLMAgent:
             "message": "just a regular message",
         }
 
-        await agent.process_message_event(event)
+        await agent.irc_monitor.process_message_event(event)
 
         # Should NOT call send_message (bot should not respond)
-        agent.varlink_sender.send_message.assert_not_called()
+        agent.irc_monitor.varlink_sender.send_message.assert_not_called()
 
     def test_get_channel_mode(self, temp_config_file):
         """Test channel mode configuration retrieval."""
@@ -187,34 +187,36 @@ class TestIRSSILLMAgent:
         }
 
         # Test channel-specific modes
-        assert agent.get_channel_mode("#serious-work") == "serious"
-        assert agent.get_channel_mode("#sarcasm-corner") == "sarcastic"
+        assert agent.irc_monitor.get_channel_mode("#serious-work") == "serious"
+        assert agent.irc_monitor.get_channel_mode("#sarcasm-corner") == "sarcastic"
 
         # Test fallback to default
-        assert agent.get_channel_mode("#random-channel") == "classifier"
+        assert agent.irc_monitor.get_channel_mode("#random-channel") == "classifier"
 
         # Test when no config exists
         agent.config["rooms"]["irc"]["command"] = {}
-        assert agent.get_channel_mode("#any-channel") == "classifier"  # Default fallback
+        assert (
+            agent.irc_monitor.get_channel_mode("#any-channel") == "classifier"
+        )  # Default fallback
 
     @pytest.mark.asyncio
     async def test_help_command(self, temp_config_file):
         """Test help command functionality."""
         agent = IRSSILLMAgent(temp_config_file)
-        agent.varlink_sender = AsyncMock()
+        agent.irc_monitor.varlink_sender = AsyncMock()
 
-        await agent.handle_command("test", "#test", "#test", "user", "!h", "mybot")
+        await agent.irc_monitor.handle_command("test", "#test", "#test", "user", "!h", "mybot")
 
         # Should send help message
-        agent.varlink_sender.send_message.assert_called_once()
-        call_args = agent.varlink_sender.send_message.call_args[0]
+        agent.irc_monitor.varlink_sender.send_message.assert_called_once()
+        call_args = agent.irc_monitor.varlink_sender.send_message.call_args[0]
         assert "automatic mode" in call_args[1]  # Help text should mention automatic mode
 
     @pytest.mark.asyncio
     async def test_help_command_with_channel_modes(self, temp_config_file):
         """Test help command shows channel-specific mode info."""
         agent = IRSSILLMAgent(temp_config_file)
-        agent.varlink_sender = AsyncMock()
+        agent.irc_monitor.varlink_sender = AsyncMock()
 
         # Set up channel modes
         agent.config["rooms"]["irc"]["command"]["channel_modes"] = {
@@ -223,16 +225,18 @@ class TestIRSSILLMAgent:
         }
 
         # Test help in serious channel
-        await agent.handle_command("test", "#serious-work", "#serious-work", "user", "!h", "mybot")
-        call_args = agent.varlink_sender.send_message.call_args[0]
+        await agent.irc_monitor.handle_command(
+            "test", "#serious-work", "#serious-work", "user", "!h", "mybot"
+        )
+        call_args = agent.irc_monitor.varlink_sender.send_message.call_args[0]
         assert "default is serious agentic mode" in call_args[1]
 
         # Test help in sarcastic channel
-        agent.varlink_sender.reset_mock()
-        await agent.handle_command(
+        agent.irc_monitor.varlink_sender.reset_mock()
+        await agent.irc_monitor.handle_command(
             "test", "#sarcasm-corner", "#sarcasm-corner", "user", "!h", "mybot"
         )
-        call_args = agent.varlink_sender.send_message.call_args[0]
+        call_args = agent.irc_monitor.varlink_sender.send_message.call_args[0]
         assert "default is sarcastic mode" in call_args[1]
 
     @pytest.mark.asyncio
@@ -240,7 +244,7 @@ class TestIRSSILLMAgent:
         """Test end-to-end command debouncing with message consolidation and context isolation."""
         agent = IRSSILLMAgent(temp_config_file)
         agent.config["rooms"]["irc"]["command"]["debounce"] = 1.0
-        agent.varlink_sender = AsyncMock()
+        agent.irc_monitor.varlink_sender = AsyncMock()
 
         # Use isolated database for this test
         from irssi_llmagent.history import ChatHistory
@@ -263,8 +267,8 @@ class TestIRSSILLMAgent:
             captured_message = message
             captured_context = context
 
-        agent._handle_sarcastic_mode = capture_message_and_context
-        agent.classify_mode = AsyncMock(return_value="SARCASTIC")
+        agent.irc_monitor._handle_sarcastic_mode = capture_message_and_context
+        agent.irc_monitor.classify_mode = AsyncMock(return_value="SARCASTIC")
 
         # Control timing with precise timestamp mocking
         base_time = 1000000000.0
@@ -297,7 +301,9 @@ class TestIRSSILLMAgent:
         with patch("time.time", side_effect=mock_time):
             # Run both tasks concurrently
             await asyncio.gather(
-                agent.handle_command("test", "#test", "#test", "user", "original command", "mybot"),
+                agent.irc_monitor.handle_command(
+                    "test", "#test", "#test", "user", "original command", "mybot"
+                ),
                 add_followup_messages(),
             )
 
@@ -312,8 +318,8 @@ class TestIRSSILLMAgent:
         """Test that rate limiting prevents excessive requests."""
         agent = IRSSILLMAgent(temp_config_file)
         # Mock rate limiter to simulate limit exceeded
-        agent.rate_limiter.check_limit = lambda: False
-        agent.varlink_sender = AsyncMock()
+        agent.irc_monitor.rate_limiter.check_limit = lambda: False
+        agent.irc_monitor.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
         agent.history.add_message = AsyncMock()
 
@@ -326,24 +332,24 @@ class TestIRSSILLMAgent:
             "message": "mybot: hello",
         }
 
-        agent.server_nicks["test"] = "mybot"
-        await agent.process_message_event(event)
+        agent.irc_monitor.server_nicks["test"] = "mybot"
+        await agent.irc_monitor.process_message_event(event)
 
         # Should send rate limiting message
-        agent.varlink_sender.send_message.assert_called_once()
-        call_args = agent.varlink_sender.send_message.call_args[0]
+        agent.irc_monitor.varlink_sender.send_message.assert_called_once()
+        call_args = agent.irc_monitor.varlink_sender.send_message.call_args[0]
         assert "rate limiting" in call_args[1].lower()
 
     @pytest.mark.asyncio
     async def test_command_cancels_proactive_interjection(self, temp_config_file):
         """Test that command processing cancels pending proactive interjection for the same channel."""
         agent = IRSSILLMAgent(temp_config_file)
-        agent.varlink_sender = AsyncMock()
+        agent.irc_monitor.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
         agent.history.add_message = AsyncMock()
-        agent.proactive_debouncer = AsyncMock(spec=ProactiveDebouncer)
-        agent.rate_limiter.check_limit = lambda: True
-        agent.server_nicks["test"] = "mybot"
+        agent.irc_monitor.proactive_debouncer = AsyncMock(spec=ProactiveDebouncer)
+        agent.irc_monitor.rate_limiter.check_limit = lambda: True
+        agent.irc_monitor.server_nicks["test"] = "mybot"
 
         # Configure for proactive interjecting
         agent.config["rooms"]["irc"]["proactive"]["interjecting"] = ["#test"]
@@ -357,10 +363,10 @@ class TestIRSSILLMAgent:
             "nick": "alice",
             "message": "some random message",
         }
-        await agent.process_message_event(non_command_event)
+        await agent.irc_monitor.process_message_event(non_command_event)
 
         # Verify proactive interjection was scheduled
-        agent.proactive_debouncer.schedule_check.assert_called_once()
+        agent.irc_monitor.proactive_debouncer.schedule_check.assert_called_once()
 
         # Now send a command message to the same channel
         command_event = {
@@ -373,30 +379,30 @@ class TestIRSSILLMAgent:
         }
 
         # Mock handle_command to prevent actual command processing
-        with patch.object(agent, "handle_command", new_callable=AsyncMock):
-            await agent.process_message_event(command_event)
+        with patch.object(agent.irc_monitor, "handle_command", new_callable=AsyncMock):
+            await agent.irc_monitor.process_message_event(command_event)
 
         # Verify that proactive interjection was cancelled for the channel
-        agent.proactive_debouncer.cancel_channel.assert_called_once_with("#test")
+        agent.irc_monitor.proactive_debouncer.cancel_channel.assert_called_once_with("#test")
 
     @pytest.mark.asyncio
     async def test_serious_agent_mode(self, temp_config_file):
         """Test serious mode now uses agent."""
         agent = IRSSILLMAgent(temp_config_file)
-        agent.varlink_sender = AsyncMock()
+        agent.irc_monitor.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
         agent.history.add_message = AsyncMock()
         agent.history.get_context = AsyncMock(
             return_value=[{"role": "user", "content": "user search for Python news"}]
         )
 
-        with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
+        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Agent response")
             mock_agent_class.return_value.__aenter__.return_value = mock_agent
 
             # Test serious mode (should use agent)
-            await agent.handle_command(
+            await agent.irc_monitor.handle_command(
                 "test", "#test", "#test", "user", "!s search for Python news", "mybot"
             )
 
@@ -410,13 +416,13 @@ class TestIRSSILLMAgent:
             assert len(call_args[0]) == 1  # Only context parameter
             context = call_args[0][0]
             assert isinstance(context, list)  # Should be context list
-            agent.varlink_sender.send_message.assert_called()
+            agent.irc_monitor.varlink_sender.send_message.assert_called()
 
     @pytest.mark.asyncio
     async def test_sarcastic_mode_unchanged(self, temp_config_file):
         """Test sarcastic mode still uses regular API client."""
         agent = IRSSILLMAgent(temp_config_file)
-        agent.varlink_sender = AsyncMock()
+        agent.irc_monitor.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
         agent.history.add_message = AsyncMock()
         agent.history.get_context = AsyncMock(return_value=[])
@@ -429,11 +435,13 @@ class TestIRSSILLMAgent:
             return resp, MockAPIClient("Sarcastic response"), None
 
         with patch(
-            "irssi_llmagent.main.ModelRouter.call_raw_with_model",
+            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
             new=AsyncMock(side_effect=fake_call_raw_with_model),
         ) as mock_call:
             # Test sarcastic mode (default - should use router)
-            await agent.handle_command("test", "#test", "#test", "user", "tell me jokes", "mybot")
+            await agent.irc_monitor.handle_command(
+                "test", "#test", "#test", "user", "tell me jokes", "mybot"
+            )
 
             # Should have been called
             assert mock_call.called
@@ -444,7 +452,7 @@ class TestIRSSILLMAgent:
         agent = IRSSILLMAgent(temp_config_file)
 
         # Mock dependencies
-        agent.varlink_sender = AsyncMock()
+        agent.irc_monitor.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
         agent.history.add_message = AsyncMock()
         agent.history.get_context = AsyncMock(
@@ -459,16 +467,16 @@ class TestIRSSILLMAgent:
             return resp, MockAPIClient("SERIOUS"), None
 
         with patch(
-            "irssi_llmagent.main.ModelRouter.call_raw_with_model",
+            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
             new=AsyncMock(side_effect=fake_call_raw_with_model),
         ) as mock_call:
-            with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
+            with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
                 mock_agent = AsyncMock()
                 mock_agent.run_agent = AsyncMock(return_value="Agent response")
                 mock_agent_class.return_value.__aenter__.return_value = mock_agent
 
                 # Test automatic mode message that should be classified as serious
-                await agent.handle_command(
+                await agent.irc_monitor.handle_command(
                     "test", "#test", "#test", "user", "how do I install Python?", "mybot"
                 )
 
@@ -484,16 +492,16 @@ class TestIRSSILLMAgent:
         agent.config["rooms"]["irc"]["proactive"]["interjecting_test"] = ["#testchannel"]
         agent.config["rooms"]["irc"]["proactive"]["debounce_seconds"] = 0.1
         # Recreate debouncer with updated config
-        agent.proactive_debouncer = ProactiveDebouncer(0.1)
+        agent.irc_monitor.proactive_debouncer = ProactiveDebouncer(0.1)
 
         # Mock dependencies
-        agent.varlink_sender = AsyncMock()
+        agent.irc_monitor.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
         agent.history.add_message = AsyncMock()
         agent.history.get_context = AsyncMock(
             return_value=[{"role": "user", "content": "I need help with Python imports"}]
         )
-        agent.server_nicks["test"] = "mybot"
+        agent.irc_monitor.server_nicks["test"] = "mybot"
 
         # Mock the router for proactive decisions and classification
         seq = ["Should help with this: 9/10", "SERIOUS"]
@@ -505,10 +513,10 @@ class TestIRSSILLMAgent:
             return resp, MockAPIClient(text), None
 
         with patch(
-            "irssi_llmagent.main.ModelRouter.call_raw_with_model",
+            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
             new=AsyncMock(side_effect=fake_call_raw_with_model),
         ):
-            with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
+            with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
                 mock_agent = AsyncMock()
                 mock_agent.run_agent = AsyncMock(return_value="Test response")
                 mock_agent_class.return_value.__aenter__.return_value = mock_agent
@@ -523,7 +531,7 @@ class TestIRSSILLMAgent:
                     "message": "I need help with Python imports",
                 }
 
-                await agent.process_message_event(event)
+                await agent.irc_monitor.process_message_event(event)
 
                 # Wait for debounce to complete
                 await asyncio.sleep(0.15)
@@ -546,11 +554,15 @@ class TestIRSSILLMAgent:
             return resp, MockAPIClient("Testing threshold: 8/10"), None
 
         with patch(
-            "irssi_llmagent.main.ModelRouter.call_raw_with_model",
+            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
             new=AsyncMock(side_effect=fake_call_raw_with_model),
         ):
             context = [{"role": "user", "content": "Test message"}]
-            should_interject, reason, test_mode = await agent.should_interject_proactively(context)
+            (
+                should_interject,
+                reason,
+                test_mode,
+            ) = await agent.irc_monitor.should_interject_proactively(context)
 
             assert should_interject is True
             assert "Score: 8" in reason
@@ -569,11 +581,15 @@ class TestIRSSILLMAgent:
             return resp, C(), None
 
         with patch(
-            "irssi_llmagent.main.ModelRouter.call_raw_with_model",
+            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
             new=AsyncMock(side_effect=fake_call_raw_with_model_8),
         ):
             context = [{"role": "user", "content": "Test message"}]
-            should_interject, reason, test_mode = await agent.should_interject_proactively(context)
+            (
+                should_interject,
+                reason,
+                test_mode,
+            ) = await agent.irc_monitor.should_interject_proactively(context)
 
             assert should_interject is True  # Now should trigger test mode
             assert "Score: 8" in reason
@@ -585,11 +601,15 @@ class TestIRSSILLMAgent:
             return resp, MockAPIClient("Testing threshold: 7/10"), None
 
         with patch(
-            "irssi_llmagent.main.ModelRouter.call_raw_with_model",
+            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
             new=AsyncMock(side_effect=fake_call_raw_with_model_7),
         ):
             context = [{"role": "user", "content": "Test message"}]
-            should_interject, reason, test_mode = await agent.should_interject_proactively(context)
+            (
+                should_interject,
+                reason,
+                test_mode,
+            ) = await agent.irc_monitor.should_interject_proactively(context)
 
             assert should_interject is False  # Should not trigger at all
             assert "Score: 7" in reason
@@ -625,7 +645,7 @@ class TestCLIMode:
                 # Patch the agent creation in cli_mode and model router
                 with patch("irssi_llmagent.main.IRSSILLMAgent", return_value=agent):
                     with patch(
-                        "irssi_llmagent.main.ModelRouter.call_raw_with_model",
+                        "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
                         new=AsyncMock(side_effect=fake_call_raw_with_model),
                     ):
                         await cli_mode("!S tell me a joke", temp_config_file)
@@ -642,7 +662,9 @@ class TestCLIMode:
     async def test_cli_mode_perplexity_message(self, temp_config_file):
         """Test CLI mode with Perplexity message."""
         with patch("builtins.print") as mock_print:
-            with patch("irssi_llmagent.main.PerplexityClient") as mock_perplexity_class:
+            with patch(
+                "irssi_llmagent.rooms.irc.monitor.PerplexityClient"
+            ) as mock_perplexity_class:
                 with patch("irssi_llmagent.main.ChatHistory") as mock_history_class:
                     # Mock history to return only the current message
                     mock_history = AsyncMock()
@@ -687,7 +709,7 @@ class TestCLIMode:
     async def test_cli_mode_agent_message(self, temp_config_file):
         """Test CLI mode with agent message."""
         with patch("builtins.print") as mock_print:
-            with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
+            with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
                 with patch("irssi_llmagent.main.ChatHistory") as mock_history_class:
                     # Mock history to return only the current message
                     mock_history = AsyncMock()
@@ -731,7 +753,7 @@ class TestCLIMode:
     async def test_cli_mode_message_content_validation(self, temp_config_file):
         """Test that CLI mode passes actual message content, not placeholder text."""
         with patch("builtins.print"):
-            with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
+            with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
                 with patch("irssi_llmagent.main.ChatHistory") as mock_history_class:
                     # Mock history to return only the current message
                     mock_history = AsyncMock()
