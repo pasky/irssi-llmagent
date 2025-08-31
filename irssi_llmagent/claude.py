@@ -106,7 +106,7 @@ class AnthropicClient(BaseAPIClient):
 
         payload = {
             "model": model,
-            "max_tokens": (1024 if tools else 256) + thinking_budget,
+            "max_tokens": (4096 if tools else 256) + thinking_budget,
             "messages": messages,
             "system": system_prompt,
         }

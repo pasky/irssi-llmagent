@@ -938,3 +938,58 @@ class TestAPIAgent:
         # Verify tools were converted properly
         assert len(captured_kwargs["tools"]) == 1
         assert captured_kwargs["tools"][0]["name"] == "final_answer"
+
+    @pytest.mark.asyncio
+    async def test_agent_max_tokens_tool_retry(self, agent):
+        """Test agent handles max_tokens truncated tool calls by retrying."""
+        # Create truncated Claude response first, then successful response
+        truncated_response = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "tool_123",
+                    "name": "web_search",
+                    "input": {},  # Empty input due to truncation
+                }
+            ],
+            "stop_reason": "max_tokens",
+        }
+        final_response = {
+            "content": [{"type": "text", "text": "Here's the final answer."}],
+            "stop_reason": "end_turn",
+        }
+
+        class FakeClient:
+            def extract_text_from_response(self, r):
+                if r is final_response:
+                    return "Here's the final answer."
+                return ""
+
+            def has_tool_calls(self, r):
+                return r.get("stop_reason") == "tool_use"
+
+            def extract_tool_calls(self, r):
+                # Only return tool calls for non-truncated responses
+                if r.get("stop_reason") == "tool_use":
+                    return [{"id": "tool_123", "name": "web_search", "input": {"query": "test"}}]
+                return None
+
+            def format_assistant_message(self, r):
+                return {"role": "assistant", "content": r.get("content", [])}
+
+            def format_tool_results(self, results):
+                return {"role": "user", "content": results}
+
+        seq = [truncated_response, final_response]
+
+        async def fake_call_raw_with_model(*args, **kwargs):
+            return seq.pop(0), FakeClient(), ModelSpec("anthropic", "dummy")
+
+        with patch.object(
+            ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+        ) as mock_call:
+            result = await agent.run_agent([{"role": "user", "content": "Search for something"}])
+
+            # Should have made 2 calls - first truncated, then retry
+            assert mock_call.call_count == 2
+            assert "final answer" in result

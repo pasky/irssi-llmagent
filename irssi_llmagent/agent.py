@@ -165,6 +165,31 @@ class AIAgent:
                     return f"Error: {result['message']}"
                 elif result["type"] == "final_text":
                     return result["text"]
+                elif result["type"] == "truncated_tool_retry":
+                    # Add assistant's truncated tool request to conversation
+                    if response and isinstance(response, dict):
+                        messages.append(client.format_assistant_message(response))
+
+                    # Add a tool result indicating the truncation
+                    tool_results = [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": result["tool_id"],
+                            "content": f"Error: Your {result['tool_name']} tool call failed because it was truncated. Please retry with a shorter response or split your call into smaller sequential parts.",
+                        }
+                    ]
+
+                    # Add tool results to conversation using API-specific format
+                    results_msg = client.format_tool_results(tool_results)
+                    if isinstance(results_msg, list):
+                        messages.extend(results_msg)
+                    else:
+                        messages.append(results_msg)
+
+                    logger.warning(
+                        f"Tool call {result['tool_name']} was truncated, asking AI to retry"
+                    )
+                    continue  # Continue to next iteration to let AI retry
                 elif result["type"] == "tool_use":
                     # Add assistant's tool request to conversation
                     if response and isinstance(response, dict):
@@ -230,6 +255,31 @@ class AIAgent:
             if not tool_uses:
                 return {"type": "error", "message": "Invalid tool use response"}
             return {"type": "tool_use", "tools": tool_uses}
+
+        # Handle truncated responses due to max_tokens (Claude-specific)
+        if response.get("stop_reason") == "max_tokens" and "content" in response:
+            # Check if there's a partial tool call that got truncated
+            content = response.get("content", [])
+            for block in content:
+                if block.get("type") == "tool_use" and not block.get("input"):
+                    # Found truncated tool call - return special result to signal retry needed
+                    return {
+                        "type": "truncated_tool_retry",
+                        "tool_id": block["id"],
+                        "tool_name": block["name"],
+                    }
+            # If no partial tool call found, just treat as text truncation
+            text_response = client.extract_text_from_response(response)
+            if text_response:
+                return {
+                    "type": "final_text",
+                    "text": text_response + " [Response truncated due to max_tokens]",
+                }
+            else:
+                return {
+                    "type": "error",
+                    "message": "Response truncated due to max_tokens and no recoverable content found",
+                }
 
         # Extract final text response using API client's logic
         text_response = client.extract_text_from_response(response)
