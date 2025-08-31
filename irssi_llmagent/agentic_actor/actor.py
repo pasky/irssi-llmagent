@@ -4,13 +4,13 @@ import copy
 import logging
 from typing import Any
 
-from .providers import ModelRouter, build_system_prompt
+from ..providers import ModelRouter, build_system_prompt
 from .tools import TOOLS, create_tool_executors, execute_tool
 
 logger = logging.getLogger(__name__)
 
 
-class AIAgent:
+class AgenticLLMActor:
     """API agent with web search and webpage visiting capabilities."""
 
     def __init__(
@@ -29,12 +29,14 @@ class AIAgent:
         self.mynick = mynick
         self.mode = mode
         self.model_router: ModelRouter | None = None
-        self.max_iterations = 10
+        # Actor configuration
+        actor_cfg = self.config.get("actor", {})
+        self.max_iterations = actor_cfg.get("max_iterations", 10)
         self.extra_prompt = extra_prompt
         self.model_override = model_override
         # System prompt is now generated dynamically per model call
         # Progress reporting
-        prog_cfg = self.config.get("agent", {}).get("progress", {})
+        prog_cfg = actor_cfg.get("progress", {})
         self.progress_threshold_seconds = int(prog_cfg.get("threshold_seconds", 30))
         self._progress_start_time: float | None = None
         self._progress_can_send: bool = bool(progress_callback)

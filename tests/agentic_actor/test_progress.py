@@ -1,6 +1,6 @@
 import pytest
 
-from irssi_llmagent.agent import AIAgent
+from irssi_llmagent.agentic_actor import AgenticLLMActor
 
 
 class FakeAPIClient:
@@ -14,7 +14,7 @@ class FakeAPIClient:
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
-    # Mimic API surface used by AIAgent
+    # Mimic API surface used by AgenticLLMActor
     async def call_raw(self, messages, system_prompt, model, tools=None, **kwargs):
         # Record tools exposed to model
         self.calls.append(
@@ -102,15 +102,16 @@ async def test_progress_report_tool_emits_callback(monkeypatch):
                 }
             }
         },
-        "agent": {
+        "actor": {
+            "max_iterations": 5,
             "progress": {
                 "threshold_seconds": 0,
                 "min_interval_seconds": 0,
-            }
+            },
         },
     }
 
-    agent = AIAgent(
+    agent = AgenticLLMActor(
         config, mynick="bot", mode="serious", progress_enabled=True, progress_callback=progress_cb
     )
 

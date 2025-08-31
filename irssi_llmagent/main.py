@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .agent import AIAgent
+from .agentic_actor import AgenticLLMActor
 from .history import ChatHistory
 from .proactive_debouncer import ProactiveDebouncer
 from .providers import ModelRouter
@@ -610,7 +610,7 @@ class IRSSILLMAgent:
                 await self.history.add_message(server, chan_name, text, mynick, mynick, True)
 
             progress_cb_fn = _progress_cb
-        async with AIAgent(
+        async with AgenticLLMActor(
             self.config,
             mynick,
             mode="serious",
@@ -658,7 +658,7 @@ class IRSSILLMAgent:
         """Handle sarcastic mode using AIAgent with limited tools."""
         sarcastic_model = self.irc_config["command"]["modes"]["sarcastic"]["model"]
 
-        async with AIAgent(
+        async with AgenticLLMActor(
             self.config,
             mynick,
             mode="sarcastic",

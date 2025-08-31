@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import aiohttp
 import pytest
 
-from irssi_llmagent.tools import (
+from irssi_llmagent.agentic_actor.tools import (
     PythonExecutorE2B,
     ShareArtifactExecutor,
     WebpageVisitorExecutor,
@@ -399,7 +399,7 @@ class TestToolDefinitions:
 
     def test_make_plan_tool_in_tools_list(self):
         """Test that make_plan tool is included in TOOLS list."""
-        from irssi_llmagent.tools import TOOLS
+        from irssi_llmagent.agentic_actor.tools import TOOLS
 
         tool_names = [tool["name"] for tool in TOOLS]
         assert "make_plan" in tool_names
@@ -415,7 +415,7 @@ class TestToolDefinitions:
 
     def test_share_artifact_tool_in_tools_list(self):
         """Test that share_artifact tool is included in TOOLS list."""
-        from irssi_llmagent.tools import TOOLS
+        from irssi_llmagent.agentic_actor.tools import TOOLS
 
         tool_names = [tool["name"] for tool in TOOLS]
         assert "share_artifact" in tool_names

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from irssi_llmagent.agent import AIAgent
+from irssi_llmagent.agentic_actor import AgenticLLMActor
 from irssi_llmagent.providers import ModelRouter, ModelSpec
 
 
@@ -19,7 +19,7 @@ class TestAPIAgent:
         test_config["rooms"]["irc"]["command"]["modes"]["serious"][
             "prompt"
         ] = "You are IRC user {mynick}. Be helpful and informative. Available models: serious={serious_model}, sarcastic={sarcastic_model}."
-        return AIAgent(test_config, "testbot", mode="serious")
+        return AgenticLLMActor(test_config, "testbot", mode="serious")
 
     def create_text_response(self, api_type: str, text: str) -> dict:
         """Create a text response in the appropriate format for the API type."""
@@ -174,7 +174,9 @@ class TestAPIAgent:
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ) as mock_call:
-            with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
+            with patch(
+                "irssi_llmagent.agentic_actor.actor.execute_tool", new_callable=AsyncMock
+            ) as mock_tool:
                 mock_tool.return_value = "Search results: Python is a programming language..."
 
                 result = await agent.run_agent(
@@ -228,7 +230,9 @@ class TestAPIAgent:
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ) as mock_call:
-            with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
+            with patch(
+                "irssi_llmagent.agentic_actor.actor.execute_tool", new_callable=AsyncMock
+            ) as mock_tool:
                 mock_tool.return_value = "Tool result"
 
                 result = await agent.run_agent([{"role": "user", "content": "Keep using tools"}])
@@ -288,7 +292,9 @@ class TestAPIAgent:
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ):
-            with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
+            with patch(
+                "irssi_llmagent.agentic_actor.actor.execute_tool", new_callable=AsyncMock
+            ) as mock_tool:
                 mock_tool.return_value = "Tool execution failed: Network error"
 
                 result = await agent.run_agent(
@@ -559,7 +565,9 @@ class TestAPIAgent:
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ):
-            with patch("irssi_llmagent.agent.execute_tool", new_callable=AsyncMock) as mock_tool:
+            with patch(
+                "irssi_llmagent.agentic_actor.actor.execute_tool", new_callable=AsyncMock
+            ) as mock_tool:
                 mock_tool.side_effect = ["Search result", "Page content"]
 
                 result = await agent.run_agent([{"role": "user", "content": "Search and visit"}])

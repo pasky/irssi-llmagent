@@ -34,7 +34,7 @@
   - `history.py` - ChatHistory (persistent SQLite storage)
   - `providers/` - async API clients (anthropic, openai, perplexity) and base classes
   - `rate_limiter.py` - RateLimiter
-  - `agent.py` / `tools.py` - Agentic multi-turn mode with tool system for web search, webpage visiting, and Python code execution
+  - `agentic_actor/` - AgenticLLMActor multi-turn mode with tool system for web search, webpage visiting, and Python code execution
 
 ## Code Style
 - **Language**: Python 3.11+ with modern type hints (`dict`, `list`, ...), following PEP8

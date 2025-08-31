@@ -33,6 +33,10 @@ def test_config(api_type) -> dict[str, Any]:
             },
         },
         "tools": {},
+        "actor": {
+            "max_iterations": 5,
+            "progress": {"threshold_seconds": 10, "min_interval_seconds": 8},
+        },
         "rooms": {
             "irc": {
                 "varlink": {"socket_path": "/tmp/test_varlink.sock"},
@@ -75,7 +79,6 @@ def test_config(api_type) -> dict[str, Any]:
                 },
             }
         },
-        "agent": {"progress": {"threshold_seconds": 10, "min_interval_seconds": 8}},
     }
     return base_config
 

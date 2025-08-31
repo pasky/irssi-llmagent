@@ -548,8 +548,8 @@ def create_tool_executors(
     jina_api_key = jina_config.get("api_key")
 
     # Search provider config
-    agent_config = config.get("agent", {}) if config else {}
-    search_provider = agent_config.get("search_provider", "auto")
+    tools_config = config.get("tools", {}) if config else {}
+    search_provider = tools_config.get("search_provider", "auto")
 
     # Create appropriate search executor based on provider
     if search_provider == "brave":
@@ -569,8 +569,8 @@ def create_tool_executors(
     min_interval = int(progress_cfg.get("min_interval_seconds", 15))
 
     # Artifacts configuration
-    agent_config = config.get("agent", {}) if config else {}
-    artifacts_config = agent_config.get("artifacts", {})
+    tools_config = config.get("tools", {}) if config else {}
+    artifacts_config = tools_config.get("artifacts", {})
     artifacts_path = artifacts_config.get("path")
     artifacts_url = artifacts_config.get("url")
 
