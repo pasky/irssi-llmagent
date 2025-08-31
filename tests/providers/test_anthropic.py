@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from irssi_llmagent.anthropic import AnthropicClient
+from irssi_llmagent.providers.anthropic import AnthropicClient
 
 
 class TestAnthropicSpecificBehavior:
@@ -16,7 +16,7 @@ class TestAnthropicSpecificBehavior:
         """Test Claude's special handling when thinking budget is set with non-auto tool_choice."""
 
         # Create a Claude client instance for direct testing
-        from irssi_llmagent.anthropic import AnthropicClient
+        from irssi_llmagent.providers.anthropic import AnthropicClient
 
         test_config = {
             "providers": {

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from irssi_llmagent.agent import AIAgent
-from irssi_llmagent.model_router import ModelRouter, ModelSpec
+from irssi_llmagent.providers import ModelRouter, ModelSpec
 
 
 class TestAPIAgent:

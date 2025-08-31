@@ -126,7 +126,7 @@ async def test_progress_report_tool_emits_callback(monkeypatch):
     from unittest.mock import patch as _patch
 
     with _patch(
-        "irssi_llmagent.model_router.ModelRouter.call_raw_with_model",
+        "irssi_llmagent.providers.ModelRouter.call_raw_with_model",
         new=_AsyncMock(side_effect=fake_call_raw_with_model),
     ):
         # Context can be emptyish; agent ensures a user msg

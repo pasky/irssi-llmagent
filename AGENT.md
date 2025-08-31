@@ -32,7 +32,7 @@
 - **Key Modules**:
   - `varlink.py` - VarlinkClient (events), VarlinkSender (messages)
   - `history.py` - ChatHistory (persistent SQLite storage)
-  - `base_client.py` / `openai.py` / `claude.py` / `perplexity.py` - async API clients
+  - `providers/` - async API clients (anthropic, openai, perplexity) and base classes
   - `rate_limiter.py` - RateLimiter
   - `agent.py` / `tools.py` - Agentic multi-turn mode with tool system for web search, webpage visiting, and Python code execution
 

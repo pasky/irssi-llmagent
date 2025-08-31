@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from irssi_llmagent.openai import OpenAIClient
+from irssi_llmagent.providers.openai import OpenAIClient
 
 
 class TestOpenAISpecificBehavior:
@@ -16,7 +16,7 @@ class TestOpenAISpecificBehavior:
         """Test OpenAI's handling when reasoning effort is set with non-auto tool_choice."""
 
         # Create an OpenAI client instance for direct testing
-        from irssi_llmagent.openai import OpenAIClient
+        from irssi_llmagent.providers.openai import OpenAIClient
 
         test_config = {"providers": {"openai": {"key": "test-key"}}}
 
@@ -61,7 +61,7 @@ class TestOpenAISpecificBehavior:
         # Test the scenario: reasoning effort + non-auto tool_choice
         messages = [{"role": "user", "content": "Test query"}]
 
-        with patch("irssi_llmagent.openai._AsyncOpenAI", MockAsyncOpenAI):
+        with patch("irssi_llmagent.providers.openai._AsyncOpenAI", MockAsyncOpenAI):
             async with openai_client:
                 await openai_client.call_raw(
                     messages,
@@ -101,7 +101,7 @@ class TestOpenAISpecificBehavior:
     @pytest.mark.asyncio
     async def test_openai_api_reasoning_vs_legacy_model_handling(self):
         """Test OpenAI API handles reasoning models vs legacy models differently."""
-        from irssi_llmagent.openai import OpenAIClient
+        from irssi_llmagent.providers.openai import OpenAIClient
 
         config = {"providers": {"openai": {"key": "test-key"}}}
 
@@ -129,7 +129,7 @@ class TestOpenAISpecificBehavior:
         captured_kwargs.clear()
         client = OpenAIClient(config)
 
-        with patch("irssi_llmagent.openai._AsyncOpenAI", MockAsyncOpenAI):
+        with patch("irssi_llmagent.providers.openai._AsyncOpenAI", MockAsyncOpenAI):
             async with client:
                 await client.call_raw(
                     [{"role": "user", "content": "Test message"}],
@@ -166,7 +166,7 @@ class TestOpenAISpecificBehavior:
         # Test reasoning model (gpt-5)
         captured_kwargs.clear()
 
-        with patch("irssi_llmagent.openai._AsyncOpenAI", MockAsyncOpenAI):
+        with patch("irssi_llmagent.providers.openai._AsyncOpenAI", MockAsyncOpenAI):
             async with client:
                 await client.call_raw(
                     [{"role": "user", "content": "Test message"}],
@@ -198,7 +198,7 @@ class TestOpenRouterClient:
     @pytest.mark.asyncio
     async def test_openrouter_provider_routing_parsing(self):
         """Test OpenRouter provider routing syntax parsing."""
-        from irssi_llmagent.openai import OpenRouterClient
+        from irssi_llmagent.providers.openai import OpenRouterClient
 
         test_config = {"providers": {"openrouter": {"key": "test-key"}}}
         client = OpenRouterClient(test_config)
@@ -226,7 +226,7 @@ class TestOpenRouterClient:
     @pytest.mark.asyncio
     async def test_openrouter_call_raw_with_provider_routing(self):
         """Test OpenRouter call_raw method with provider routing."""
-        from irssi_llmagent.openai import OpenRouterClient
+        from irssi_llmagent.providers.openai import OpenRouterClient
 
         test_config = {"providers": {"openrouter": {"key": "test-key"}}}
         client = OpenRouterClient(test_config)

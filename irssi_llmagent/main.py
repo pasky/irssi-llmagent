@@ -11,9 +11,9 @@ from typing import Any
 
 from .agent import AIAgent
 from .history import ChatHistory
-from .model_router import ModelRouter
-from .perplexity import PerplexityClient
 from .proactive_debouncer import ProactiveDebouncer
+from .providers import ModelRouter
+from .providers.perplexity import PerplexityClient
 from .rate_limiter import RateLimiter
 from .varlink import VarlinkClient, VarlinkSender
 

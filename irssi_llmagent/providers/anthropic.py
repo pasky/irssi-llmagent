@@ -7,7 +7,7 @@ from typing import Any
 
 import aiohttp
 
-from .base_client import BaseAPIClient
+from . import BaseAPIClient
 
 logger = logging.getLogger(__name__)
 

@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any
 
-from .base_client import BaseAPIClient
+from . import BaseAPIClient
 
 logger = logging.getLogger(__name__)
 

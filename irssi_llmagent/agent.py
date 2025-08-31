@@ -4,8 +4,7 @@ import copy
 import logging
 from typing import Any
 
-from .base_client import build_system_prompt
-from .model_router import ModelRouter
+from .providers import ModelRouter, build_system_prompt
 from .tools import TOOLS, create_tool_executors, execute_tool
 
 logger = logging.getLogger(__name__)
