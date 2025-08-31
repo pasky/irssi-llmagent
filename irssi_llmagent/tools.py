@@ -5,6 +5,8 @@ import base64
 import logging
 import re
 import time
+import uuid
+from pathlib import Path
 from typing import Any, TypedDict
 
 import aiohttp
@@ -106,6 +108,20 @@ TOOLS: list[Tool] = [
                 }
             },
             "required": ["plan"],
+        },
+    },
+    {
+        "name": "share_artifact",
+        "description": "Share an artifact (additional command output - created script, detailed report, supporting data) with the user. The content is made available on a public link that is returned by the tool. Use this only for additional content that doesn't fit into your standard IRC message response (unless explicitly requested).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The content of the artifact to share (script, report, detailed data, etc.).",
+                }
+            },
+            "required": ["content"],
         },
     },
 ]
@@ -475,6 +491,47 @@ class MakePlanExecutor:
         return "OK, follow this plan"
 
 
+class ShareArtifactExecutor:
+    """Executor for sharing artifacts via files and links."""
+
+    def __init__(self, artifacts_path: str | None = None, artifacts_url: str | None = None):
+        self.artifacts_path = artifacts_path
+        self.artifacts_url = artifacts_url
+
+    async def execute(self, content: str) -> str:
+        """Share an artifact by creating a file and providing a link."""
+        if not self.artifacts_path or not self.artifacts_url:
+            return "Error: artifacts.path and artifacts.url must be configured to share artifacts"
+
+        # Expand home directory if needed
+        path = Path(self.artifacts_path).expanduser()
+
+        # Create directory if it doesn't exist
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.error(f"Failed to create artifacts directory: {e}")
+            return f"Error: Failed to create artifacts directory: {e}"
+
+        # Generate UUID-based filename
+        file_id = uuid.uuid4().hex
+        filepath = path / f"{file_id}.txt"
+
+        # Write content to file
+        try:
+            filepath.write_text(content, encoding="utf-8")
+            logger.info(f"Created artifact file: {filepath}")
+        except Exception as e:
+            logger.error(f"Failed to write artifact file: {e}")
+            return f"Error: Failed to create artifact file: {e}"
+
+        # Generate URL
+        base_url = self.artifacts_url.rstrip("/")
+        file_url = f"{base_url}/{file_id}.txt"
+
+        return f"Artifact shared: {file_url}"
+
+
 def create_tool_executors(
     config: dict | None = None, *, progress_callback: Any | None = None
 ) -> dict[str, Any]:
@@ -510,6 +567,12 @@ def create_tool_executors(
     progress_cfg = behavior.get("progress", {}) if behavior else {}
     min_interval = int(progress_cfg.get("min_interval_seconds", 15))
 
+    # Artifacts configuration
+    agent_config = config.get("agent", {}) if config else {}
+    artifacts_config = agent_config.get("artifacts", {})
+    artifacts_path = artifacts_config.get("path")
+    artifacts_url = artifacts_config.get("url")
+
     return {
         "web_search": search_executor,
         "visit_webpage": WebpageVisitorExecutor(
@@ -521,6 +584,9 @@ def create_tool_executors(
         ),
         "final_answer": FinalAnswerExecutor(),
         "make_plan": MakePlanExecutor(),
+        "share_artifact": ShareArtifactExecutor(
+            artifacts_path=artifacts_path, artifacts_url=artifacts_url
+        ),
     }
 
 

@@ -10,6 +10,7 @@ from irssi_llmagent.claude import AnthropicClient
 from irssi_llmagent.openai import OpenAIClient
 from irssi_llmagent.tools import (
     PythonExecutorE2B,
+    ShareArtifactExecutor,
     WebpageVisitorExecutor,
     WebSearchExecutor,
     create_tool_executors,
@@ -249,6 +250,70 @@ class TestToolExecutors:
 
             assert "e2b-code-interpreter package not installed" in result
 
+    @pytest.mark.asyncio
+    async def test_share_artifact_executor_success(self):
+        """Test artifact sharing with valid configuration."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifacts_path = str(Path(temp_dir) / "artifacts")
+            artifacts_url = "https://example.com/artifacts"
+
+            executor = ShareArtifactExecutor(
+                artifacts_path=artifacts_path, artifacts_url=artifacts_url
+            )
+
+            content = "#!/bin/bash\necho 'Hello, World!'"
+
+            result = await executor.execute(content)
+
+            # Verify return format
+            assert result.startswith("Artifact shared: https://example.com/artifacts/")
+            assert result.endswith(".txt")
+
+            # Extract filename from result
+            url = result.split(": ")[1]
+            filename = url.split("/")[-1]
+
+            # Verify file was created
+            artifacts_dir = Path(artifacts_path)
+            artifact_file = artifacts_dir / filename
+            assert artifact_file.exists()
+
+            # Verify content
+            file_content = artifact_file.read_text()
+            assert file_content == content
+
+            # Verify UUID format (32 hex chars)
+            uuid_part = filename.replace(".txt", "")
+            assert len(uuid_part) == 32
+            assert all(c in "0123456789abcdef" for c in uuid_part)
+
+    @pytest.mark.asyncio
+    async def test_share_artifact_executor_missing_config(self):
+        """Test artifact sharing with missing configuration."""
+        executor = ShareArtifactExecutor()
+
+        result = await executor.execute("test content")
+
+        assert (
+            result
+            == "Error: artifacts.path and artifacts.url must be configured to share artifacts"
+        )
+
+    @pytest.mark.asyncio
+    async def test_share_artifact_executor_write_error(self):
+        """Test artifact sharing with write error."""
+        executor = ShareArtifactExecutor(
+            artifacts_path="/nonexistent/readonly/path",
+            artifacts_url="https://example.com/artifacts",
+        )
+
+        result = await executor.execute("test content")
+
+        assert result.startswith("Error: Failed to create artifacts directory:")
+
 
 class TestToolRegistry:
     """Test tool registry and execution."""
@@ -295,6 +360,17 @@ class TestToolRegistry:
         assert result.startswith("OK")
 
     @pytest.mark.asyncio
+    async def test_execute_share_artifact_tool(self):
+        """Test executing share_artifact tool."""
+        with patch.object(ShareArtifactExecutor, "execute", new_callable=AsyncMock) as mock_execute:
+            mock_execute.return_value = "Artifact shared: https://example.com/artifacts/123.txt"
+
+            result = await execute_tool("share_artifact", content="test content")
+
+            assert result == "Artifact shared: https://example.com/artifacts/123.txt"
+            mock_execute.assert_called_once_with(content="test content")
+
+    @pytest.mark.asyncio
     async def test_execute_unknown_tool(self):
         """Test executing unknown tool."""
         with pytest.raises(ValueError, match="Unknown tool"):
@@ -339,6 +415,25 @@ class TestToolDefinitions:
         assert "plan" in make_plan_tool["input_schema"]["properties"]
         assert "required" in make_plan_tool["input_schema"]
         assert "plan" in make_plan_tool["input_schema"]["required"]
+
+    def test_share_artifact_tool_in_tools_list(self):
+        """Test that share_artifact tool is included in TOOLS list."""
+        from irssi_llmagent.tools import TOOLS
+
+        tool_names = [tool["name"] for tool in TOOLS]
+        assert "share_artifact" in tool_names
+
+        # Find the share_artifact tool and verify its structure
+        share_artifact_tool = next(tool for tool in TOOLS if tool["name"] == "share_artifact")
+        assert share_artifact_tool["description"]
+        assert "input_schema" in share_artifact_tool
+        assert "properties" in share_artifact_tool["input_schema"]
+        assert "content" in share_artifact_tool["input_schema"]["properties"]
+        assert "required" in share_artifact_tool["input_schema"]
+        assert "content" in share_artifact_tool["input_schema"]["required"]
+        # Verify no description or filename parameters
+        assert "description" not in share_artifact_tool["input_schema"]["properties"]
+        assert "filename" not in share_artifact_tool["input_schema"]["properties"]
 
 
 class TestAnthropicRetryLogic:
