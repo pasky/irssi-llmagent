@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .anthropic import AnthropicClient, DeepSeekClient
-from .openai import OpenAIClient
+from .openai import OpenAIClient, OpenRouterClient
 
 
 @dataclass(frozen=True)
@@ -54,6 +54,8 @@ class ModelRouter:
             client = DeepSeekClient(self.config)
         elif provider == "openai":
             client = OpenAIClient(self.config)
+        elif provider == "openrouter":
+            client = OpenRouterClient(self.config)
         else:
             raise ValueError(f"Unknown provider: {provider}")
         self._clients[provider] = client

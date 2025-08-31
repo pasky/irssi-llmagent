@@ -1099,3 +1099,73 @@ class TestAPIAgent:
             # Should have made 2 calls - first truncated, then retry
             assert mock_call.call_count == 2
             assert "final answer" in result
+
+
+class TestOpenRouterClient:
+    """Test OpenRouter client functionality."""
+
+    @pytest.mark.asyncio
+    async def test_openrouter_provider_routing_parsing(self):
+        """Test OpenRouter provider routing syntax parsing."""
+        from irssi_llmagent.openai import OpenRouterClient
+
+        test_config = {"providers": {"openrouter": {"key": "test-key"}}}
+        client = OpenRouterClient(test_config)
+
+        # Test without provider routing
+        extra_body, model_name = client._get_extra_body("gpt-4o")
+        assert extra_body is None
+        assert model_name is None
+
+        # Test with provider routing
+        extra_body, model_name = client._get_extra_body("moonshot/kimi-k2#groq,moonshotai")
+        assert extra_body == {"provider": {"only": ["groq", "moonshotai"]}}
+        assert model_name == "moonshot/kimi-k2"
+
+        # Test with single provider
+        extra_body, model_name = client._get_extra_body("gpt-4o#anthropic")
+        assert extra_body == {"provider": {"only": ["anthropic"]}}
+        assert model_name == "gpt-4o"
+
+        # Test with empty provider list
+        extra_body, model_name = client._get_extra_body("gpt-4o#")
+        assert extra_body is None
+        assert model_name is None
+
+    @pytest.mark.asyncio
+    async def test_openrouter_call_raw_with_provider_routing(self):
+        """Test OpenRouter call_raw method with provider routing."""
+        from irssi_llmagent.openai import OpenRouterClient
+
+        test_config = {"providers": {"openrouter": {"key": "test-key"}}}
+        client = OpenRouterClient(test_config)
+
+        # Mock the OpenAI SDK client to capture the payload
+        captured_kwargs = {}
+
+        class MockResponse:
+            def model_dump(self):
+                return {"choices": [{"message": {"role": "assistant", "content": "Test response"}}]}
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create.return_value = MockResponse()
+
+        async def capture_kwargs(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return MockResponse()
+
+        mock_client.chat.completions.create.side_effect = capture_kwargs
+
+        # Test with provider routing
+        async with client:
+            client._client = mock_client
+            await client.call_raw(
+                context=[],
+                system_prompt="Test prompt",
+                model="moonshot/kimi-k2#groq,moonshotai",
+            )
+
+        # Should have called with extra_body containing provider config
+        assert "extra_body" in captured_kwargs
+        assert captured_kwargs["extra_body"]["provider"]["only"] == ["groq", "moonshotai"]
+        assert captured_kwargs["model"] == "moonshot/kimi-k2"

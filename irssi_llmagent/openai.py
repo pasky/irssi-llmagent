@@ -17,25 +17,26 @@ except Exception:  # pragma: no cover - handled at runtime
     _AsyncOpenAI = None  # type: ignore
 
 
-class OpenAIClient(BaseAPIClient):
-    """OpenAI API client using Chat Completions API."""
+class BaseOpenAIClient(BaseAPIClient):
+    """Base OpenAI API client using Chat Completions API."""
 
-    def __init__(self, config: dict[str, Any]):
-        # Support new providers.* layout (preferred) and legacy top-level openai
-        if "openai" in config:
-            cfg = config["openai"]
-        else:
-            providers = config.get("providers", {}) if isinstance(config, dict) else {}
-            cfg = providers.get("openai", {})
+    def __init__(self, config: dict[str, Any], provider_name: str):
+        providers = config.get("providers", {}) if isinstance(config, dict) else {}
+        cfg = providers.get(provider_name, {})
         super().__init__(cfg)
+        self.provider_name = provider_name
+        self.logger = logging.getLogger(f"{__name__}.{provider_name}")
 
         # Validate required keys
         required_keys = ["key"]
         for key in required_keys:
             if key not in self.config:
-                raise ValueError(f"OpenAI config missing required key: {key}")
+                raise ValueError(f"{provider_name} config missing required key: {key}")
 
         self._client: Any | None = None
+
+    def get_base_url(self) -> str | None:
+        return self.config.get("base_url")
 
     async def __aenter__(self):
         if _AsyncOpenAI is None:
@@ -43,7 +44,7 @@ class OpenAIClient(BaseAPIClient):
                 "The 'openai' package is not installed. Run 'uv sync' to install dependencies."
             )
         # Allow custom base_url when provided for proxies/compat
-        base_url = self.config.get("base_url")
+        base_url = self.get_base_url()
         if base_url and base_url.rstrip("/").endswith("/v1"):
             self._client = _AsyncOpenAI(api_key=self.config["key"], base_url=base_url)
         else:
@@ -81,6 +82,9 @@ class OpenAIClient(BaseAPIClient):
             or model.startswith("gpt-5")
         )
 
+    def _get_extra_body(self, model: str):
+        return None, None
+
     async def call_raw(
         self,
         context: list[dict],
@@ -92,7 +96,9 @@ class OpenAIClient(BaseAPIClient):
     ) -> dict:
         """Call the OpenAI Chat Completion API and return native response dict."""
         if not self._client:
-            raise RuntimeError("OpenAIClient not initialized as async context manager")
+            raise RuntimeError(
+                f"{self.provider_name}Client not initialized as async context manager"
+            )
 
         # O1 and GPT-5 models use max_completion_tokens instead of max_tokens
         is_reasoning_model = self._is_reasoning_model(model)
@@ -172,17 +178,28 @@ class OpenAIClient(BaseAPIClient):
         if not messages or messages[-1].get("role") != "user":
             messages.append({"role": "user", "content": "..."})
 
-        logger.debug(f"Calling OpenAI Chat Completion API with model: {model}")
-        logger.debug(f"OpenAI Chat Completion request: {json.dumps(kwargs, indent=2)}")
+        self.logger.debug(f"Calling {self.provider_name} Chat Completion API with model: {model}")
+        self.logger.debug(
+            f"{self.provider_name} Chat Completion request: {json.dumps(kwargs, indent=2)}"
+        )
+
+        # Add extra_body if available
+        extra_body, model_override = self._get_extra_body(model)
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+            kwargs["model"] = model_override
+            self.logger.debug(f"Using extra_body: {extra_body}, model override: {model_override}")
 
         try:
             resp = await self._client.chat.completions.create(**kwargs)
             data = resp.model_dump() if hasattr(resp, "model_dump") else json.loads(resp.json())
-            logger.debug(f"OpenAI Chat Completion response: {json.dumps(data, indent=2)}")
+            self.logger.debug(
+                f"{self.provider_name} Chat Completion response: {json.dumps(data, indent=2)}"
+            )
             return data
         except Exception as e:
             msg = repr(e)
-            logger.error(f"OpenAI Chat Completion API error: {msg}")
+            self.logger.error(f"{self.provider_name} Chat Completion API error: {msg}")
             return {"error": f"API error: {msg}"}
 
     def _extract_raw_text(self, response: dict) -> str:
@@ -192,7 +209,7 @@ class OpenAIClient(BaseAPIClient):
             message = choices[0].get("message", {})
             content = message.get("content", "")
             if isinstance(content, str):
-                logger.debug(f"OpenAI Chat Completion response text: {content}")
+                self.logger.debug(f"{self.provider_name} Chat Completion response text: {content}")
                 return content
         return ""
 
@@ -296,3 +313,36 @@ class OpenAIClient(BaseAPIClient):
             )
 
         return processed_results
+
+
+class OpenAIClient(BaseOpenAIClient):
+    """OpenAI API client using Chat Completions API."""
+
+    def __init__(self, config: dict[str, Any]):
+        # Support new providers.* layout (preferred) and legacy top-level openai
+        if "openai" in config:
+            providers = {"openai": config["openai"]}
+            super().__init__({"providers": providers}, "openai")
+        else:
+            super().__init__(config, "openai")
+
+
+class OpenRouterClient(BaseOpenAIClient):
+    """OpenRouter API client using OpenAI Chat Completions API compatibility."""
+
+    def __init__(self, config: dict[str, Any]):
+        super().__init__(config, "openrouter")
+
+    def _is_reasoning_model(self, model):
+        return False
+
+    def _get_extra_body(self, model: str):
+        if "#" not in model:
+            return None, None
+
+        model_name, provider_list = model.split("#", 1)
+        providers = [p.strip() for p in provider_list.split(",") if p.strip()]
+
+        if providers:
+            return {"provider": {"only": providers}}, model_name
+        return None, None

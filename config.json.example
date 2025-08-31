@@ -15,6 +15,10 @@
       "key": "your-openai-api-key-here",
       "max_tokens": 5000
     },
+    "openrouter": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "key": "your-openrouter-api-key-here"
+    },
     "perplexity": {
       "url": "https://api.perplexity.ai/chat/completions",
       "key": "your-perplexity-api-key-here",
