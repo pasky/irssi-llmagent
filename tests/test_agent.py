@@ -793,7 +793,7 @@ class TestAPIAgent:
         """Test Claude's special handling when thinking budget is set with non-auto tool_choice."""
 
         # Create a Claude client instance for direct testing
-        from irssi_llmagent.claude import AnthropicClient
+        from irssi_llmagent.anthropic import AnthropicClient
 
         test_config = {
             "providers": {

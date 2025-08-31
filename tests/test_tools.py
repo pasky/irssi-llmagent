@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import aiohttp
 import pytest
 
-from irssi_llmagent.claude import AnthropicClient
+from irssi_llmagent.anthropic import AnthropicClient
 from irssi_llmagent.openai import OpenAIClient
 from irssi_llmagent.tools import (
     PythonExecutorE2B,

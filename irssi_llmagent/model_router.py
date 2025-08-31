@@ -4,8 +4,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
-from .claude import AnthropicClient
-from .deepseek import DeepSeekClient
+from .anthropic import AnthropicClient, DeepSeekClient
 from .openai import OpenAIClient
 
 

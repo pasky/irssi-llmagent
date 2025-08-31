@@ -1,4 +1,4 @@
-"""Anthropic Claude API client implementation."""
+"""Anthropic API client implementations for Claude and DeepSeek."""
 
 import asyncio
 import json
@@ -12,13 +12,15 @@ from .base_client import BaseAPIClient
 logger = logging.getLogger(__name__)
 
 
-class AnthropicClient(BaseAPIClient):
-    """Anthropic Claude API client with async support."""
+class BaseAnthropicAPIClient(BaseAPIClient):
+    """Base client for Anthropic API-compatible services."""
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any], provider_name: str):
         providers = config.get("providers", {}) if isinstance(config, dict) else {}
-        cfg = providers.get("anthropic", {})
+        cfg = providers.get(provider_name, {})
         super().__init__(cfg)
+        self.provider_name = provider_name
+        self.logger = logging.getLogger(f"{__name__}.{provider_name}")
         self.session: aiohttp.ClientSession | None = None
 
     async def __aenter__(self):
@@ -36,17 +38,6 @@ class AnthropicClient(BaseAPIClient):
         if self.session:
             await self.session.close()
 
-    async def call_claude(self, context: list[dict], system_prompt: str, model: str) -> str:
-        """Call Claude API with context and system prompt, returning cleaned text response."""
-        raw_response = await self.call_raw(context, system_prompt, model)
-        return self.extract_text_from_response(raw_response)
-
-    async def call_claude_raw(
-        self, context: list[dict], system_prompt: str, model: str, tools: list | None = None
-    ) -> dict:
-        """Call Claude API with context and system prompt - deprecated, use call_raw."""
-        return await self.call_raw(context, system_prompt, model, tools)
-
     async def call_raw(
         self,
         context: list[dict],
@@ -56,9 +47,11 @@ class AnthropicClient(BaseAPIClient):
         tool_choice: list | None = None,
         reasoning_effort: str = "minimal",
     ) -> dict:
-        """Call Claude API with context and system prompt."""
+        """Call Anthropic API with context and system prompt."""
         if not self.session:
-            raise RuntimeError("AnthropicClient not initialized as async context manager")
+            raise RuntimeError(
+                f"{self.provider_name}Client not initialized as async context manager"
+            )
 
         messages = []
         for m in context:
@@ -92,17 +85,11 @@ class AnthropicClient(BaseAPIClient):
         if messages[-1]["role"] == "assistant":
             # may happen in some race conditions with proactive checks or
             # multiple commands
-            logger.debug(context)
-            logger.debug(messages)
+            self.logger.debug(context)
+            self.logger.debug(messages)
             return {"cancel": "(wait, I just replied)"}
 
-        thinking_budget = 0
-        if reasoning_effort == "low":
-            thinking_budget = 1024
-        elif reasoning_effort == "medium":
-            thinking_budget = 4096
-        elif reasoning_effort == "high":
-            thinking_budget = 16000
+        thinking_budget = self._get_thinking_budget(reasoning_effort)
 
         payload = {
             "model": model,
@@ -113,28 +100,22 @@ class AnthropicClient(BaseAPIClient):
 
         if tools:
             payload["tools"] = tools
-        if thinking_budget:
-            payload["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
-        if tool_choice:
-            # As per this documentation: https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#extended-thinking-with-tool-use
-            # > Tool choice limitation: Tool use with thinking only supports tool_choice: {"type": "auto"} (the default) or tool_choice: {"type": "none"}. Using tool_choice: {"type": "any"} or tool_choice: {"type": "tool", "name": "..."} will result in an error because these options force tool use, which is incompatible with extended thinking.
-            messages.append(
-                {
-                    "role": "user",
-                    "content": f"<meta>only tool {tool_choice} may be called now</meta>",
-                }
-            )
 
-        logger.debug(f"Calling Anthropic API with model: {model}")
-        logger.debug(f"Anthropic request payload: {json.dumps(payload, indent=2)}")
+        self._handle_thinking_budget(payload, thinking_budget, messages)
+
+        if tool_choice:
+            self._handle_tool_choice(tool_choice, messages, thinking_budget > 0)
+
+        self.logger.debug(f"Calling {self.provider_name} API with model: {model}")
+        self.logger.debug(f"{self.provider_name} request payload: {json.dumps(payload, indent=2)}")
 
         # Exponential backoff retry for 529 (overloaded) errors
         backoff_delays = [0, 2, 5, 10, 20]  # No delay, then 2s, 5s, 10s, 20s
 
         for attempt, delay in enumerate(backoff_delays):
             if delay > 0:
-                logger.info(
-                    f"Waiting {delay}s before retry {attempt + 1}/{len(backoff_delays)} for Anthropic API"
+                self.logger.info(
+                    f"Waiting {delay}s before retry {attempt + 1}/{len(backoff_delays)} for {self.provider_name} API"
                 )
                 await asyncio.sleep(delay)
 
@@ -146,34 +127,71 @@ class AnthropicClient(BaseAPIClient):
                         # Check for 529 overloaded error and retry if not last attempt
                         if response.status == 529 and attempt < len(backoff_delays) - 1:
                             error_body = json.dumps(data) if data else f"HTTP {response.status}"
-                            logger.warning(
-                                f"Anthropic overloaded (HTTP 529), retrying in {backoff_delays[attempt + 1]}s..."
+                            self.logger.warning(
+                                f"{self.provider_name} overloaded (HTTP 529), retrying in {backoff_delays[attempt + 1]}s..."
                             )
                             continue
 
                         error_body = json.dumps(data) if data else f"HTTP {response.status}"
                         raise aiohttp.ClientError(
-                            f"Anthropic HTTP status {response.status}: {error_body}"
+                            f"{self.provider_name} HTTP status {response.status}: {error_body}"
                         )
 
-                logger.debug(f"Anthropic response: {json.dumps(data, indent=2)}")
+                self.logger.debug(f"{self.provider_name} response: {json.dumps(data, indent=2)}")
                 return data
 
             except aiohttp.ClientError as e:
                 # Only retry 529 errors, fail fast on other errors
                 if "HTTP status 529" in str(e) and attempt < len(backoff_delays) - 1:
                     continue
-                logger.error(f"Anthropic API error: {e}")
+                self.logger.error(f"{self.provider_name} API error: {e}")
                 return {"error": f"API error: {e}"}
 
         # This should never be reached, but added for type safety
         return {"error": "All retry attempts exhausted"}
 
+    def _get_thinking_budget(self, reasoning_effort: str) -> int:
+        """Get thinking budget based on reasoning effort."""
+        budget_map = {
+            "low": 1024,
+            "medium": 4096,
+            "high": 16000,
+        }
+        return budget_map.get(reasoning_effort, 0)
+
+    def _handle_thinking_budget(
+        self, payload: dict, thinking_budget: int, messages: list[dict]
+    ) -> None:
+        """Handle thinking budget - override in subclasses if needed."""
+        if thinking_budget:
+            payload["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
+
+    def _handle_tool_choice(
+        self, tool_choice: list, messages: list[dict], has_thinking: bool
+    ) -> None:
+        """Handle tool choice constraints."""
+        if has_thinking:
+            # As per this documentation: https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#extended-thinking-with-tool-use
+            # > Tool choice limitation: Tool use with thinking only supports tool_choice: {"type": "auto"} (the default) or tool_choice: {"type": "none"}. Using tool_choice: {"type": "any"} or tool_choice: {"type": "tool", "name": "..."} will result in an error because these options force tool use, which is incompatible with extended thinking.
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"<meta>only tool {tool_choice} may be called now</meta>",
+                }
+            )
+        else:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"<meta>only tool {tool_choice} may be called now</meta>",
+                }
+            )
+
     def _extract_raw_text(self, response: dict) -> str:
-        """Extract raw text content from Claude response format."""
+        """Extract raw text content from Anthropic API response format."""
         # Check for refusal
         if response.get("stop_reason") == "refusal":
-            logger.warning("Claude refusal detected")
+            self.logger.warning(f"{self.provider_name} refusal detected")
             return ""
 
         if "content" in response and response["content"]:
@@ -181,17 +199,17 @@ class AnthropicClient(BaseAPIClient):
             for content_block in response["content"]:
                 if content_block.get("type") == "text":
                     text = content_block["text"]
-                    logger.debug(f"Claude response text: {text}")
+                    self.logger.debug(f"{self.provider_name} response text: {text}")
                     return text or ""
 
         return ""
 
     def has_tool_calls(self, response: dict) -> bool:
-        """Check if Claude response contains tool calls."""
+        """Check if response contains tool calls."""
         return response.get("stop_reason") == "tool_use"
 
     def extract_tool_calls(self, response: dict) -> list[dict] | None:
-        """Extract tool calls from Claude response format."""
+        """Extract tool calls from Anthropic API response format."""
         content = response.get("content", [])
         tool_uses = []
         for block in content:
@@ -202,12 +220,12 @@ class AnthropicClient(BaseAPIClient):
         return tool_uses if tool_uses else None
 
     def format_assistant_message(self, response: dict) -> dict:
-        """Format Claude's response for conversation history."""
+        """Format response for conversation history."""
         content = response.get("content", [])
         return {"role": "assistant", "content": content}
 
     def format_tool_results(self, tool_results: list[dict]) -> dict:
-        """Format tool results for Claude API."""
+        """Format tool results for Anthropic API."""
         processed_results = []
         for result in tool_results:
             content = result["content"]
@@ -250,3 +268,29 @@ class AnthropicClient(BaseAPIClient):
                 # Regular text content
                 processed_results.append(result)
         return {"role": "user", "content": processed_results}
+
+
+class AnthropicClient(BaseAnthropicAPIClient):
+    """Anthropic Claude API client with async support."""
+
+    def __init__(self, config: dict[str, Any]):
+        super().__init__(config, "anthropic")
+
+
+class DeepSeekClient(BaseAnthropicAPIClient):
+    """DeepSeek API client with Anthropic API compatibility."""
+
+    def __init__(self, config: dict[str, Any]):
+        super().__init__(config, "deepseek")
+
+    def _handle_thinking_budget(
+        self, payload: dict, thinking_budget: int, messages: list[dict]
+    ) -> None:
+        """DeepSeek doesn't support thinking budget, use meta message instead."""
+        if thinking_budget:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"<meta>Think step by step (reasoning effort: {thinking_budget} tokens)</meta>",
+                }
+            )
