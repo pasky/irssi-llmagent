@@ -882,25 +882,35 @@ class TestAPIAgent:
         class MockResponse:
             def model_dump(self):
                 return {
-                    "output_text": "Final answer",
-                    "output": [
+                    "choices": [
                         {
-                            "type": "message",
                             "message": {
                                 "role": "assistant",
-                                "content": [{"type": "text", "text": "Final answer"}],
-                            },
+                                "content": "Final answer",
+                                "tool_calls": [
+                                    {
+                                        "id": "call_123",
+                                        "type": "function",
+                                        "function": {"name": "final_answer", "arguments": "{}"},
+                                    }
+                                ],
+                            }
                         }
-                    ],
+                    ]
                 }
 
         class MockAsyncOpenAI:
             def __init__(self, *args, **kwargs):
-                self.responses = self
+                self.chat = self.MockChat()
 
-            async def create(self, **kwargs):
-                captured_kwargs.update(kwargs)
-                return MockResponse()
+            class MockChat:
+                def __init__(self):
+                    self.completions = self.MockCompletions()
+
+                class MockCompletions:
+                    async def create(self, **kwargs):
+                        captured_kwargs.update(kwargs)
+                        return MockResponse()
 
         # Test the scenario: reasoning effort + non-auto tool_choice
         messages = [{"role": "user", "content": "Test query"}]
@@ -910,7 +920,7 @@ class TestAPIAgent:
                 await openai_client.call_raw(
                     messages,
                     "Test system prompt",
-                    "gpt-4",
+                    "gpt-5",
                     tools=[
                         {"name": "final_answer", "description": "test tool", "input_schema": {}}
                     ],
@@ -918,26 +928,122 @@ class TestAPIAgent:
                     reasoning_effort="medium",  # Sets reasoning effort
                 )
 
-        # Assert exact literal value of input messages
-        expected_input = [
-            {"role": "system", "content": "Test system prompt"},
+        # Assert exact literal value of messages (reasoning models use developer role)
+        expected_messages = [
+            {"role": "developer", "content": "Test system prompt"},
             {"role": "user", "content": "Test query"},
         ]
-        assert captured_kwargs["input"] == expected_input
+        assert captured_kwargs["messages"] == expected_messages
 
-        # Verify reasoning effort was set
-        assert captured_kwargs["reasoning"]["effort"] == "medium"
+        # Chat Completions API doesn't use reasoning parameter for non-o1 models
 
-        # Verify tool_choice was preserved (OpenAI doesn't have Claude's limitation)
-        assert captured_kwargs["tool_choice"] == {
-            "mode": "required",
-            "tools": [{"name": "final_answer", "type": "function"}],
+        # Verify tool_choice was set correctly for Chat Completions API (with allowed_tools)
+        expected_tool_choice = captured_kwargs["tool_choice"]
+        assert expected_tool_choice == {
             "type": "allowed_tools",
+            "allowed_tools": {
+                "mode": "required",
+                "tools": [{"type": "function", "function": {"name": "final_answer"}}],
+            },
         }
 
-        # Verify tools were converted properly
+        # Verify tools were converted properly for Chat Completions format
         assert len(captured_kwargs["tools"]) == 1
-        assert captured_kwargs["tools"][0]["name"] == "final_answer"
+        assert captured_kwargs["tools"][0]["type"] == "function"
+        assert captured_kwargs["tools"][0]["function"]["name"] == "final_answer"
+
+    @pytest.mark.asyncio
+    async def test_openai_api_reasoning_vs_legacy_model_handling(self):
+        """Test OpenAI API handles reasoning models vs legacy models differently."""
+        from irssi_llmagent.openai import OpenAIClient
+
+        config = {"providers": {"openai": {"key": "test-key"}}}
+
+        # Mock to capture API calls
+        captured_kwargs = {}
+
+        class MockResponse:
+            def model_dump(self):
+                return {"choices": [{"message": {"content": "test response"}}]}
+
+        class MockAsyncOpenAI:
+            def __init__(self, *args, **kwargs):
+                self.chat = self.MockChat()
+
+            class MockChat:
+                def __init__(self):
+                    self.completions = self.MockCompletions()
+
+                class MockCompletions:
+                    async def create(self, **kwargs):
+                        captured_kwargs.update(kwargs)
+                        return MockResponse()
+
+        # Test legacy model (gpt-4o)
+        captured_kwargs.clear()
+        client = OpenAIClient(config)
+
+        with patch("irssi_llmagent.openai._AsyncOpenAI", MockAsyncOpenAI):
+            async with client:
+                await client.call_raw(
+                    [{"role": "user", "content": "Test message"}],
+                    "Test system prompt",
+                    "gpt-4o",  # Legacy model
+                    tools=[
+                        {
+                            "name": "tool_a",
+                            "description": "Tool A",
+                            "input_schema": {"type": "object"},
+                        },
+                        {
+                            "name": "tool_b",
+                            "description": "Tool B",
+                            "input_schema": {"type": "object"},
+                        },
+                    ],
+                    tool_choice=["tool_a", "tool_b"],
+                    reasoning_effort="high",
+                )
+
+        # Legacy model should use system role and max_tokens
+        assert captured_kwargs["messages"][0]["role"] == "system"
+        assert "max_tokens" in captured_kwargs
+        assert "max_completion_tokens" not in captured_kwargs
+        # Legacy should use meta messages for tool choice and reasoning
+        assert "tool_choice" not in captured_kwargs
+        assert "reasoning_effort" not in captured_kwargs
+        meta_messages = [
+            msg for msg in captured_kwargs["messages"] if "meta>" in str(msg.get("content", ""))
+        ]
+        assert len(meta_messages) >= 2  # reasoning + tool choice meta messages
+
+        # Test reasoning model (gpt-5)
+        captured_kwargs.clear()
+
+        with patch("irssi_llmagent.openai._AsyncOpenAI", MockAsyncOpenAI):
+            async with client:
+                await client.call_raw(
+                    [{"role": "user", "content": "Test message"}],
+                    "Test system prompt",
+                    "gpt-5",  # Reasoning model
+                    tools=[
+                        {
+                            "name": "tool_c",
+                            "description": "Tool C",
+                            "input_schema": {"type": "object"},
+                        }
+                    ],
+                    tool_choice=["tool_c"],
+                    reasoning_effort="medium",
+                )
+
+        # Reasoning model should use developer role and max_completion_tokens
+        assert captured_kwargs["messages"][0]["role"] == "developer"
+        assert "max_completion_tokens" in captured_kwargs
+        assert "max_tokens" not in captured_kwargs
+        # Reasoning should use direct API parameters
+        assert "reasoning_effort" in captured_kwargs
+        assert "tool_choice" in captured_kwargs
 
     @pytest.mark.asyncio
     async def test_agent_max_tokens_tool_retry(self, agent):

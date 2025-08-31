@@ -1,4 +1,4 @@
-"""OpenAI client using the official Python SDK (Responses API)."""
+"""OpenAI client using Chat Completions API."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ except Exception:  # pragma: no cover - handled at runtime
 
 
 class OpenAIClient(BaseAPIClient):
-    """OpenAI API client backed by the Responses API via the Python SDK."""
+    """OpenAI API client using Chat Completions API."""
 
     def __init__(self, config: dict[str, Any]):
         # Support new providers.* layout (preferred) and legacy top-level openai
@@ -29,7 +29,7 @@ class OpenAIClient(BaseAPIClient):
             cfg = providers.get("openai", {})
         super().__init__(cfg)
 
-        # Validate required keys (model is provided per-call in new routing)
+        # Validate required keys
         required_keys = ["key"]
         for key in required_keys:
             if key not in self.config:
@@ -56,21 +56,30 @@ class OpenAIClient(BaseAPIClient):
         self._client = None
 
     def _convert_tools(self, tools: list[dict]) -> list[dict]:
-        """Convert internal tool schema to OpenAI function tools."""
+        """Convert internal tool schema to OpenAI Chat Completion function tools."""
         converted = []
         if not tools:
             return converted
         for tool in tools:
-            # Responses API expects name at top-level for function tools
             converted.append(
                 {
                     "type": "function",
-                    "name": tool["name"],
-                    "description": tool["description"],
-                    "parameters": tool["input_schema"],
+                    "function": {
+                        "name": tool["name"],
+                        "description": tool["description"],
+                        "parameters": tool["input_schema"],
+                    },
                 }
             )
         return converted
+
+    def _is_reasoning_model(self, model):
+        return (
+            model.startswith("o1")
+            or model.startswith("o3")
+            or model.startswith("o4")
+            or model.startswith("gpt-5")
+        )
 
     async def call_raw(
         self,
@@ -81,260 +90,170 @@ class OpenAIClient(BaseAPIClient):
         tool_choice: list | None = None,
         reasoning_effort: str = "minimal",
     ) -> dict:
-        """Call the OpenAI Responses API and return native response dict."""
+        """Call the OpenAI Chat Completion API and return native response dict."""
         if not self._client:
             raise RuntimeError("OpenAIClient not initialized as async context manager")
 
-        # Build messages array from context (user/assistant/tool). System prompt via instructions.
-        messages = list(context)
-        if not messages or all(
-            (not isinstance(m, dict)) or (m.get("role") != "user") for m in messages
-        ):
-            messages.append({"role": "user", "content": "..."})
+        # O1 and GPT-5 models use max_completion_tokens instead of max_tokens
+        is_reasoning_model = self._is_reasoning_model(model)
 
-        # If the last role is assistant without tool_calls, avoid re-answering
-        last = messages[-1]
-        if isinstance(last, dict) and last.get("role") == "assistant" and "tool_calls" not in last:
-            return {"cancel": "(wait, I just replied)"}
+        # Build standard chat completion messages
+        messages = []
 
-        # Build Responses API input as a list of chat messages
-        inputs: list[dict[str, Any]] = []
         if system_prompt:
-            inputs.append({"role": "system", "content": system_prompt})
-        for m in messages:
-            try:
-                # Allow passing native function_call_output items straight through
-                if isinstance(m, dict) and m.get("type") == "function_call_output":
-                    inputs.append(
+            messages.append(
+                {"role": "developer" if is_reasoning_model else "system", "content": system_prompt}
+            )
+
+        for m in context:
+            if isinstance(m, dict):
+                if m.get("role") in ("user", "assistant", "tool"):
+                    messages.append(m)
+                elif m.get("type") == "function_call_output":
+                    # Convert to tool message format
+                    messages.append(
                         {
-                            "type": "function_call_output",
-                            "call_id": m.get("call_id"),
-                            "output": m.get("output", "{}"),
+                            "role": "tool",
+                            "tool_call_id": m.get("call_id", ""),
+                            "content": m.get("output", ""),
                         }
                     )
-                    continue
-                # Convert prior assistant tool_calls into Responses function_call items
-                if isinstance(m, dict) and isinstance(m.get("tool_calls"), list):
-                    for tc in m["tool_calls"]:
-                        if tc.get("type") == "function":
-                            name = tc.get("function", {}).get("name", "")
-                            args = tc.get("function", {}).get("arguments", "{}")
-                            call_id = tc.get("id") or ""
-                            inputs.append(
-                                {
-                                    "type": "function_call",
-                                    "call_id": call_id,
-                                    "name": name,
-                                    "arguments": args,
-                                }
-                            )
-                    # Also include the assistant message text if any
-                # Skip artifacts that aren't role-based messages
-                if not isinstance(m, dict) or ("role" not in m and "type" not in m):
-                    continue
-                # Only handle role-based chat messages here
-                role = m.get("role")
-                if role is None:
-                    continue
-                assert role != "tool"
-                content_val = m.get("content") or ""
-                # Handle both string content and structured content (for images)
-                inputs.append({"role": role, "content": content_val})
-            except Exception:
-                # Be permissive about stray artifacts in message history
-                continue
+
+        # Check for duplicate assistant responses
+        if len(messages) >= 2 and messages[-1].get("role") == "assistant":
+            return {"cancel": "(wait, I just replied)"}
 
         max_tokens = int(self.config.get("max_tokens", 1024 if tools else 256))
 
-        sdk_kwargs: dict[str, Any] = {
+        kwargs = {
             "model": model,
-            "input": inputs,
-            "max_output_tokens": max_tokens,
-            "reasoning": {"effort": reasoning_effort, "summary": "auto"},
+            "messages": messages,
         }
-        if tools:
-            sdk_kwargs["tools"] = self._convert_tools(tools)
-            sdk_kwargs["tool_choice"] = (
-                {
-                    "mode": "required",
-                    "tools": [{"type": "function", "name": tool} for tool in tool_choice],
-                    "type": "allowed_tools",
-                }
-                if tool_choice
-                else "auto"
-            )
 
-        logger.debug(f"Calling OpenAI Responses API with model: {model}")
+        if is_reasoning_model:
+            kwargs["max_completion_tokens"] = max_tokens
+            kwargs["reasoning_effort"] = reasoning_effort
+        else:
+            kwargs["max_tokens"] = max_tokens
+            if reasoning_effort and reasoning_effort != "minimal":
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": f"<meta>Think step by step (reasoning effort: {reasoning_effort} - more than minimal)</meta>",
+                    }
+                )
+
+        if tools:
+            kwargs["tools"] = self._convert_tools(tools)
+            if is_reasoning_model:
+                kwargs["tool_choice"] = (
+                    {
+                        "type": "allowed_tools",
+                        "allowed_tools": {
+                            "mode": "required",
+                            "tools": [
+                                {"type": "function", "function": {"name": tool}}
+                                for tool in tool_choice
+                            ],
+                        },
+                    }
+                    if tool_choice
+                    else "auto"
+                )
+            else:
+                # tool_choice with multiple tools is not supported
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": f"<meta>only tool {tool_choice} may be called now</meta>",
+                    }
+                )
+
+        if not messages or messages[-1].get("role") != "user":
+            messages.append({"role": "user", "content": "..."})
+
+        logger.debug(f"Calling OpenAI Chat Completion API with model: {model}")
+        logger.debug(f"OpenAI Chat Completion request: {json.dumps(kwargs, indent=2)}")
+
         try:
-            resp = await self._client.responses.create(**sdk_kwargs)
-            # Convert SDK obj to plain dict for robust handling
+            resp = await self._client.chat.completions.create(**kwargs)
             data = resp.model_dump() if hasattr(resp, "model_dump") else json.loads(resp.json())
-            logger.debug(f"OpenAI raw Responses payload: {json.dumps(data, indent=2)}")
-        except Exception as e:  # Broad catch to mirror previous network error handling
+            logger.debug(f"OpenAI Chat Completion response: {json.dumps(data, indent=2)}")
+            return data
+        except Exception as e:
             msg = repr(e)
-            logger.error(f"OpenAI API error: {msg}")
+            logger.error(f"OpenAI Chat Completion API error: {msg}")
             return {"error": f"API error: {msg}"}
 
-        # Clean up potential null error fields that confuse our unified handler
-        if isinstance(data, dict) and data.get("error", None) is None:
-            data.pop("error", None)
-
-        # Return Responses-native dict
-        return data
-
     def _extract_raw_text(self, response: dict) -> str:
-        """Extract raw text content from Responses-native dict."""
-        # Prefer convenience field
-        text = response.get("output_text") or response.get("text")
-        if isinstance(text, str) and text:
-            logger.debug(f"OpenAI response text: {text}")
-            return text
-        # Fallback: scan outputs
-        outputs = response.get("output") or response.get("outputs") or []
-        acc = []
-        if isinstance(outputs, list):
-            for item in outputs:
-                if item.get("type") == "message":
-                    # Responses may nest message under 'message' or inline at top level
-                    msg = item.get("message") if isinstance(item.get("message"), dict) else item
-                    if msg.get("role") == "assistant" and isinstance(msg.get("content"), list):
-                        for c in msg["content"]:
-                            if c.get("type") in ("text", "output_text"):
-                                piece = c.get("text") or c.get("value") or ""
-                                if isinstance(piece, str):
-                                    acc.append(piece)
-        return "".join(acc)
+        """Extract raw text content from Chat Completion response."""
+        choices = response.get("choices", [])
+        if choices and len(choices) > 0:
+            message = choices[0].get("message", {})
+            content = message.get("content", "")
+            if isinstance(content, str):
+                logger.debug(f"OpenAI Chat Completion response text: {content}")
+                return content
+        return ""
 
     def has_tool_calls(self, response: dict) -> bool:
-        """Check if Responses-native output contains tool calls."""
-        outputs = response.get("output") or response.get("outputs") or []
-        if isinstance(outputs, list):
-            for item in outputs:
-                if item.get("type") == "message":
-                    msg = item.get("message") if isinstance(item.get("message"), dict) else item
-                    if msg.get("role") == "assistant" and isinstance(msg.get("content"), list):
-                        for c in msg["content"]:
-                            if c.get("type") in ("tool_call", "function_call"):
-                                return True
-                if item.get("type") in ("tool_calls", "tool_call", "function_call"):
-                    return True
+        """Check if Chat Completion response contains tool calls."""
+        choices = response.get("choices", [])
+        if choices and len(choices) > 0:
+            message = choices[0].get("message", {})
+            return bool(message.get("tool_calls"))
         return False
 
     def extract_tool_calls(self, response: dict) -> list[dict] | None:
-        """Extract tool calls from Responses-native output."""
-        tool_uses: list[dict] = []
-        outputs = response.get("output") or response.get("outputs") or []
-        if isinstance(outputs, list):
-            for item in outputs:
-                if item.get("type") == "message":
-                    msg = item.get("message") if isinstance(item.get("message"), dict) else item
-                    if msg.get("role") == "assistant" and isinstance(msg.get("content"), list):
-                        for c in msg["content"]:
-                            if c.get("type") in ("tool_call", "function_call"):
-                                fc = c.get("function", {})
-                                args = fc.get("arguments")
-                                if isinstance(args, str):
-                                    try:
-                                        args_obj = json.loads(args)
-                                    except Exception:
-                                        args_obj = {}
-                                else:
-                                    args_obj = args or {}
-                                tool_uses.append(
-                                    {
-                                        "id": c.get("id", ""),
-                                        "name": fc.get("name", ""),
-                                        "input": args_obj,
-                                    }
-                                )
-                if item.get("type") in ("tool_calls", "tool_call"):
-                    for call in item.get("tool_calls", [item]):
-                        if not isinstance(call, dict):
-                            continue
-                        fc = call.get("function", {})
-                        args = fc.get("arguments")
-                        if isinstance(args, str):
-                            try:
-                                args_obj = json.loads(args)
-                            except Exception:
-                                args_obj = {}
-                        else:
-                            args_obj = args or {}
-                        tool_uses.append(
-                            {
-                                "id": call.get("id", ""),
-                                "name": fc.get("name", ""),
-                                "input": args_obj,
-                            }
-                        )
-                if item.get("type") == "function_call":
-                    args = item.get("arguments")
-                    if isinstance(args, str):
-                        try:
-                            args_obj = json.loads(args)
-                        except Exception:
-                            args_obj = {}
-                    else:
-                        args_obj = args or {}
-                    tool_uses.append(
-                        {
-                            "id": item.get("call_id") or item.get("id", ""),
-                            "name": item.get("name", ""),
-                            "input": args_obj,
-                        }
-                    )
+        """Extract tool calls from Chat Completion response."""
+        choices = response.get("choices", [])
+        if not choices:
+            return None
+
+        message = choices[0].get("message", {})
+        tool_calls = message.get("tool_calls", [])
+
+        if not tool_calls:
+            return None
+
+        tool_uses = []
+        for tc in tool_calls:
+            if tc.get("type") == "function":
+                func = tc.get("function", {})
+                args = func.get("arguments", "{}")
+                if isinstance(args, str):
+                    try:
+                        args_obj = json.loads(args)
+                    except Exception:
+                        args_obj = {}
+                else:
+                    args_obj = args or {}
+
+                tool_uses.append(
+                    {
+                        "id": tc.get("id", ""),
+                        "name": func.get("name", ""),
+                        "input": args_obj,
+                    }
+                )
+
         return tool_uses if tool_uses else None
 
     def format_assistant_message(self, response: dict) -> dict:
-        """Format assistant message for conversation history from Responses-native output."""
-        content_text = self._extract_raw_text(response) or None
-        tool_calls_out: list[dict] = []
-        outputs = response.get("output") or response.get("outputs") or []
-        if isinstance(outputs, list):
-            for item in outputs:
-                if item.get("type") == "message":
-                    msg = item.get("message") if isinstance(item.get("message"), dict) else item
-                    if msg.get("role") == "assistant" and isinstance(msg.get("content"), list):
-                        for c in msg["content"]:
-                            if c.get("type") in ("tool_call", "function_call"):
-                                fc = c.get("function", {})
-                                args = fc.get("arguments")
-                                args_json = (
-                                    args
-                                    if isinstance(args, str)
-                                    else json.dumps(args or {}, ensure_ascii=False)
-                                )
-                                tool_calls_out.append(
-                                    {
-                                        "id": c.get("id") or "tool_call",
-                                        "type": "function",
-                                        "function": {
-                                            "name": fc.get("name", ""),
-                                            "arguments": args_json,
-                                        },
-                                    }
-                                )
-                if item.get("type") == "function_call":
-                    args = item.get("arguments")
-                    args_json = (
-                        args
-                        if isinstance(args, str)
-                        else json.dumps(args or {}, ensure_ascii=False)
-                    )
-                    tool_calls_out.append(
-                        {
-                            "id": item.get("call_id") or item.get("id") or "tool_call",
-                            "type": "function",
-                            "function": {
-                                "name": item.get("name", ""),
-                                "arguments": args_json,
-                            },
-                        }
-                    )
-        return {"role": "assistant", "content": content_text, "tool_calls": tool_calls_out or None}
+        """Format Chat Completion assistant message for conversation history."""
+        choices = response.get("choices", [])
+        if not choices:
+            return {"role": "assistant", "content": ""}
+
+        message = choices[0].get("message", {})
+        return {
+            "role": "assistant",
+            "content": message.get("content", ""),
+            "tool_calls": message.get("tool_calls"),
+        }
 
     def format_tool_results(self, tool_results: list[dict]) -> list[dict]:
-        """Format tool results for OpenAI Responses API as function_call_output items."""
+        """Format tool results for Chat Completion API as tool messages."""
         processed_results = []
         image_contents = []
 
@@ -349,8 +268,8 @@ class OpenAIClient(BaseAPIClient):
                         # Store image for separate message
                         image_contents.append(
                             {
-                                "type": "input_image",
-                                "image_url": f"data:{content_type};base64,{base64_data}",
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{content_type};base64,{base64_data}"},
                             }
                         )
                         content = f"Downloaded image ({content_type}, {size} bytes) - Image provided separately"
@@ -363,11 +282,7 @@ class OpenAIClient(BaseAPIClient):
                     pass
 
             processed_results.append(
-                {
-                    "type": "function_call_output",
-                    "call_id": result["tool_use_id"],
-                    "output": json.dumps({"result": content}, ensure_ascii=False),
-                }
+                {"role": "tool", "tool_call_id": result["tool_use_id"], "content": str(content)}
             )
 
         # Add image message if there are images
@@ -375,9 +290,7 @@ class OpenAIClient(BaseAPIClient):
             processed_results.append(
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "input_text", "text": "Here are the images from the website:"}
-                    ]
+                    "content": [{"type": "text", "text": "Here are the images from the website:"}]
                     + image_contents,
                 }
             )

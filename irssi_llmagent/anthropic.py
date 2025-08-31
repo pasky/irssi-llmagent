@@ -73,6 +73,16 @@ class BaseAnthropicAPIClient(BaseAPIClient):
                         + "</tool_results>",
                     }
                 )
+            elif m.get("role") == "tool":
+                # Handle Chat Completions tool results from OpenAI
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "<tool_results>"
+                        + json.dumps({"result": m.get("content", "")})
+                        + "</tool_results>",
+                    }
+                )
             elif m.get("role") in ("user", "assistant"):
                 messages.append({"role": m.get("role"), "content": m.get("content") or "..."})
         # Ensure first message is from user

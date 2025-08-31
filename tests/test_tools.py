@@ -632,17 +632,14 @@ class TestImageHandling:
 
         # Check tool result
         tool_result = result[0]
-        assert tool_result["type"] == "function_call_output"
-        assert tool_result["call_id"] == "test-123"
-        import json
-
-        output = json.loads(tool_result["output"])
-        assert "Downloaded image (image/png" in output["result"]
+        assert tool_result["role"] == "tool"
+        assert tool_result["tool_call_id"] == "test-123"
+        assert "Downloaded image (image/png" in tool_result["content"]
 
         # Check image message
         image_msg = result[1]
         assert image_msg["role"] == "user"
         assert len(image_msg["content"]) == 2  # Text + image
-        assert image_msg["content"][0]["type"] == "input_text"
-        assert image_msg["content"][1]["type"] == "input_image"
-        assert f"data:image/png;base64,{image_b64}" in image_msg["content"][1]["image_url"]
+        assert image_msg["content"][0]["type"] == "text"
+        assert image_msg["content"][1]["type"] == "image_url"
+        assert f"data:image/png;base64,{image_b64}" in image_msg["content"][1]["image_url"]["url"]
