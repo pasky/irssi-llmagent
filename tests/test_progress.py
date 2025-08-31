@@ -82,18 +82,25 @@ async def test_progress_report_tool_emits_callback(monkeypatch):
         "default_provider": "anthropic",
         "providers": {"anthropic": {"url": "http://example.com", "key": "dummy"}},
         "tools": {},
-        "command": {
-            "modes": {
-                "serious": {
-                    "model": "anthropic:dummy-serious",
-                    "prompt": "{mynick} at {current_time} with models serious={serious_model}, sarcastic={sarcastic_model}",
-                },
-                "sarcastic": {"model": "anthropic:dummy-sarcastic", "prompt": "Sarcastic prompt"},
-            },
-            "mode_classifier": {
-                "model": "anthropic:dummy-classifier",
-                "prompt": "Classifier prompt",
-            },
+        "rooms": {
+            "irc": {
+                "command": {
+                    "modes": {
+                        "serious": {
+                            "model": "anthropic:dummy-serious",
+                            "prompt": "{mynick} at {current_time} with models serious={serious_model}, sarcastic={sarcastic_model}",
+                        },
+                        "sarcastic": {
+                            "model": "anthropic:dummy-sarcastic",
+                            "prompt": "Sarcastic prompt",
+                        },
+                    },
+                    "mode_classifier": {
+                        "model": "anthropic:dummy-classifier",
+                        "prompt": "Classifier prompt",
+                    },
+                }
+            }
         },
         "agent": {
             "progress": {

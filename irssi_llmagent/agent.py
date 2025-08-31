@@ -85,7 +85,7 @@ class AIAgent:
             if self.model_override:
                 model = self.model_override
             else:
-                serious_cfg = self.config["command"]["modes"]["serious"]["model"]
+                serious_cfg = self.config["rooms"]["irc"]["command"]["modes"]["serious"]["model"]
                 if isinstance(serious_cfg, list):
                     model = (
                         serious_cfg[iteration] if iteration < len(serious_cfg) else serious_cfg[-1]
@@ -131,7 +131,9 @@ class AIAgent:
                 if iteration == 0:
                     will_switch_models = False
                     if not self.model_override:
-                        serious_cfg = self.config["command"]["modes"]["serious"]["model"]
+                        serious_cfg = self.config["rooms"]["irc"]["command"]["modes"]["serious"][
+                            "model"
+                        ]
                         if isinstance(serious_cfg, list) and len(serious_cfg) >= 2:
                             will_switch_models = serious_cfg[0] != serious_cfg[1]
                     if will_switch_models:
@@ -209,7 +211,8 @@ class AIAgent:
                                     logger.warning(
                                         "Rejecting final answer {tool_result}, since multiple tool calls were seen."
                                     )
-                                return client.cleanup_raw_text(tool_result)
+                                else:
+                                    return client.cleanup_raw_text(tool_result)
 
                         except Exception as e:
                             import traceback

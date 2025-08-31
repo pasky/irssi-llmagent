@@ -32,44 +32,48 @@ def test_config(api_type) -> dict[str, Any]:
                 "model": "sonar-pro",
             },
         },
-        "varlink": {"socket_path": "/tmp/test_varlink.sock"},
         "tools": {},
-        "command": {
-            "history_size": 5,
-            "rate_limit": 30,
-            "rate_period": 900,
-            "ignore_users": [],
-            "modes": {
-                "sarcastic": {
-                    "model": f"{api_type}:dummy-sarcastic",
-                    "prompt": "You are IRC user {mynick} and you are known for your sharp sarcasm and cynical, dry, rough sense of humor. Test sarcastic prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}.",
+        "rooms": {
+            "irc": {
+                "varlink": {"socket_path": "/tmp/test_varlink.sock"},
+                "command": {
+                    "history_size": 5,
+                    "rate_limit": 30,
+                    "rate_period": 900,
+                    "ignore_users": [],
+                    "modes": {
+                        "sarcastic": {
+                            "model": f"{api_type}:dummy-sarcastic",
+                            "prompt": "You are IRC user {mynick} and you are known for your sharp sarcasm and cynical, dry, rough sense of humor. Test sarcastic prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}.",
+                        },
+                        "serious": {
+                            "model": [f"{api_type}:dummy-serious"],
+                            "prompt": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. Test serious prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}.",
+                        },
+                    },
+                    "mode_classifier": {
+                        "model": f"{api_type}:dummy-classifier",
+                        "prompt": "Analyze this IRC message and decide whether it should be handled with SARCASTIC or SERIOUS mode. Respond with only one word: 'SARCASTIC' or 'SERIOUS'. Message: {message}",
+                    },
                 },
-                "serious": {
-                    "model": [f"{api_type}:dummy-serious"],
-                    "prompt": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. Test serious prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}.",
+                "proactive": {
+                    "history_size": 3,
+                    "interjecting": [],
+                    "interjecting_test": [],
+                    "interject_threshold": 9,
+                    "rate_limit": 10,
+                    "rate_period": 60,
+                    "debounce_seconds": 15.0,
+                    "models": {
+                        "serious": f"{api_type}:dummy-proactive",
+                        "validation": [f"{api_type}:dummy-validator"],
+                    },
+                    "prompts": {
+                        "interject": "Decide if AI should interject. Respond with '[reason]: X/10' where X is 1-10. Message: {message}",
+                        "serious_extra": "NOTE: This is a proactive interjection. If upon reflection you decide your contribution wouldn't add significant factual value (e.g. just an encouragement or general statement), respond with exactly 'NULL' instead of a message.",
+                    },
                 },
-            },
-            "mode_classifier": {
-                "model": f"{api_type}:dummy-classifier",
-                "prompt": "Analyze this IRC message and decide whether it should be handled with SARCASTIC or SERIOUS mode. Respond with only one word: 'SARCASTIC' or 'SERIOUS'. Message: {message}",
-            },
-        },
-        "proactive": {
-            "history_size": 3,
-            "interjecting": [],
-            "interjecting_test": [],
-            "interject_threshold": 9,
-            "rate_limit": 10,
-            "rate_period": 60,
-            "debounce_seconds": 15.0,
-            "models": {
-                "serious": f"{api_type}:dummy-proactive",
-                "validation": [f"{api_type}:dummy-validator"],
-            },
-            "prompts": {
-                "interject": "Decide if AI should interject. Respond with '[reason]: X/10' where X is 1-10. Message: {message}",
-                "serious_extra": "NOTE: This is a proactive interjection. If upon reflection you decide your contribution wouldn't add significant factual value (e.g. just an encouragement or general statement), respond with exactly 'NULL' instead of a message.",
-            },
+            }
         },
         "agent": {"progress": {"threshold_seconds": 10, "min_interval_seconds": 8}},
     }

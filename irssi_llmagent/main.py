@@ -55,21 +55,28 @@ class IRSSILLMAgent:
     def __init__(self, config_path: str = "config.json"):
         self.config = self.load_config(config_path)
         self.model_router: ModelRouter | None = None
-        self.varlink_events = VarlinkClient(self.config["varlink"]["socket_path"])
-        self.varlink_sender = VarlinkSender(self.config["varlink"]["socket_path"])
+        # Get IRC config section
+        irc_config = self.config["rooms"]["irc"]
+        self.varlink_events = VarlinkClient(irc_config["varlink"]["socket_path"])
+        self.varlink_sender = VarlinkSender(irc_config["varlink"]["socket_path"])
         self.history = ChatHistory(
             self.config.get("database", {}).get("path", "chat_history.db"),
-            self.config["command"]["history_size"],
+            irc_config["command"]["history_size"],
         )
         self.rate_limiter = RateLimiter(
-            self.config["command"]["rate_limit"], self.config["command"]["rate_period"]
+            irc_config["command"]["rate_limit"], irc_config["command"]["rate_period"]
         )
         self.proactive_rate_limiter = RateLimiter(
-            self.config["proactive"]["rate_limit"],
-            self.config["proactive"]["rate_period"],
+            irc_config["proactive"]["rate_limit"],
+            irc_config["proactive"]["rate_period"],
         )
-        self.proactive_debouncer = ProactiveDebouncer(self.config["proactive"]["debounce_seconds"])
+        self.proactive_debouncer = ProactiveDebouncer(irc_config["proactive"]["debounce_seconds"])
         self.server_nicks: dict[str, str] = {}  # Cache of nicks per server
+
+    @property
+    def irc_config(self) -> dict[str, Any]:
+        """Get IRC-specific configuration."""
+        return self.config["rooms"]["irc"]
 
     def load_config(self, config_path: str) -> dict[str, Any]:
         """Load configuration from JSON file."""
@@ -90,7 +97,7 @@ class IRSSILLMAgent:
 
     def should_ignore_user(self, nick: str) -> bool:
         """Check if user should be ignored."""
-        ignore_list = self.config["command"]["ignore_users"]
+        ignore_list = self.irc_config["command"]["ignore_users"]
         return any(nick.lower() == ignored.lower() for ignored in ignore_list)
 
     async def get_mynick(self, server: str) -> str | None:
@@ -116,11 +123,11 @@ class IRSSILLMAgent:
         Returns:
             Mode string: 'sarcastic', 'serious', or 'classifier'
         """
-        channel_modes = self.config.get("command", {}).get("channel_modes", {})
+        channel_modes = self.irc_config["command"].get("channel_modes", {})
         if chan_name in channel_modes:
             return channel_modes[chan_name]
 
-        default_mode = self.config.get("command", {}).get("default_mode", "classifier")
+        default_mode = self.irc_config["command"].get("default_mode", "classifier")
         return default_mode
 
     async def classify_mode(self, context: list[dict[str, str]]) -> str:
@@ -143,10 +150,10 @@ class IRSSILLMAgent:
             if message_match:
                 current_message = message_match.group(1).strip()
 
-            prompt = self.config["command"]["mode_classifier"]["prompt"].format(
+            prompt = self.irc_config["command"]["mode_classifier"]["prompt"].format(
                 message=current_message
             )
-            model = self.config["command"]["mode_classifier"]["model"]
+            model = self.irc_config["command"]["mode_classifier"]["model"]
             # Lazy-init router on first use
             if self.model_router is None:
                 self.model_router = await ModelRouter(self.config).__aenter__()
@@ -195,12 +202,12 @@ class IRSSILLMAgent:
                 current_message = message_match.group(1).strip()
 
             # Use full context for better decision making, but specify the current message in prompt
-            prompt = self.config["proactive"]["prompts"]["interject"].format(
+            prompt = self.irc_config["proactive"]["prompts"]["interject"].format(
                 message=current_message
             )
 
             # Get validation models list
-            validation_models = self.config["proactive"]["models"]["validation"]
+            validation_models = self.irc_config["proactive"]["models"]["validation"]
             if self.model_router is None:
                 self.model_router = await ModelRouter(self.config).__aenter__()
 
@@ -235,7 +242,7 @@ class IRSSILLMAgent:
                     f"Proactive validation step {i + 1}/{len(validation_models)} - Model: {model}, Score: {score}"
                 )
 
-                threshold = self.config["proactive"]["interject_threshold"]
+                threshold = self.irc_config["proactive"]["interject_threshold"]
                 if score < threshold - 1:
                     if i > 0:
                         logger.info(
@@ -252,7 +259,7 @@ class IRSSILLMAgent:
                     )
 
             if final_score is not None:
-                threshold = self.config["proactive"]["interject_threshold"]
+                threshold = self.irc_config["proactive"]["interject_threshold"]
 
                 if final_score >= threshold:
                     logger.debug(
@@ -287,7 +294,7 @@ class IRSSILLMAgent:
 
             # Get fresh context at check time with proactive history size
             context = await self.history.get_context(
-                server, chan_name, self.config["proactive"]["history_size"]
+                server, chan_name, self.irc_config["proactive"]["history_size"]
             )
             should_interject, reason, forced_test_mode = await self.should_interject_proactively(
                 context
@@ -404,8 +411,8 @@ class IRSSILLMAgent:
         # If not directly addressed and not a private message, check for proactive interjecting
         if not match and not is_private:
             # Check both live and test channels for proactive interjecting
-            proactive_channels = self.config["proactive"]["interjecting"]
-            test_channels = self.config["proactive"]["interjecting_test"]
+            proactive_channels = self.irc_config["proactive"]["interjecting"]
+            test_channels = self.irc_config["proactive"]["interjecting_test"]
             is_live_channel = proactive_channels and chan_name in proactive_channels
             is_test_channel = test_channels and chan_name in test_channels
 
@@ -449,7 +456,7 @@ class IRSSILLMAgent:
         """Handle IRC commands and generate responses."""
         import time
 
-        debounce = self.config["command"].get("debounce", 0)
+        debounce = self.irc_config["command"].get("debounce", 0)
         if debounce > 0:
             original_timestamp = time.time()
             context = await self.history.get_context(server, chan_name)
@@ -470,9 +477,9 @@ class IRSSILLMAgent:
 
         if message.startswith("!h") or message == "!h":
             logger.debug(f"Sending help message to {nick}")
-            sarcastic_model = self.config["command"]["modes"]["sarcastic"]["model"]
-            serious_model = self.config["command"]["modes"]["serious"]["model"]
-            classifier_model = self.config["command"]["mode_classifier"]["model"]
+            sarcastic_model = self.irc_config["command"]["modes"]["sarcastic"]["model"]
+            serious_model = self.irc_config["command"]["modes"]["serious"]["model"]
+            classifier_model = self.irc_config["command"]["mode_classifier"]["model"]
 
             channel_mode = self.get_channel_mode(chan_name)
             if channel_mode == "serious":
@@ -587,10 +594,10 @@ class IRSSILLMAgent:
         # Add extra prompt for proactive interjections to allow null response
         extra_prompt = ""
         if is_proactive:
-            extra_prompt = " " + self.config["proactive"]["prompts"]["serious_extra"]
+            extra_prompt = " " + self.irc_config["proactive"]["prompts"]["serious_extra"]
 
         # Use configured proactive serious model for proactive interjections
-        model_override = self.config["proactive"]["models"]["serious"] if is_proactive else None
+        model_override = self.irc_config["proactive"]["models"]["serious"] if is_proactive else None
         # Build progress callback only for non-proactive mode
         from collections.abc import Awaitable, Callable
 
@@ -649,7 +656,7 @@ class IRSSILLMAgent:
         reasoning_effort: str = "minimal",
     ) -> None:
         """Handle sarcastic mode using AIAgent with limited tools."""
-        sarcastic_model = self.config["command"]["modes"]["sarcastic"]["model"]
+        sarcastic_model = self.irc_config["command"]["modes"]["sarcastic"]["model"]
 
         async with AIAgent(
             self.config,
