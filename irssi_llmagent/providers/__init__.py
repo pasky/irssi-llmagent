@@ -65,7 +65,7 @@ class BaseAPIClient(ABC):
         text = text.replace("\n", "; ").strip()
 
         # Remove IRC nick prefix
-        text = re.sub(r"^(\[..:..\]\s*)?<[^>]+>\s*", "", text)
+        text = re.sub(r"^(\s*(\[..:..\]\s*)?<[^>]+>)*\s*", "", text)
 
         return text
 
