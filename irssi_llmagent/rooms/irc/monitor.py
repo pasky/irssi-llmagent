@@ -287,8 +287,6 @@ class IRCRoomMonitor:
                             server,
                             chan_name,
                             target,
-                            nick,
-                            message,
                             mynick,
                             classified_mode,
                             proactive_context,
@@ -305,8 +303,6 @@ class IRCRoomMonitor:
                             server,
                             chan_name,
                             target,
-                            nick,
-                            message,
                             mynick,
                             classified_mode,
                             proactive_context,
@@ -330,8 +326,6 @@ class IRCRoomMonitor:
         server: str,
         chan_name: str,
         target: str,
-        nick: str,
-        message: str,
         mynick: str,
         classified_mode: str,
         context: list[dict[str, str]],
@@ -400,8 +394,6 @@ class IRCRoomMonitor:
         server: str,
         chan_name: str,
         target: str,
-        nick: str,
-        message: str,
         mynick: str,
         context: list[dict[str, str]],
         reasoning_effort: str = "minimal",
@@ -429,8 +421,6 @@ class IRCRoomMonitor:
         server: str,
         chan_name: str,
         target: str,
-        nick: str,
-        message: str,
         mynick: str,
         context: list[dict[str, str]],
         reasoning_effort: str = "medium",
@@ -511,10 +501,6 @@ class IRCRoomMonitor:
                 )
             return
 
-        # Process command if directly addressed or if it's a private message
-        if not match and not is_private:
-            return
-
         # For private messages, use entire message; for channel messages, extract after nick prefix
         if is_private:
             cleaned_msg = message
@@ -542,11 +528,18 @@ class IRCRoomMonitor:
         self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
     ) -> None:
         """Handle IRC commands and generate responses."""
+        # Get max-sized context early to avoid races
+        default_size = self.irc_config["command"]["history_size"]
+        max_size = max(
+            default_size,
+            *(mode.get("history_size", 0) for mode in self.irc_config["command"]["modes"].values()),
+        )
+        context = await self.agent.history.get_context(server, chan_name, max_size)
+
+        # Apply debouncing to the max-sized context
         debounce = self.irc_config["command"].get("debounce", 0)
         if debounce > 0:
             original_timestamp = time.time()
-            context = await self.agent.history.get_context(server, chan_name)
-
             await asyncio.sleep(debounce)
 
             followups = await self.agent.history.get_recent_messages_since(
@@ -557,9 +550,6 @@ class IRCRoomMonitor:
                 followup_texts = [m["message"] for m in followups]
                 message = message + "\n" + "\n".join(followup_texts)
                 context[-1]["content"] = message
-
-        else:
-            context = await self.agent.history.get_context(server, chan_name)
 
         if message.startswith("!h") or message == "!h":
             logger.debug(f"Sending help message to {nick}")
@@ -584,8 +574,9 @@ class IRCRoomMonitor:
         elif message.startswith("!p ") or message == "!p":
             # Perplexity call
             logger.debug(f"Processing Perplexity request from {nick}: {message}")
+            # Use default history size for Perplexity
             async with PerplexityClient(self.agent.config) as perplexity:
-                response = await perplexity.call_perplexity(context)
+                response = await perplexity.call_perplexity(context[-default_size:])
             if response:
                 # Handle multi-line responses (citations)
                 lines = response.split("\n")
@@ -602,38 +593,58 @@ class IRCRoomMonitor:
                 )
 
         elif message.startswith("!S ") or message.startswith("!d "):
-            message = message[3:].strip()
             logger.debug(f"Processing explicit sarcastic request from {nick}: {message}")
+            sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(
+                "history_size", default_size
+            )
             await self._handle_sarcastic_mode(
-                server, chan_name, target, nick, message, mynick, context
+                server, chan_name, target, mynick, context[-sarcastic_size:]
             )
 
         elif message.startswith("!D "):  # easter egg
-            message = message[3:].strip()
             logger.debug(f"Processing explicit thinking sarcastic request from {nick}: {message}")
+            sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(
+                "history_size", default_size
+            )
             await self._handle_sarcastic_mode(
-                server, chan_name, target, nick, message, mynick, context, "high"
+                server, chan_name, target, mynick, context[-sarcastic_size:], "high"
             )
 
         elif message.startswith("!s "):
-            message = message[3:].strip()
             logger.debug(f"Processing explicit serious request from {nick}: {message}")
+            serious_size = self.irc_config["command"]["modes"]["serious"].get(
+                "history_size", default_size
+            )
             await self._handle_serious_mode(
-                server, chan_name, target, nick, message, mynick, "EASY_SERIOUS", context
+                server,
+                chan_name,
+                target,
+                mynick,
+                "EASY_SERIOUS",
+                context[-serious_size:],
             )
 
         elif message.startswith("!a "):
-            message = message[3:].strip()
             logger.debug(f"Processing explicit agentic request from {nick}: {message}")
+            serious_size = self.irc_config["command"]["modes"]["serious"].get(
+                "history_size", default_size
+            )
             await self._handle_serious_mode(
-                server, chan_name, target, nick, message, mynick, "THINKING_SERIOUS", context
+                server,
+                chan_name,
+                target,
+                mynick,
+                "THINKING_SERIOUS",
+                context[-serious_size:],
             )
 
         elif message.startswith("!u "):
-            message = message[3:].strip()
             logger.debug(f"Processing explicit unsafe request from {nick}: {message}")
+            unsafe_size = self.irc_config["command"]["modes"]["unsafe"].get(
+                "history_size", default_size
+            )
             await self._handle_unsafe_mode(
-                server, chan_name, target, nick, message, mynick, context
+                server, chan_name, target, mynick, context[-unsafe_size:]
             )
 
         elif re.match(r"^!.", message):
@@ -648,7 +659,7 @@ class IRCRoomMonitor:
             # Check for channel-specific or default mode override
             channel_mode = self.get_channel_mode(chan_name)
             if channel_mode == "serious":
-                classified_mode = await self.classify_mode(context)
+                classified_mode = await self.classify_mode(context[-default_size:])
                 logger.debug(f"Auto-classified message as {classified_mode} mode")
                 if classified_mode == "SARCASTIC":
                     classified_mode = "EASY_SERIOUS"
@@ -663,23 +674,40 @@ class IRCRoomMonitor:
             if classified_mode == "UNSAFE":
                 # Check if unsafe mode is configured before using it
                 if "unsafe" in self.irc_config["command"]["modes"]:
+                    unsafe_size = self.irc_config["command"]["modes"]["unsafe"].get(
+                        "history_size", default_size
+                    )
                     await self._handle_unsafe_mode(
-                        server, chan_name, target, nick, message, mynick, context
+                        server, chan_name, target, mynick, context[-unsafe_size:]
                     )
                 else:
                     logger.warning(
                         "UNSAFE mode classified but not configured, falling back to sarcastic"
                     )
+                    sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(
+                        "history_size", default_size
+                    )
                     await self._handle_sarcastic_mode(
-                        server, chan_name, target, nick, message, mynick, context
+                        server, chan_name, target, mynick, context[-sarcastic_size:]
                     )
             elif classified_mode.endswith("SERIOUS"):
+                serious_size = self.irc_config["command"]["modes"]["serious"].get(
+                    "history_size", default_size
+                )
                 await self._handle_serious_mode(
-                    server, chan_name, target, nick, message, mynick, classified_mode, context
+                    server,
+                    chan_name,
+                    target,
+                    mynick,
+                    classified_mode,
+                    context[-serious_size:],
                 )
             else:
+                sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(
+                    "history_size", default_size
+                )
                 await self._handle_sarcastic_mode(
-                    server, chan_name, target, nick, message, mynick, context
+                    server, chan_name, target, mynick, context[-sarcastic_size:]
                 )
 
         # Cancel any pending proactive interjection for this channel AGAIN, as
