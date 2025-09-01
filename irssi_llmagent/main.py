@@ -111,12 +111,6 @@ async def cli_mode(message: str, config_path: str | None = None) -> None:
             async def send_message(self, target: str, message: str, server: str):
                 print(f"📤 Bot response: {message}")
 
-        # Add the current message to history
-        await agent.history.add_message(
-            "testserver", "#testchannel", message, "testuser", "testbot"
-        )
-
-        # Mock the IRC monitor's varlink sender
         agent.irc_monitor.varlink_sender = MockSender()  # type: ignore
 
         # Simulate message handling

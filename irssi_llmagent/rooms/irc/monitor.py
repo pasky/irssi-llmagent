@@ -476,44 +476,38 @@ class IRCRoomMonitor:
             logger.debug(f"Ignoring user: {nick}")
             return
 
-        # Update history before checking if we should respond
-        await self.agent.history.add_message(server, chan_name, message, nick, mynick)
-
         # Check if message is addressing us directly
         pattern = rf"^\s*(<.*?>\s*)?{re.escape(mynick)}[,:]\s*(.*?)$"
         match = re.match(pattern, message, re.IGNORECASE)
-
-        # For private messages, treat all messages as commands
         is_private = subtype != "public"
 
-        # If not directly addressed and not a private message, check for proactive interjecting
-        if not match and not is_private:
-            # Check both live and test channels for proactive interjecting
-            proactive_channels = self.irc_config["proactive"]["interjecting"]
-            test_channels = self.irc_config["proactive"]["interjecting_test"]
-            is_live_channel = proactive_channels and chan_name in proactive_channels
-            is_test_channel = test_channels and chan_name in test_channels
-
-            if is_live_channel or is_test_channel:
-                # Schedule debounced proactive check
-                await self.proactive_debouncer.schedule_check(
-                    server, chan_name, nick, message, mynick, self._handle_debounced_proactive_check
-                )
-            return
-
-        # For private messages, use entire message; for channel messages, extract after nick prefix
-        if is_private:
-            cleaned_msg = message
-        else:
+        if match or is_private:
             if match and match.group(1):
                 nick = match.group(1).strip("<> ")
-            cleaned_msg = match.group(2) if match else message
-        logger.info(f"Received command from {nick} on {server}/{chan_name}: {cleaned_msg}")
 
-        # Cancel any pending proactive interjection for this channel since we're processing a command
-        await self.proactive_debouncer.cancel_channel(chan_name)
+            await self.proactive_debouncer.cancel_channel(chan_name)
+            # Call history.add_message() only later in handle_command() so that
+            # various testcases etc. calling it directly don't have to worry
+            # about the context setup.
+            await self.handle_command(server, chan_name, target, nick, message, mynick)
+            return
 
-        # Check rate limiting
+        await self.agent.history.add_message(server, chan_name, message, nick, mynick)
+        if (
+            chan_name
+            in self.irc_config["proactive"]["interjecting"]
+            + self.irc_config["proactive"]["interjecting_test"]
+        ):
+            await self.proactive_debouncer.schedule_check(
+                server, chan_name, nick, message, mynick, self._handle_debounced_proactive_check
+            )
+
+    async def handle_command(
+        self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
+    ) -> None:
+        """Handle IRC commands and generate responses."""
+        await self.agent.history.add_message(server, chan_name, message, nick, mynick)
+
         if not self.rate_limiter.check_limit():
             logger.warning(f"Rate limiting triggered for {nick}")
             await self.varlink_sender.send_message(
@@ -521,14 +515,13 @@ class IRCRoomMonitor:
             )
             return
 
-        # Process commands and generate response
-        await self.handle_command(server, chan_name, target, nick, cleaned_msg, mynick)
+        # Extract cleaned message
+        pattern = rf"^\s*(<.*?>\s*)?{re.escape(mynick)}[,:]\s*(.*?)$"
+        match = re.match(pattern, message, re.IGNORECASE)
+        cleaned_msg = match.group(2) if match else message
+        logger.info(f"Received command from {nick} on {server}/{chan_name}: {cleaned_msg}")
 
-    async def handle_command(
-        self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
-    ) -> None:
-        """Handle IRC commands and generate responses."""
-        # Get max-sized context early to avoid races
+        # Work with fixed context from now on to avoid debouncing/classification races!
         default_size = self.irc_config["command"]["history_size"]
         max_size = max(
             default_size,
@@ -536,7 +529,7 @@ class IRCRoomMonitor:
         )
         context = await self.agent.history.get_context(server, chan_name, max_size)
 
-        # Apply debouncing to the max-sized context
+        # Debounce briefly to consolidate quick followups e.g. due to automatic IRC message splits
         debounce = self.irc_config["command"].get("debounce", 0)
         if debounce > 0:
             original_timestamp = time.time()
@@ -547,11 +540,26 @@ class IRCRoomMonitor:
             )
             if followups:
                 logger.debug(f"Debounced {len(followups)} followup messages from {nick}")
-                followup_texts = [m["message"] for m in followups]
-                message = message + "\n" + "\n".join(followup_texts)
-                context[-1]["content"] = message
+                context[-1]["content"] += "\n" + "\n".join([m["message"] for m in followups])
 
-        if message.startswith("!h") or message == "!h":
+        await self._route_command(
+            server, chan_name, target, nick, mynick, cleaned_msg, context, default_size
+        )
+        await self.proactive_debouncer.cancel_channel(chan_name)
+
+    async def _route_command(
+        self,
+        server: str,
+        chan_name: str,
+        target: str,
+        nick: str,
+        mynick: str,
+        cleaned_msg: str,
+        context: list[dict],
+        default_size: int,
+    ) -> None:
+        """Route commands based on message content with prepared context."""
+        if cleaned_msg.startswith("!h") or cleaned_msg == "!h":
             logger.debug(f"Sending help message to {nick}")
             sarcastic_model = self.irc_config["command"]["modes"]["sarcastic"]["model"]
             serious_model = self.irc_config["command"]["modes"]["serious"]["model"]
@@ -571,9 +579,9 @@ class IRCRoomMonitor:
             help_msg = f"default is {default_desc}, !p is Perplexity (prefer English!)"
             await self.varlink_sender.send_message(target, help_msg, server)
 
-        elif message.startswith("!p ") or message == "!p":
+        elif cleaned_msg.startswith("!p ") or cleaned_msg == "!p":
             # Perplexity call
-            logger.debug(f"Processing Perplexity request from {nick}: {message}")
+            logger.debug(f"Processing Perplexity request from {nick}: {cleaned_msg}")
             # Use default history size for Perplexity
             async with PerplexityClient(self.agent.config) as perplexity:
                 response = await perplexity.call_perplexity(context[-default_size:])
@@ -592,8 +600,8 @@ class IRCRoomMonitor:
                     server, chan_name, lines[0], mynick, mynick, True
                 )
 
-        elif message.startswith("!S ") or message.startswith("!d "):
-            logger.debug(f"Processing explicit sarcastic request from {nick}: {message}")
+        elif cleaned_msg.startswith("!S ") or cleaned_msg.startswith("!d "):
+            logger.debug(f"Processing explicit sarcastic request from {nick}: {cleaned_msg}")
             sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(
                 "history_size", default_size
             )
@@ -601,8 +609,10 @@ class IRCRoomMonitor:
                 server, chan_name, target, mynick, context[-sarcastic_size:]
             )
 
-        elif message.startswith("!D "):  # easter egg
-            logger.debug(f"Processing explicit thinking sarcastic request from {nick}: {message}")
+        elif cleaned_msg.startswith("!D "):  # easter egg
+            logger.debug(
+                f"Processing explicit thinking sarcastic request from {nick}: {cleaned_msg}"
+            )
             sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(
                 "history_size", default_size
             )
@@ -610,8 +620,8 @@ class IRCRoomMonitor:
                 server, chan_name, target, mynick, context[-sarcastic_size:], "high"
             )
 
-        elif message.startswith("!s "):
-            logger.debug(f"Processing explicit serious request from {nick}: {message}")
+        elif cleaned_msg.startswith("!s "):
+            logger.debug(f"Processing explicit serious request from {nick}: {cleaned_msg}")
             serious_size = self.irc_config["command"]["modes"]["serious"].get(
                 "history_size", default_size
             )
@@ -624,8 +634,8 @@ class IRCRoomMonitor:
                 context[-serious_size:],
             )
 
-        elif message.startswith("!a "):
-            logger.debug(f"Processing explicit agentic request from {nick}: {message}")
+        elif cleaned_msg.startswith("!a "):
+            logger.debug(f"Processing explicit agentic request from {nick}: {cleaned_msg}")
             serious_size = self.irc_config["command"]["modes"]["serious"].get(
                 "history_size", default_size
             )
@@ -638,8 +648,8 @@ class IRCRoomMonitor:
                 context[-serious_size:],
             )
 
-        elif message.startswith("!u "):
-            logger.debug(f"Processing explicit unsafe request from {nick}: {message}")
+        elif cleaned_msg.startswith("!u "):
+            logger.debug(f"Processing explicit unsafe request from {nick}: {cleaned_msg}")
             unsafe_size = self.irc_config["command"]["modes"]["unsafe"].get(
                 "history_size", default_size
             )
@@ -647,14 +657,14 @@ class IRCRoomMonitor:
                 server, chan_name, target, mynick, context[-unsafe_size:]
             )
 
-        elif re.match(r"^!.", message):
-            logger.warning(f"Unknown command from {nick}: {message}")
+        elif re.match(r"^!.", cleaned_msg):
+            logger.warning(f"Unknown command from {nick}: {cleaned_msg}")
             await self.varlink_sender.send_message(
                 target, f"{nick}: Unknown command. Use !h for help.", server
             )
 
         else:
-            logger.debug(f"Processing automatic mode request from {nick}: {message}")
+            logger.debug(f"Processing automatic mode request from {nick}: {cleaned_msg}")
 
             # Check for channel-specific or default mode override
             channel_mode = self.get_channel_mode(chan_name)
@@ -709,11 +719,6 @@ class IRCRoomMonitor:
                 await self._handle_sarcastic_mode(
                     server, chan_name, target, mynick, context[-sarcastic_size:]
                 )
-
-        # Cancel any pending proactive interjection for this channel AGAIN, as
-        # we might have queued up another one if we received a message while
-        # the last command was being processed.
-        await self.proactive_debouncer.cancel_channel(chan_name)
 
     async def _connect_with_retry(self, max_retries: int = 5) -> bool:
         """Connect to varlink sockets with exponential backoff retry."""

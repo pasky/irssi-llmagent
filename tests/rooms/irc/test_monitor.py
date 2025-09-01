@@ -191,19 +191,6 @@ class TestIRCMonitor:
         )  # Default fallback
 
     @pytest.mark.asyncio
-    async def test_help_command(self, temp_config_file):
-        """Test help command functionality."""
-        agent = IRSSILLMAgent(temp_config_file)
-        agent.irc_monitor.varlink_sender = AsyncMock()
-
-        await agent.irc_monitor.handle_command("test", "#test", "#test", "user", "!h", "mybot")
-
-        # Should send help message
-        agent.irc_monitor.varlink_sender.send_message.assert_called_once()
-        call_args = agent.irc_monitor.varlink_sender.send_message.call_args[0]
-        assert "automatic mode" in call_args[1]  # Help text should mention automatic mode
-
-    @pytest.mark.asyncio
     async def test_help_command_with_channel_modes(self, temp_config_file):
         """Test help command shows channel-specific mode info."""
         agent = IRSSILLMAgent(temp_config_file)
@@ -229,6 +216,11 @@ class TestIRCMonitor:
         )
         call_args = agent.irc_monitor.varlink_sender.send_message.call_args[0]
         assert "default is sarcastic mode" in call_args[1]
+
+        # Test help in automatic mode
+        await agent.irc_monitor.handle_command("test", "#test", "#test", "user", "!h", "mybot")
+        call_args = agent.irc_monitor.varlink_sender.send_message.call_args[0]
+        assert "default is automatic mode" in call_args[1]
 
     @pytest.mark.asyncio
     async def test_command_debouncing_end_to_end(self, temp_config_file, temp_db_path):
@@ -297,7 +289,57 @@ class TestIRCMonitor:
             )
 
         # Verify message consolidation worked
-        assert captured_context[-1]["content"] == "original command\noops typo fix\nand one more"
+        expected_content = "original command\noops typo fix\nand one more"
+        assert captured_context[-1]["content"].endswith(expected_content)
+
+    @pytest.mark.asyncio
+    async def test_explicit_command_prevents_race_condition(self, temp_config_file, temp_db_path):
+        """Test that explicit commands use early context snapshot to prevent race conditions."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.config["rooms"]["irc"]["command"]["debounce"] = 0.5
+        agent.irc_monitor.varlink_sender = AsyncMock()
+
+        from irssi_llmagent.history import ChatHistory
+
+        agent.history = ChatHistory(temp_db_path)
+        await agent.history.initialize()
+
+        # Add initial messages to create context
+        await agent.history.add_message("test", "#test", "initial message", "alice", "mybot")
+        await agent.history.add_message("test", "#test", "second message", "charlie", "mybot")
+        # The user's command message will be added by handle_command() now
+
+        captured_context = [{"content": "ERROR: capture_context() not called"}]
+
+        async def capture_context(
+            server, chan_name, target, mynick, context, reasoning_effort="minimal"
+        ):
+            nonlocal captured_context
+            captured_context = context
+
+        agent.irc_monitor._handle_sarcastic_mode = capture_context
+
+        # Hook into get_context to add interfering message after context is retrieved
+        original_get_context = agent.history.get_context
+
+        async def hooked_get_context(server_tag: str, channel_name: str, limit: int | None = None):
+            context = await original_get_context(server_tag, channel_name, limit)
+            # Add interfering message after context is captured but before it's returned
+            await agent.history.add_message("test", "#test", "interfering message", "bob", "mybot")
+            return context
+
+        agent.history.get_context = hooked_get_context
+
+        # Test explicit command with interfering message added during context retrieval
+        await agent.irc_monitor.handle_command(
+            "test", "#test", "#test", "user", "!d be sarcastic", "mybot"
+        )
+
+        # Should contain initial messages + user's command, but NOT interfering message
+        assert len(captured_context) == 3
+        assert captured_context[0]["content"].endswith("initial message")
+        assert captured_context[1]["content"].endswith("second message")
+        assert captured_context[2]["content"].endswith("!d be sarcastic")
 
     @pytest.mark.asyncio
     async def test_rate_limiting_triggers(self, temp_config_file):
@@ -669,49 +711,3 @@ class TestIRCMonitor:
             assert should_interject is False  # Should not trigger at all
             assert "Score: 7" in reason
             assert test_mode is False
-
-    @pytest.mark.asyncio
-    async def test_explicit_command_prevents_race_condition(self, temp_config_file, temp_db_path):
-        """Test that explicit commands use early context snapshot to prevent race conditions."""
-        agent = IRSSILLMAgent(temp_config_file)
-        agent.config["rooms"]["irc"]["command"]["debounce"] = 0.5
-        agent.irc_monitor.varlink_sender = AsyncMock()
-
-        from irssi_llmagent.history import ChatHistory
-
-        agent.history = ChatHistory(temp_db_path)
-        await agent.history.initialize()
-
-        # Add initial messages to create context
-        await agent.history.add_message("test", "#test", "initial message", "alice", "mybot")
-        await agent.history.add_message("test", "#test", "second message", "charlie", "mybot")
-        # Add the user's command message (normally done by handle_message before handle_command)
-        await agent.history.add_message("test", "#test", "!d be sarcastic", "user", "mybot")
-
-        captured_context = [{"content": "ERROR: capture_context() not called"}]
-
-        async def capture_context(
-            server, chan_name, target, mynick, context, reasoning_effort="minimal"
-        ):
-            nonlocal captured_context
-            captured_context = context
-
-        agent.irc_monitor._handle_sarcastic_mode = capture_context
-
-        async def add_interfering_message():
-            await asyncio.sleep(0.1)  # During debounce sleep
-            await agent.history.add_message("test", "#test", "interfering message", "bob", "mybot")
-
-        # Test explicit command with interfering message during debounce
-        await asyncio.gather(
-            agent.irc_monitor.handle_command(
-                "test", "#test", "#test", "user", "!d be sarcastic", "mybot"
-            ),
-            add_interfering_message(),
-        )
-
-        # Should contain initial messages + user's command, but NOT interfering message
-        assert len(captured_context) == 3
-        assert captured_context[0]["content"].endswith("initial message")
-        assert captured_context[1]["content"].endswith("second message")
-        assert captured_context[2]["content"].endswith("!d be sarcastic")
