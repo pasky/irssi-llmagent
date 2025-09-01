@@ -343,7 +343,8 @@ class WebpageVisitorExecutor:
 
             except aiohttp.ClientResponseError as e:
                 if (e.status == 451 or e.status >= 500) and attempt < len(backoff_delays) - 1:
-                    if self.progress_callback:
+                    # Only send error info on second failure (attempt 1) to reduce spam
+                    if self.progress_callback and attempt == 1:
                         await self.progress_callback(
                             f"r.jina.ai HTTP {e.status}, retrying in a bit..."
                         )
