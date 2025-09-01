@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ..agentic_actor import AgenticLLMActor
-from ..agentic_actor import tools as global_tools
 
 if TYPE_CHECKING:
     from ..main import IRSSILLMAgent
@@ -87,38 +86,24 @@ def _system_prompt_for_arc(arc: str) -> str:
 async def run_chronicler(agent: IRSSILLMAgent, *, arc: str, instructions: str) -> str:
     # Prepare tool defs and executors
     tool_defs = _chronicler_tools_defs()
+    tool_executors = {
+        "chapter_append": ChapterAppendExecutor(chronicle=agent.chronicle, arc=arc),
+        "chapter_render": ChapterRenderExecutor(chronicle=agent.chronicle, arc=arc),
+    }
 
-    # Monkey‑patch tool registry temporarily
-    original_tools = list(global_tools.TOOLS)
-    try:
-        # Extend tools for this run
-        global_tools.TOOLS = original_tools + tool_defs
+    # Get chronicler model from config
+    chronicler_model = agent.config["chronicler"]["model"]
 
-        # Get chronicler model from config
-        chronicler_model = agent.config["chronicler"]["model"]
+    actor = AgenticLLMActor(
+        config=agent.config,
+        model=chronicler_model,
+        system_prompt_generator=lambda: _system_prompt_for_arc(arc),
+        reasoning_effort="minimal",
+        allowed_tools=["chapter_append", "chapter_render", "final_answer"],
+        additional_tools=tool_defs,
+        additional_tool_executors=tool_executors,
+    )
 
-        actor = AgenticLLMActor(
-            config=agent.config,
-            model=chronicler_model,
-            system_prompt_generator=lambda: _system_prompt_for_arc(arc),
-            reasoning_effort="minimal",
-            allowed_tools=["chapter_append", "chapter_render", "final_answer"],
-        )
-
-        # Create tool executors with chronicler-specific tools
-        tool_executors = global_tools.create_tool_executors(agent.config)
-        tool_executors.update(
-            {
-                "chapter_append": ChapterAppendExecutor(chronicle=agent.chronicle, arc=arc),
-                "chapter_render": ChapterRenderExecutor(chronicle=agent.chronicle, arc=arc),
-            }
-        )
-
-        # Override tool executors before entering async context
-        actor.tool_executors = tool_executors
-
-        async with actor:
-            result = await actor.run_agent([{"role": "user", "content": instructions}])
-            return result
-    finally:
-        global_tools.TOOLS = original_tools
+    async with actor:
+        result = await actor.run_agent([{"role": "user", "content": instructions}])
+        return result

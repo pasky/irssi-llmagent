@@ -23,6 +23,8 @@ class AgenticLLMActor:
         reasoning_effort: str = "low",
         *,
         allowed_tools: list[str] | None = None,
+        additional_tools: list[dict[str, Any]] | None = None,
+        additional_tool_executors: dict[str, Any] | None = None,
     ):
         self.config = config
         self.model = model
@@ -30,6 +32,8 @@ class AgenticLLMActor:
         self.prompt_reminder_generator = prompt_reminder_generator
         self.reasoning_effort = reasoning_effort
         self.allowed_tools = allowed_tools
+        self.additional_tools = additional_tools or []
+        self.additional_tool_executors = additional_tool_executors or {}
         self.model_router: ModelRouter | None = None
 
         # Actor configuration
@@ -42,7 +46,8 @@ class AgenticLLMActor:
         self.progress_min_interval_seconds = int(prog_cfg.get("min_interval_seconds", 15))
 
         # Tool executors (created without callback, will be recreated in run_agent if needed)
-        self.tool_executors = create_tool_executors(config, progress_callback=None)
+        base_executors = create_tool_executors(config, progress_callback=None)
+        self.tool_executors = {**base_executors, **self.additional_tool_executors}
 
     async def __aenter__(self):
         """Async context manager entry."""
@@ -74,7 +79,8 @@ class AgenticLLMActor:
 
             progress_start_time = _now()
             # Create new tool executors with the provided callback
-            tool_executors = create_tool_executors(self.config, progress_callback=progress_callback)
+            base_executors = create_tool_executors(self.config, progress_callback=progress_callback)
+            tool_executors = {**base_executors, **self.additional_tool_executors}
 
         # Tool execution loop
         for iteration in range(self.max_iterations * 2):
@@ -125,7 +131,7 @@ class AgenticLLMActor:
             try:
                 if self.model_router is None:
                     self.model_router = await ModelRouter(self.config).__aenter__()
-                available_tools = TOOLS
+                available_tools = TOOLS + self.additional_tools
                 tool_choice = None
 
                 if iteration == 0:
@@ -145,7 +151,9 @@ class AgenticLLMActor:
 
                 # Clean up any remaining placeholders in tool descriptions
                 if self.allowed_tools is not None:
-                    available_tools = [tool for tool in TOOLS if tool["name"] in self.allowed_tools]
+                    available_tools = [
+                        tool for tool in available_tools if tool["name"] in self.allowed_tools
+                    ]
                     if tool_choice:
                         tool_choice = [tool for tool in tool_choice if tool in self.allowed_tools]
 
