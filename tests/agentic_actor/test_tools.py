@@ -198,10 +198,9 @@ class TestToolExecutors:
                 # Verify result contains expected content
                 assert "Content loaded successfully" in result
 
-                # Verify progress callbacks were made
-                assert len(progress_calls) == 2
+                # Verify progress callbacks were made (only on second attempt per spam reduction change)
+                assert len(progress_calls) == 1
                 assert "r.jina.ai HTTP 451" in progress_calls[0]
-                assert "r.jina.ai HTTP 451" in progress_calls[1]
 
                 # Verify asyncio.sleep was called with correct delays
                 mock_sleep.assert_has_calls([call(30), call(90)])
