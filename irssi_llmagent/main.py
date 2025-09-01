@@ -49,7 +49,7 @@ class IRSSILLMAgent:
 
     def __init__(self, config_path: str = "config.json"):
         self.config = self.load_config(config_path)
-        self.model_router: ModelRouter | None = None
+        self.model_router: ModelRouter = ModelRouter(self.config)
         # Get IRC config section
         irc_config = self.config["rooms"]["irc"]
         self.history = ChatHistory(
@@ -85,8 +85,7 @@ class IRSSILLMAgent:
         finally:
             # Clean up shared resources
             await self.history.close()
-            if self.model_router:
-                await self.model_router.__aexit__(None, None, None)
+            await self.model_router.__aexit__(None, None, None)
 
 
 async def cli_mode(message: str, config_path: str | None = None) -> None:
@@ -105,6 +104,9 @@ async def cli_mode(message: str, config_path: str | None = None) -> None:
     try:
         # Create agent instance
         agent = IRSSILLMAgent(str(config_file))
+
+        # Initialize shared resources for CLI mode
+        await agent.history.initialize()
 
         # Mock the varlink sender
         class MockSender:
@@ -130,10 +132,12 @@ async def cli_mode(message: str, config_path: str | None = None) -> None:
         traceback.print_exc()
         sys.exit(1)
     finally:
-        # Ensure any model router sessions held by the agent are closed
+        # Ensure any shared resources held by the agent are closed
         try:
-            if getattr(agent, "model_router", None) is not None:
-                await agent.model_router.__aexit__(None, None, None)  # type: ignore
+            if hasattr(agent, "history"):
+                await agent.history.close()
+            if hasattr(agent, "model_router"):
+                await agent.model_router.__aexit__(None, None, None)
         except Exception:
             pass
 

@@ -11,7 +11,6 @@ if TYPE_CHECKING:
     from ...main import IRSSILLMAgent
 
 from ...agentic_actor import AgenticLLMActor
-from ...providers import ModelRouter
 from ...providers.perplexity import PerplexityClient
 from ...rate_limiter import RateLimiter
 from .. import ProactiveDebouncer
@@ -146,9 +145,6 @@ class IRCRoomMonitor:
                 message=current_message
             )
             model = self.irc_config["command"]["mode_classifier"]["model"]
-            # Lazy-init router on first use
-            if self.agent.model_router is None:
-                self.agent.model_router = await ModelRouter(self.agent.config).__aenter__()
             resp, client, _ = await self.agent.model_router.call_raw_with_model(
                 model, context, prompt
             )
@@ -206,8 +202,6 @@ class IRCRoomMonitor:
 
             # Get validation models list
             validation_models = self.irc_config["proactive"]["models"]["validation"]
-            if self.agent.model_router is None:
-                self.agent.model_router = await ModelRouter(self.agent.config).__aenter__()
 
             final_score = None
             all_responses = []
