@@ -83,17 +83,15 @@ class AgenticLLMActor:
             if iteration >= self.max_iterations:
                 logger.warn("Exceeding max iterations...")
 
-            # Select serious model per iteration; last element repeats thereafter
+            # Select model per iteration; last element repeats thereafter for lists
             if self.model_override:
                 model = self.model_override
             else:
-                serious_cfg = self.config["rooms"]["irc"]["command"]["modes"]["serious"]["model"]
-                if isinstance(serious_cfg, list):
-                    model = (
-                        serious_cfg[iteration] if iteration < len(serious_cfg) else serious_cfg[-1]
-                    )
+                mode_cfg = self.config["rooms"]["irc"]["command"]["modes"][self.mode]["model"]
+                if isinstance(mode_cfg, list):
+                    model = mode_cfg[iteration] if iteration < len(mode_cfg) else mode_cfg[-1]
                 else:
-                    model = serious_cfg
+                    model = mode_cfg
 
             extra_messages = []
 
@@ -135,16 +133,17 @@ class AgenticLLMActor:
                 available_tools = TOOLS
                 tool_choice = None
 
-                # On first turn (iteration 0), only allow make_plan tool if models will switch
                 if iteration == 0:
-                    will_switch_models = False
-                    if not self.model_override:
-                        serious_cfg = self.config["rooms"]["irc"]["command"]["modes"]["serious"][
-                            "model"
-                        ]
-                        if isinstance(serious_cfg, list) and len(serious_cfg) >= 2:
-                            will_switch_models = serious_cfg[0] != serious_cfg[1]
-                    if will_switch_models:
+                    # On first turn (iteration 0), only allow make_plan tool if
+                    # models will switch, since we are likely switching from a
+                    # good thinking model with bad tool calls to a bad thinking
+                    # model with good tool calls
+                    if (
+                        not self.model_override
+                        and isinstance(mode_cfg, list)
+                        and len(mode_cfg) >= 2
+                        and mode_cfg[0] != mode_cfg[1]
+                    ):
                         tool_choice = ["make_plan", "final_answer"]
 
                 elif iteration >= self.max_iterations - 1:

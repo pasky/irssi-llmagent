@@ -243,12 +243,21 @@ class TestIRCMonitor:
         captured_context = []
 
         async def capture_message_and_context(
-            server, chan_name, target, mynick, context, reasoning_effort="minimal"
+            server,
+            chan_name,
+            target,
+            mynick,
+            context,
+            *,
+            mode,
+            reasoning_effort="minimal",
+            allowed_tools=None,
+            model_override=None,
         ):
             nonlocal captured_context
             captured_context = context
 
-        agent.irc_monitor._handle_sarcastic_mode = capture_message_and_context
+        agent.irc_monitor._run_actor = capture_message_and_context
         agent.irc_monitor.classify_mode = AsyncMock(return_value="SARCASTIC")
 
         # Control timing with precise timestamp mocking
@@ -312,12 +321,21 @@ class TestIRCMonitor:
         captured_context = [{"content": "ERROR: capture_context() not called"}]
 
         async def capture_context(
-            server, chan_name, target, mynick, context, reasoning_effort="minimal"
+            server,
+            chan_name,
+            target,
+            mynick,
+            context,
+            *,
+            mode,
+            reasoning_effort="minimal",
+            allowed_tools=None,
+            model_override=None,
         ):
             nonlocal captured_context
             captured_context = context
 
-        agent.irc_monitor._handle_sarcastic_mode = capture_context
+        agent.irc_monitor._run_actor = capture_context
 
         # Hook into get_context to add interfering message after context is retrieved
         original_get_context = agent.history.get_context
@@ -436,7 +454,7 @@ class TestIRCMonitor:
 
             # Should create and use agent
             mock_agent_class.assert_called_once_with(
-                agent.config, "mybot", mode="serious", extra_prompt="", model_override=None
+                agent.config, "mybot", mode="serious", model_override=None, allowed_tools=None
             )
             # Should call run_agent with context only
             mock_agent.run_agent.assert_called_once()

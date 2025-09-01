@@ -260,187 +260,111 @@ class IRCRoomMonitor:
             should_interject, reason, forced_test_mode = await self.should_interject_proactively(
                 context
             )
+            if not should_interject:
+                return
 
-            if should_interject:
-                # Classify the mode for proactive response (should be serious mode only)
-                classified_mode = await self.classify_mode(context)
-                if classified_mode.endswith("SERIOUS"):
-                    # Check if this is a test channel or forced test mode due to low score
-                    test_channels = self.agent.config.get("behavior", {}).get(
-                        "proactive_interjecting_test", []
-                    )
-                    is_test_channel = test_channels and chan_name in test_channels
+            classified_mode = await self.classify_mode(context)
+            if not classified_mode.endswith("SERIOUS"):
+                # Check if this is a test channel for logging
+                test_channels = self.agent.config.get("behavior", {}).get(
+                    "proactive_interjecting_test", []
+                )
+                is_test_channel = test_channels and chan_name in test_channels
+                mode_desc = "[TEST MODE] " if is_test_channel else ""
+                logger.warning(
+                    f"{mode_desc}Proactive interjection suggested but not serious mode: {classified_mode}. Reason: {reason}"
+                )
+                return
 
-                    # Combine test channel check with forced test mode
-                    should_use_test_mode = is_test_channel or forced_test_mode
-
-                    target = chan_name  # For proactive interjections, target is the channel
-
-                    if should_use_test_mode:
-                        # Test mode: use the same method as live mode but don't send messages
-                        test_reason = "[BARELY TRIGGERED]" if forced_test_mode else "[TEST CHANNEL]"
-                        logger.info(
-                            f"[TEST MODE] {test_reason} Would interject proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
-                        )
-                        proactive_context = await self.agent.history.get_context(server, chan_name)
-                        await self._handle_serious_mode(
-                            server,
-                            chan_name,
-                            target,
-                            mynick,
-                            classified_mode,
-                            proactive_context,
-                            is_proactive=True,
-                            send_message=False,
-                        )
-                    else:
-                        # Live mode: actually send the response
-                        logger.info(
-                            f"Interjecting proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
-                        )
-                        proactive_context = await self.agent.history.get_context(server, chan_name)
-                        await self._handle_serious_mode(
-                            server,
-                            chan_name,
-                            target,
-                            mynick,
-                            classified_mode,
-                            proactive_context,
-                            is_proactive=True,
-                        )
-                else:
-                    # Check if this is a test channel for logging
-                    test_channels = self.agent.config.get("behavior", {}).get(
-                        "proactive_interjecting_test", []
-                    )
-                    is_test_channel = test_channels and chan_name in test_channels
-                    mode_desc = "[TEST MODE] " if is_test_channel else ""
-                    logger.warning(
-                        f"{mode_desc}Proactive interjection suggested but not serious mode: {classified_mode}. Reason: {reason}"
-                    )
-        except Exception as e:
-            logger.error(f"Error in debounced proactive check for {chan_name}: {e}")
-
-    async def _handle_serious_mode(
-        self,
-        server: str,
-        chan_name: str,
-        target: str,
-        mynick: str,
-        classified_mode: str,
-        context: list[dict[str, str]],
-        is_proactive: bool = False,
-        send_message: bool = True,
-    ) -> str | None:
-        """Handle serious mode using an agent with tools."""
-
-        # Add extra prompt for proactive interjections to allow null response
-        extra_prompt = ""
-        if is_proactive:
-            extra_prompt = " " + self.irc_config["proactive"]["prompts"]["serious_extra"]
-
-        # Use configured proactive serious model for proactive interjections
-        model_override = self.irc_config["proactive"]["models"]["serious"] if is_proactive else None
-        # Build progress callback only for non-proactive mode
-        from collections.abc import Awaitable, Callable
-
-        progress_cb_fn: Callable[[str], Awaitable[None]] | None = None
-        if not is_proactive:
-
-            async def _progress_cb(text: str) -> None:
-                # Send to channel as a normal message and store in history
-                await self.varlink_sender.send_message(target, text, server)
-                await self.agent.history.add_message(server, chan_name, text, mynick, mynick, True)
-
-            progress_cb_fn = _progress_cb
-        async with AgenticLLMActor(
-            self.agent.config,
-            mynick,
-            mode="serious",
-            extra_prompt=extra_prompt,
-            model_override=model_override,
-        ) as agent:
-            # Configure progress after entering (avoid changing call signature used in tests)
-            if not is_proactive:
-                agent.configure_progress(True, progress_cb_fn)
-            response = await agent.run_agent(
-                context, reasoning_effort="low" if classified_mode == "EASY_SERIOUS" else "medium"
+            test_channels = self.agent.config.get("behavior", {}).get(
+                "proactive_interjecting_test", []
             )
+            is_test_channel = test_channels and chan_name in test_channels
+            if is_test_channel or forced_test_mode:
+                test_reason = "[BARELY TRIGGERED]" if forced_test_mode else "[TEST CHANNEL]"
+                logger.info(
+                    f"[TEST MODE] {test_reason} Would interject proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
+                )
+                send_message = False
+            else:
+                logger.info(
+                    f"Interjecting proactively for message from {nick} in {chan_name}: {message[:150]}... Reason: {reason}"
+                )
+                send_message = True
 
-        # For proactive interjections, check for NULL response
-        if (
-            is_proactive
-            and response
-            and (response.strip().upper() == "NULL" or response.startswith("Error - "))
-        ):
-            logger.info(f"Agent decided not to interject proactively for {target}")
-            return None
+            target = chan_name  # For proactive interjections, target is the channel
+            async with AgenticLLMActor(
+                self.agent.config,
+                mynick,
+                mode="serious",
+                extra_prompt=" " + self.irc_config["proactive"]["prompts"]["serious_extra"],
+                model_override=self.irc_config["proactive"]["models"]["serious"],
+            ) as actor:
+                response = await actor.run_agent(
+                    context,
+                    reasoning_effort="low" if classified_mode == "EASY_SERIOUS" else "medium",
+                )
 
-        if response:
+            # Check for NULL response (proactive interjections can decide not to respond)
+            if (
+                not response
+                or response.strip().upper() == "NULL"
+                or response.startswith("Error - ")
+            ):
+                logger.info(f"Agent decided not to interject proactively for {target}")
+                return
+
             if send_message:
-                logger.info(f"Sending agent ({classified_mode}) response to {target}: {response}")
+                logger.info(
+                    f"Sending proactive agent ({classified_mode}) response to {target}: {response}"
+                )
                 await self.varlink_sender.send_message(target, response, server)
                 # Update context with response
                 await self.agent.history.add_message(
                     server, chan_name, response, mynick, mynick, True
                 )
             else:
-                logger.info(f"[TEST MODE] Generated response for {target}: {response}")
+                logger.info(f"[TEST MODE] Generated proactive response for {target}: {response}")
+        except Exception as e:
+            logger.error(f"Error in debounced proactive check for {chan_name}: {e}")
 
-        return response
-
-    async def _handle_sarcastic_mode(
+    async def _run_actor(
         self,
         server: str,
         chan_name: str,
         target: str,
         mynick: str,
         context: list[dict[str, str]],
+        *,
+        mode: str,
         reasoning_effort: str = "minimal",
-    ) -> None:
-        """Handle sarcastic mode using AIAgent with limited tools."""
-        sarcastic_model = self.irc_config["command"]["modes"]["sarcastic"]["model"]
+        allowed_tools: list[str] | None = None,
+        model_override: str | None = None,
+    ) -> str | None:
+        """Unified actor runner for all modes."""
+
+        async def _progress_cb(text: str) -> None:
+            await self.varlink_sender.send_message(target, text, server)
+            await self.agent.history.add_message(server, chan_name, text, mynick, mynick, True)
 
         async with AgenticLLMActor(
             self.agent.config,
             mynick,
-            mode="sarcastic",
-            model_override=sarcastic_model,
-            allowed_tools=[],
-        ) as agent:
-            response = await agent.run_agent(context, reasoning_effort=reasoning_effort)
+            mode=mode,
+            model_override=model_override,
+            allowed_tools=allowed_tools,
+        ) as actor:
+            actor.configure_progress(True, _progress_cb)
+            response = await actor.run_agent(context, reasoning_effort=reasoning_effort)
 
-        if response:
-            logger.info(f"Sending sarcastic response to {target}: {response}")
-            await self.varlink_sender.send_message(target, response, server)
-            # Update context with response
-            await self.agent.history.add_message(server, chan_name, response, mynick, mynick, True)
+        if not response or response.strip().upper() == "NULL" or response.startswith("Error - "):
+            logger.info(f"Agent in {mode} mode chose not to answer for {target}")
+            return None
 
-    async def _handle_unsafe_mode(
-        self,
-        server: str,
-        chan_name: str,
-        target: str,
-        mynick: str,
-        context: list[dict[str, str]],
-        reasoning_effort: str = "medium",
-    ) -> None:
-        """Handle unsafe mode using AIAgent with full tools access."""
-        unsafe_model = self.irc_config["command"]["modes"]["unsafe"]["model"]
-
-        async with AgenticLLMActor(
-            self.agent.config,
-            mynick,
-            mode="unsafe",
-            model_override=unsafe_model,
-        ) as agent:
-            response = await agent.run_agent(context, reasoning_effort=reasoning_effort)
-
-        if response:
-            logger.info(f"Sending unsafe response to {target}: {response}")
-            await self.varlink_sender.send_message(target, response, server)
-            # Update context with response
-            await self.agent.history.add_message(server, chan_name, response, mynick, mynick, True)
+        logger.info(f"Sending {mode} response to {target}: {response}")
+        await self.varlink_sender.send_message(target, response, server)
+        await self.agent.history.add_message(server, chan_name, response, mynick, mynick, True)
+        return response
 
     async def process_message_event(self, event: dict[str, Any]) -> None:
         """Process incoming IRC message events."""
@@ -578,8 +502,9 @@ class IRCRoomMonitor:
 
             help_msg = f"default is {default_desc}, !p is Perplexity (prefer English!)"
             await self.varlink_sender.send_message(target, help_msg, server)
+            return
 
-        elif cleaned_msg.startswith("!p ") or cleaned_msg == "!p":
+        if cleaned_msg.startswith("!p ") or cleaned_msg == "!p":
             # Perplexity call
             logger.debug(f"Processing Perplexity request from {nick}: {cleaned_msg}")
             # Use default history size for Perplexity
@@ -599,126 +524,99 @@ class IRCRoomMonitor:
                 await self.agent.history.add_message(
                     server, chan_name, lines[0], mynick, mynick, True
                 )
+            return
 
-        elif cleaned_msg.startswith("!S ") or cleaned_msg.startswith("!d "):
+        # Determine mode from explicit commands or auto-classification
+        mode = None
+        reasoning_effort = "minimal"
+
+        if cleaned_msg.startswith("!S ") or cleaned_msg.startswith("!d "):
             logger.debug(f"Processing explicit sarcastic request from {nick}: {cleaned_msg}")
-            sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(
-                "history_size", default_size
-            )
-            await self._handle_sarcastic_mode(
-                server, chan_name, target, mynick, context[-sarcastic_size:]
-            )
-
-        elif cleaned_msg.startswith("!D "):  # easter egg
+            mode = "SARCASTIC"
+        elif cleaned_msg.startswith("!D "):  # easter egg - thinking sarcastic
             logger.debug(
                 f"Processing explicit thinking sarcastic request from {nick}: {cleaned_msg}"
             )
-            sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(
-                "history_size", default_size
-            )
-            await self._handle_sarcastic_mode(
-                server, chan_name, target, mynick, context[-sarcastic_size:], "high"
-            )
-
+            mode = "SARCASTIC"
+            reasoning_effort = "high"
         elif cleaned_msg.startswith("!s "):
             logger.debug(f"Processing explicit serious request from {nick}: {cleaned_msg}")
-            serious_size = self.irc_config["command"]["modes"]["serious"].get(
-                "history_size", default_size
-            )
-            await self._handle_serious_mode(
-                server,
-                chan_name,
-                target,
-                mynick,
-                "EASY_SERIOUS",
-                context[-serious_size:],
-            )
-
+            mode = "EASY_SERIOUS"
         elif cleaned_msg.startswith("!a "):
             logger.debug(f"Processing explicit agentic request from {nick}: {cleaned_msg}")
-            serious_size = self.irc_config["command"]["modes"]["serious"].get(
-                "history_size", default_size
-            )
-            await self._handle_serious_mode(
-                server,
-                chan_name,
-                target,
-                mynick,
-                "THINKING_SERIOUS",
-                context[-serious_size:],
-            )
-
+            mode = "THINKING_SERIOUS"
         elif cleaned_msg.startswith("!u "):
             logger.debug(f"Processing explicit unsafe request from {nick}: {cleaned_msg}")
-            unsafe_size = self.irc_config["command"]["modes"]["unsafe"].get(
-                "history_size", default_size
-            )
-            await self._handle_unsafe_mode(
-                server, chan_name, target, mynick, context[-unsafe_size:]
-            )
-
+            mode = "UNSAFE"
         elif re.match(r"^!.", cleaned_msg):
             logger.warning(f"Unknown command from {nick}: {cleaned_msg}")
             await self.varlink_sender.send_message(
                 target, f"{nick}: Unknown command. Use !h for help.", server
             )
-
+            return
         else:
             logger.debug(f"Processing automatic mode request from {nick}: {cleaned_msg}")
 
             # Check for channel-specific or default mode override
             channel_mode = self.get_channel_mode(chan_name)
             if channel_mode == "serious":
-                classified_mode = await self.classify_mode(context[-default_size:])
-                logger.debug(f"Auto-classified message as {classified_mode} mode")
-                if classified_mode == "SARCASTIC":
-                    classified_mode = "EASY_SERIOUS"
+                mode = await self.classify_mode(context[-default_size:])
+                logger.debug(f"Auto-classified message as {mode} mode")
+                if mode == "SARCASTIC":
+                    mode = "EASY_SERIOUS"
                     logger.debug(f"...but forcing channel-configured serious mode for {chan_name}")
             elif channel_mode == "sarcastic":
-                classified_mode = "SARCASTIC"
+                mode = "SARCASTIC"
                 logger.debug(f"Using channel-configured sarcastic mode for {chan_name}")
             else:
-                classified_mode = await self.classify_mode(context)
-                logger.debug(f"Auto-classified message as {classified_mode} mode")
+                mode = await self.classify_mode(context)
+                logger.debug(f"Auto-classified message as {mode} mode")
 
-            if classified_mode == "UNSAFE":
-                # Check if unsafe mode is configured before using it
-                if "unsafe" in self.irc_config["command"]["modes"]:
-                    unsafe_size = self.irc_config["command"]["modes"]["unsafe"].get(
-                        "history_size", default_size
-                    )
-                    await self._handle_unsafe_mode(
-                        server, chan_name, target, mynick, context[-unsafe_size:]
-                    )
-                else:
-                    logger.warning(
-                        "UNSAFE mode classified but not configured, falling back to sarcastic"
-                    )
-                    sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(
-                        "history_size", default_size
-                    )
-                    await self._handle_sarcastic_mode(
-                        server, chan_name, target, mynick, context[-sarcastic_size:]
-                    )
-            elif classified_mode.endswith("SERIOUS"):
-                serious_size = self.irc_config["command"]["modes"]["serious"].get(
-                    "history_size", default_size
-                )
-                await self._handle_serious_mode(
-                    server,
-                    chan_name,
-                    target,
-                    mynick,
-                    classified_mode,
-                    context[-serious_size:],
-                )
-            else:
-                sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(
-                    "history_size", default_size
-                )
-                await self._handle_sarcastic_mode(
-                    server, chan_name, target, mynick, context[-sarcastic_size:]
-                )
+        if mode == "SARCASTIC":
+            sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(
+                "history_size", default_size
+            )
+            await self._run_actor(
+                server,
+                chan_name,
+                target,
+                mynick,
+                context[-sarcastic_size:],
+                mode="sarcastic",
+                reasoning_effort=reasoning_effort,
+                allowed_tools=[],
+            )
+        elif mode and mode.endswith("SERIOUS"):
+            serious_size = self.irc_config["command"]["modes"]["serious"].get(
+                "history_size", default_size
+            )
+            assert (
+                reasoning_effort == "minimal"
+            )  # test we didn't override it earlier since we ignore it here
+            await self._run_actor(
+                server,
+                chan_name,
+                target,
+                mynick,
+                context[-serious_size:],
+                mode="serious",
+                reasoning_effort="low" if mode == "EASY_SERIOUS" else "medium",
+            )
+        elif mode == "UNSAFE":
+            unsafe_size = self.irc_config["command"]["modes"]["unsafe"].get(
+                "history_size", default_size
+            )
+            await self._run_actor(
+                server,
+                chan_name,
+                target,
+                mynick,
+                context[-unsafe_size:],
+                mode="unsafe",
+                reasoning_effort=reasoning_effort,
+            )
+        else:
+            raise ValueError(f"Unknown mode {mode}")
 
     async def _connect_with_retry(self, max_retries: int = 5) -> bool:
         """Connect to varlink sockets with exponential backoff retry."""
