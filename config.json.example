@@ -52,7 +52,7 @@
   },
 
   "chronicler": {
-    "model": "anthropic:claude-3-5-haiku-latest"
+    "model": "anthropic:claude-3-5-haiku-latest",
     "database": {
       "path": "chronicle.db"
     }
