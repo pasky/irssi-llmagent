@@ -406,7 +406,7 @@ class IRCRoomMonitor:
             mynick,
             mode="sarcastic",
             model_override=sarcastic_model,
-            allowed_tools=["visit_webpage"],
+            allowed_tools=[],
         ) as agent:
             response = await agent.run_agent(context, reasoning_effort=reasoning_effort)
 
