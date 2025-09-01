@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .chronicler.chronicle import Chronicle
 from .history import ChatHistory
 from .providers import ModelRouter
 from .rooms.irc import IRCRoomMonitor
@@ -56,6 +57,10 @@ class IRSSILLMAgent:
             self.config.get("database", {}).get("path", "chat_history.db"),
             irc_config["command"]["history_size"],
         )
+        # Initialize chronicle
+        chronicler_config = self.config.get("chronicler", {})
+        chronicle_db_path = chronicler_config.get("database", {}).get("path", "chronicle.db")
+        self.chronicle = Chronicle(chronicle_db_path)
         self.irc_monitor = IRCRoomMonitor(self)
 
     def load_config(self, config_path: str) -> dict[str, Any]:
@@ -79,17 +84,19 @@ class IRSSILLMAgent:
         """Run the main agent loop by delegating to IRC monitor."""
         # Initialize shared resources
         await self.history.initialize()
+        await self.chronicle.initialize()
 
         try:
             await self.irc_monitor.run()
         finally:
             # Clean up shared resources
             await self.history.close()
+            # Chronicle doesn't need explicit cleanup
             if self.model_router:
                 await self.model_router.__aexit__(None, None, None)
 
 
-async def cli_mode(message: str, config_path: str | None = None) -> None:
+async def cli_message(message: str, config_path: str | None = None) -> None:
     """CLI mode for testing message handling including command parsing."""
     # Load configuration
     config_file = Path(config_path) if config_path else Path(__file__).parent.parent / "config.json"
@@ -138,6 +145,38 @@ async def cli_mode(message: str, config_path: str | None = None) -> None:
             pass
 
 
+async def cli_chronicler(arc: str, instructions: str, config_path: str | None = None) -> None:
+    """CLI mode for Chronicler operations."""
+    # Load configuration
+    config_file = Path(config_path) if config_path else Path(__file__).parent.parent / "config.json"
+
+    if not config_file.exists():
+        print(f"Error: Config file not found at {config_file}")
+        print("Please create config.json from config.json.example")
+        sys.exit(1)
+
+    print(f"🔮 Chronicler arc '{arc}': {instructions}")
+    print("=" * 60)
+
+    try:
+        # Create agent instance
+        agent = IRSSILLMAgent(str(config_file))
+        await agent.chronicle.initialize()
+
+        # Import here to avoid circular imports
+        from .chronicler.subagent import run_chronicler
+
+        result = await run_chronicler(agent, arc=arc, instructions=instructions)
+        print(result)
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)
+
+
 def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(description="irssi-llmagent - IRC chatbot with AI and tools")
@@ -147,11 +186,26 @@ def main() -> None:
     parser.add_argument(
         "--config", type=str, help="Path to config file (default: config.json in project root)"
     )
+    parser.add_argument(
+        "--chronicler",
+        type=str,
+        help="Run Chronicler subagent with instructions (NLI over Chronicle)",
+    )
+    parser.add_argument(
+        "--arc", type=str, help="Arc name for Chronicler (required with --chronicler)"
+    )
 
     args = parser.parse_args()
 
+    if args.chronicler:
+        if not args.arc:
+            print("Error: --arc is required with --chronicler")
+            sys.exit(1)
+        asyncio.run(cli_chronicler(args.arc, args.chronicler, args.config))
+        return
+
     if args.message:
-        asyncio.run(cli_mode(args.message, args.config))
+        asyncio.run(cli_message(args.message, args.config))
     else:
         agent = IRSSILLMAgent()
         asyncio.run(agent.run())

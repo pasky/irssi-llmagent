@@ -48,6 +48,18 @@ uv run irssi-llmagent --message "!a summarize https://python.org" --config /path
 
 This simulates full IRC message handling including command parsing and automatic mode classification, useful for testing your configuration and API keys without setting up the full IRC bot.
 
+### Chronicler
+
+The Chronicler maintains persistent memory across conversations using a Chronicle (arcs → chapters → paragraphs) provided via a NLI-based subagent.
+
+```bash
+# Record information
+uv run irssi-llmagent --chronicler "Record: Completed API migration" --arc "project-x"
+
+# View current chapter
+uv run irssi-llmagent --chronicler "Show me the current chapter" --arc "project-x"
+```
+
 ## Development
 
 ```bash

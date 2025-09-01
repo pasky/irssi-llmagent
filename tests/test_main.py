@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from irssi_llmagent.main import IRSSILLMAgent, cli_mode
+from irssi_llmagent.main import IRSSILLMAgent, cli_message
 
 
 class MockAPIClient:
@@ -46,10 +46,10 @@ class TestCLIMode:
     """Test CLI mode functionality."""
 
     @pytest.mark.asyncio
-    async def test_cli_mode_sarcastic_message(self, temp_config_file):
+    async def test_cli_message_sarcastic_message(self, temp_config_file):
         """Test CLI mode with sarcastic message."""
         with patch("builtins.print") as mock_print:
-            # Mock the ChatHistory import in cli_mode
+            # Mock the ChatHistory import in cli_message
             with patch("irssi_llmagent.main.ChatHistory") as mock_history_class:
                 mock_history = AsyncMock()
                 mock_history.add_message = AsyncMock()
@@ -68,13 +68,13 @@ class TestCLIMode:
 
                     return resp, MockAPIClient("Sarcastic response"), None
 
-                # Patch the agent creation in cli_mode and model router
+                # Patch the agent creation in cli_message and model router
                 with patch("irssi_llmagent.main.IRSSILLMAgent", return_value=agent):
                     with patch(
                         "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
                         new=AsyncMock(side_effect=fake_call_raw_with_model),
                     ):
-                        await cli_mode("!S tell me a joke", temp_config_file)
+                        await cli_message("!S tell me a joke", temp_config_file)
 
                         # Verify output
                         print_calls = [call[0][0] for call in mock_print.call_args_list]
@@ -85,7 +85,7 @@ class TestCLIMode:
                         assert any("Sarcastic response" in call for call in print_calls)
 
     @pytest.mark.asyncio
-    async def test_cli_mode_perplexity_message(self, temp_config_file):
+    async def test_cli_message_perplexity_message(self, temp_config_file):
         """Test CLI mode with Perplexity message."""
         with patch("builtins.print") as mock_print:
             with patch(
@@ -109,9 +109,9 @@ class TestCLIMode:
 
                     agent = IRSSILLMAgent(temp_config_file)
 
-                    # Patch the agent creation in cli_mode
+                    # Patch the agent creation in cli_message
                     with patch("irssi_llmagent.main.IRSSILLMAgent", return_value=agent):
-                        await cli_mode("!p what is the weather?", temp_config_file)
+                        await cli_message("!p what is the weather?", temp_config_file)
 
                         # Verify Perplexity was called with the actual message in context
                         mock_perplexity.call_perplexity.assert_called_once()
@@ -132,7 +132,7 @@ class TestCLIMode:
                         assert any("Weather is sunny" in call for call in print_calls)
 
     @pytest.mark.asyncio
-    async def test_cli_mode_agent_message(self, temp_config_file):
+    async def test_cli_message_agent_message(self, temp_config_file):
         """Test CLI mode with agent message."""
         with patch("builtins.print") as mock_print:
             with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
@@ -154,9 +154,9 @@ class TestCLIMode:
 
                     agent = IRSSILLMAgent(temp_config_file)
 
-                    # Patch the agent creation in cli_mode
+                    # Patch the agent creation in cli_message
                     with patch("irssi_llmagent.main.IRSSILLMAgent", return_value=agent):
-                        await cli_mode("!s search for Python news", temp_config_file)
+                        await cli_message("!s search for Python news", temp_config_file)
 
                         # Verify agent was called with context only
                         mock_agent.run_agent.assert_called_once()
@@ -176,7 +176,7 @@ class TestCLIMode:
                         assert any("Agent response" in call for call in print_calls)
 
     @pytest.mark.asyncio
-    async def test_cli_mode_message_content_validation(self, temp_config_file):
+    async def test_cli_message_message_content_validation(self, temp_config_file):
         """Test that CLI mode passes actual message content, not placeholder text."""
         with patch("builtins.print"):
             with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
@@ -198,9 +198,9 @@ class TestCLIMode:
 
                     agent = IRSSILLMAgent(temp_config_file)
 
-                    # Patch the agent creation in cli_mode
+                    # Patch the agent creation in cli_message
                     with patch("irssi_llmagent.main.IRSSILLMAgent", return_value=agent):
-                        await cli_mode("!s specific test message", temp_config_file)
+                        await cli_message("!s specific test message", temp_config_file)
 
                         # Verify agent was called once for serious mode
                         mock_agent.run_agent.assert_called_once()
@@ -215,11 +215,11 @@ class TestCLIMode:
                         )  # Explicitly check it's not placeholder
 
     @pytest.mark.asyncio
-    async def test_cli_mode_config_not_found(self):
+    async def test_cli_message_config_not_found(self):
         """Test CLI mode handles missing config file."""
         with patch("sys.exit") as mock_exit:
             with patch("builtins.print") as mock_print:
-                await cli_mode("test query", "/nonexistent/config.json")
+                await cli_message("test query", "/nonexistent/config.json")
 
                 mock_exit.assert_called_with(1)  # Just check it was called with 1, not once
                 print_calls = [call[0][0] for call in mock_print.call_args_list]

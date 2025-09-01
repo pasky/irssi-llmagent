@@ -51,6 +51,13 @@
     }
   },
 
+  "chronicler": {
+    "model": "anthropic:claude-3-5-haiku-latest"
+    "database": {
+      "path": "chronicle.db"
+    }
+  },
+
   "rooms": {
     "irc": {
       "varlink": {
