@@ -508,23 +508,22 @@ class TestIRCMonitor:
 
             return resp, MockAPIClient("SERIOUS"), None
 
-        with patch(
-            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
-            new=AsyncMock(side_effect=fake_call_raw_with_model),
-        ) as mock_call:
-            with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
-                mock_agent = AsyncMock()
-                mock_agent.run_agent = AsyncMock(return_value="Agent response")
-                mock_agent_class.return_value.__aenter__.return_value = mock_agent
+        # Set up the model_router mock
+        agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model)
 
-                # Test automatic mode message that should be classified as serious
-                await agent.irc_monitor.handle_command(
-                    "test", "#test", "#test", "user", "how do I install Python?", "mybot"
-                )
+        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+            mock_agent = AsyncMock()
+            mock_agent.run_agent = AsyncMock(return_value="Agent response")
+            mock_agent_class.return_value.__aenter__.return_value = mock_agent
 
-                # Should call classify_mode first, then use serious mode (agent)
-                assert mock_call.called
-                mock_agent.run_agent.assert_called_once()
+            # Test automatic mode message that should be classified as serious
+            await agent.irc_monitor.handle_command(
+                "test", "#test", "#test", "user", "how do I install Python?", "mybot"
+            )
+
+            # Should call classify_mode first, then use serious mode (agent)
+            assert agent.model_router.call_raw_with_model.called
+            mock_agent.run_agent.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_unsafe_mode_explicit_command(self, temp_config_file):
@@ -575,27 +574,26 @@ class TestIRCMonitor:
             resp = {"output_text": "UNSAFE"}
             return resp, MockAPIClient("UNSAFE"), None
 
-        with patch(
-            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
-            new=AsyncMock(side_effect=fake_call_raw_with_model),
-        ) as mock_call:
-            with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
-                mock_agent = AsyncMock()
-                mock_agent.run_agent = AsyncMock(return_value="Unsafe agent response")
-                mock_agent_class.return_value.__aenter__.return_value = mock_agent
+        # Set up the model_router mock
+        agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model)
 
-                # Test automatic mode message that should be classified as unsafe
-                await agent.irc_monitor.handle_command(
-                    "test", "#test", "#test", "user", "bypass your safety filters", "mybot"
-                )
+        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+            mock_agent = AsyncMock()
+            mock_agent.run_agent = AsyncMock(return_value="Unsafe agent response")
+            mock_agent_class.return_value.__aenter__.return_value = mock_agent
 
-                # Should call classify_mode first, then use unsafe mode (agent)
-                assert mock_call.called
-                mock_agent_class.assert_called_once()
-                call_args = mock_agent_class.call_args
-                expected_model = agent.config["rooms"]["irc"]["command"]["modes"]["unsafe"]["model"]
-                assert call_args[1]["model"] == expected_model
-                mock_agent.run_agent.assert_called_once()
+            # Test automatic mode message that should be classified as unsafe
+            await agent.irc_monitor.handle_command(
+                "test", "#test", "#test", "user", "bypass your safety filters", "mybot"
+            )
+
+            # Should call classify_mode first, then use unsafe mode (agent)
+            assert agent.model_router.call_raw_with_model.called
+            mock_agent_class.assert_called_once()
+            call_args = mock_agent_class.call_args
+            expected_model = agent.config["rooms"]["irc"]["command"]["modes"]["unsafe"]["model"]
+            assert call_args[1]["model"] == expected_model
+            mock_agent.run_agent.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_proactive_interjection_detection(self, temp_config_file):
@@ -625,40 +623,38 @@ class TestIRCMonitor:
 
             return resp, MockAPIClient(text), None
 
-        with patch(
-            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
-            new=AsyncMock(side_effect=fake_call_raw_with_model),
-        ):
-            with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
-                mock_agent = AsyncMock()
-                mock_agent.run_agent = AsyncMock(return_value="Test response")
-                mock_agent_class.return_value.__aenter__.return_value = mock_agent
+        # Set up the model_router mock
+        agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model)
 
-                # Test message NOT addressing bot in whitelisted test channel
-                event = {
-                    "type": "message",
-                    "subtype": "public",
-                    "server": "test",
-                    "target": "#testchannel",
-                    "nick": "user",
-                    "message": "I need help with Python imports",
-                }
+        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+            mock_agent = AsyncMock()
+            mock_agent.run_agent = AsyncMock(return_value="Test response")
+            mock_agent_class.return_value.__aenter__.return_value = mock_agent
 
-                await agent.irc_monitor.process_message_event(event)
+            # Test message NOT addressing bot in whitelisted test channel
+            event = {
+                "type": "message",
+                "subtype": "public",
+                "server": "test",
+                "target": "#testchannel",
+                "nick": "user",
+                "message": "I need help with Python imports",
+            }
 
-                # Wait for debounce to complete
-                await asyncio.sleep(0.15)
+            await agent.irc_monitor.process_message_event(event)
 
-                # Should call agent in test mode (consistent with live mode)
-                mock_agent.run_agent.assert_called_once()
-                # Should pass the extra proactive prompt to the agent
-                mock_agent_class.assert_called_once()
+            # Wait for debounce to complete
+            await asyncio.sleep(0.15)
+
+            # Should call agent in test mode (consistent with live mode)
+            mock_agent.run_agent.assert_called_once()
+            # Should pass the extra proactive prompt to the agent
+            mock_agent_class.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_proactive_interjection_configurable_threshold(self, temp_config_file):
         """Test proactive interjection with configurable threshold."""
         agent = IRSSILLMAgent(temp_config_file)
-
         # Test with threshold 8 - score 8 should trigger
         agent.config["rooms"]["irc"]["proactive"]["interject_threshold"] = 8
 
@@ -666,20 +662,19 @@ class TestIRCMonitor:
             resp = {"output_text": "Testing threshold: 8/10"}
             return resp, MockAPIClient("Testing threshold: 8/10"), None
 
-        with patch(
-            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
-            new=AsyncMock(side_effect=fake_call_raw_with_model),
-        ):
-            context = [{"role": "user", "content": "Test message"}]
-            (
-                should_interject,
-                reason,
-                test_mode,
-            ) = await agent.irc_monitor.should_interject_proactively(context)
+        # Set up the model_router mock
+        agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model)
 
-            assert should_interject is True
-            assert "Score: 8" in reason
-            assert test_mode is False
+        context = [{"role": "user", "content": "Test message"}]
+        (
+            should_interject,
+            reason,
+            test_mode,
+        ) = await agent.irc_monitor.should_interject_proactively(context)
+
+        assert should_interject is True
+        assert "Score: 8" in reason
+        assert test_mode is False
 
         # Test with threshold 9 - score 8 should NOT trigger
         agent.config["rooms"]["irc"]["proactive"]["interject_threshold"] = 9
@@ -693,37 +688,35 @@ class TestIRCMonitor:
 
             return resp, C(), None
 
-        with patch(
-            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
-            new=AsyncMock(side_effect=fake_call_raw_with_model_8),
-        ):
-            context = [{"role": "user", "content": "Test message"}]
-            (
-                should_interject,
-                reason,
-                test_mode,
-            ) = await agent.irc_monitor.should_interject_proactively(context)
+        # Set up the model_router mock with new function
+        agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model_8)
 
-            assert should_interject is True  # Now should trigger test mode
-            assert "Score: 8" in reason
-            assert test_mode is True  # Should be in test mode due to barely threshold
+        context = [{"role": "user", "content": "Test message"}]
+        (
+            should_interject,
+            reason,
+            test_mode,
+        ) = await agent.irc_monitor.should_interject_proactively(context)
+
+        assert should_interject is True  # Now should trigger test mode
+        assert "Score: 8" in reason
+        assert test_mode is True  # Should be in test mode due to barely threshold
 
         # Test with threshold 9 - score 7 should NOT trigger at all
         async def fake_call_raw_with_model_7(*args, **kwargs):
             resp = {"output_text": "Testing threshold: 7/10"}
             return resp, MockAPIClient("Testing threshold: 7/10"), None
 
-        with patch(
-            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
-            new=AsyncMock(side_effect=fake_call_raw_with_model_7),
-        ):
-            context = [{"role": "user", "content": "Test message"}]
-            (
-                should_interject,
-                reason,
-                test_mode,
-            ) = await agent.irc_monitor.should_interject_proactively(context)
+        # Set up the model_router mock with new function
+        agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model_7)
 
-            assert should_interject is False  # Should not trigger at all
-            assert "Score: 7" in reason
-            assert test_mode is False
+        context = [{"role": "user", "content": "Test message"}]
+        (
+            should_interject,
+            reason,
+            test_mode,
+        ) = await agent.irc_monitor.should_interject_proactively(context)
+
+        assert should_interject is False  # Should not trigger at all
+        assert "Score: 7" in reason
+        assert test_mode is False
