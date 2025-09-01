@@ -243,16 +243,12 @@ class TestIRCMonitor:
         captured_context = []
 
         async def capture_message_and_context(
-            server,
-            chan_name,
-            target,
-            mynick,
             context,
+            mynick,
             *,
             mode,
-            reasoning_effort="minimal",
-            allowed_tools=None,
-            model_override=None,
+            progress_callback=None,
+            **kwargs,
         ):
             nonlocal captured_context
             captured_context = context
@@ -321,16 +317,12 @@ class TestIRCMonitor:
         captured_context = [{"content": "ERROR: capture_context() not called"}]
 
         async def capture_context(
-            server,
-            chan_name,
-            target,
-            mynick,
             context,
+            mynick,
             *,
             mode,
-            reasoning_effort="minimal",
-            allowed_tools=None,
-            model_override=None,
+            progress_callback=None,
+            **kwargs,
         ):
             nonlocal captured_context
             captured_context = context
@@ -454,7 +446,7 @@ class TestIRCMonitor:
 
             # Should create and use agent
             mock_agent_class.assert_called_once_with(
-                agent.config, "mybot", mode="serious", model_override=None, allowed_tools=None
+                agent.config, "mybot", mode="serious", reasoning_effort="low"
             )
             # Should call run_agent with context only
             mock_agent.run_agent.assert_called_once()

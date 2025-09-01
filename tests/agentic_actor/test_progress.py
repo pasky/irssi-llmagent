@@ -111,9 +111,7 @@ async def test_progress_report_tool_emits_callback(monkeypatch):
         },
     }
 
-    agent = AgenticLLMActor(
-        config, mynick="bot", mode="serious", progress_enabled=True, progress_callback=progress_cb
-    )
+    agent = AgenticLLMActor(config, mynick="bot", mode="serious")
 
     # Patch router to use FakeAPIClient
     fake_client = FakeAPIClient()
@@ -145,7 +143,7 @@ async def test_progress_report_tool_emits_callback(monkeypatch):
         context = [{"role": "user", "content": "Hello"}]
 
         # Run agent without using context manager (fake client doesn't need it here)
-        result = await agent.run_agent(context)
+        result = await agent.run_agent(context, progress_callback=progress_cb)
 
     assert result == "Final answer"
     assert sent, "Expected progress callback to be called at least once"

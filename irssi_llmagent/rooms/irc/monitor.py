@@ -293,24 +293,18 @@ class IRCRoomMonitor:
                 send_message = True
 
             target = chan_name  # For proactive interjections, target is the channel
-            async with AgenticLLMActor(
-                self.agent.config,
+            response = await self._run_actor(
+                context,
                 mynick,
                 mode="serious",
+                reasoning_effort="low" if classified_mode == "EASY_SERIOUS" else "medium",
+                model=self.irc_config["proactive"]["models"]["serious"],
                 extra_prompt=" " + self.irc_config["proactive"]["prompts"]["serious_extra"],
-                model_override=self.irc_config["proactive"]["models"]["serious"],
-            ) as actor:
-                response = await actor.run_agent(
-                    context,
-                    reasoning_effort="low" if classified_mode == "EASY_SERIOUS" else "medium",
-                )
+            )
 
             # Check for NULL response (proactive interjections can decide not to respond)
-            if (
-                not response
-                or response.strip().upper() == "NULL"
-                or response.startswith("Error - ")
-            ):
+            # Also filter out "Error - " responses which are proactive-specific
+            if not response or response.startswith("Error - "):
                 logger.info(f"Agent decided not to interject proactively for {target}")
                 return
 
@@ -319,7 +313,6 @@ class IRCRoomMonitor:
                     f"Sending proactive agent ({classified_mode}) response to {target}: {response}"
                 )
                 await self.varlink_sender.send_message(target, response, server)
-                # Update context with response
                 await self.agent.history.add_message(
                     server, chan_name, response, mynick, mynick, True
                 )
@@ -330,44 +323,30 @@ class IRCRoomMonitor:
 
     async def _run_actor(
         self,
-        server: str,
-        chan_name: str,
-        target: str,
-        mynick: str,
         context: list[dict[str, str]],
+        mynick: str,
         *,
         mode: str,
-        reasoning_effort: str = "minimal",
-        allowed_tools: list[str] | None = None,
-        model_override: str | None = None,
+        progress_callback=None,
+        **actor_kwargs,
     ) -> str | None:
-        """Unified actor runner for all modes."""
-
-        async def _progress_cb(text: str) -> None:
-            await self.varlink_sender.send_message(target, text, server)
-            await self.agent.history.add_message(server, chan_name, text, mynick, mynick, True)
+        """Unified actor runner that returns cleaned IRC response."""
 
         async with AgenticLLMActor(
             self.agent.config,
             mynick,
             mode=mode,
-            model_override=model_override,
-            allowed_tools=allowed_tools,
+            **actor_kwargs,
         ) as actor:
-            actor.configure_progress(True, _progress_cb)
-            response = await actor.run_agent(context, reasoning_effort=reasoning_effort)
+            response = await actor.run_agent(context, progress_callback=progress_callback)
 
-        if not response or response.strip().upper() == "NULL" or response.startswith("Error - "):
-            logger.info(f"Agent in {mode} mode chose not to answer for {target}")
+        if not response or response.strip().upper() == "NULL":
             return None
 
         # IRC-specific response cleaning: remove timestamp/nick prefixes that LLM might include
         response = response.strip()
         response = re.sub(r"^(\s*(\[?\d{1,2}:\d{2}\]?\s*)?<[^>]+>)*\s*", "", response)
 
-        logger.info(f"Sending {mode} response to {target}: {response}")
-        await self.varlink_sender.send_message(target, response, server)
-        await self.agent.history.add_message(server, chan_name, response, mynick, mynick, True)
         return response
 
     def _input_match(self, mynick, message):
@@ -578,19 +557,22 @@ class IRCRoomMonitor:
                 mode = await self.classify_mode(context)
                 logger.debug(f"Auto-classified message as {mode} mode")
 
+        # Create progress callback for command mode
+        async def progress_cb(text: str) -> None:
+            await self.varlink_sender.send_message(target, text, server)
+            await self.agent.history.add_message(server, chan_name, text, mynick, mynick, True)
+
         if mode == "SARCASTIC":
             sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(
                 "history_size", default_size
             )
-            await self._run_actor(
-                server,
-                chan_name,
-                target,
-                mynick,
+            response = await self._run_actor(
                 context[-sarcastic_size:],
+                mynick,
                 mode="sarcastic",
                 reasoning_effort=reasoning_effort,
                 allowed_tools=[],
+                progress_callback=progress_cb,
             )
         elif mode and mode.endswith("SERIOUS"):
             serious_size = self.irc_config["command"]["modes"]["serious"].get(
@@ -599,30 +581,34 @@ class IRCRoomMonitor:
             assert (
                 reasoning_effort == "minimal"
             )  # test we didn't override it earlier since we ignore it here
-            await self._run_actor(
-                server,
-                chan_name,
-                target,
-                mynick,
+            response = await self._run_actor(
                 context[-serious_size:],
+                mynick,
                 mode="serious",
                 reasoning_effort="low" if mode == "EASY_SERIOUS" else "medium",
+                progress_callback=progress_cb,
             )
         elif mode == "UNSAFE":
             unsafe_size = self.irc_config["command"]["modes"]["unsafe"].get(
                 "history_size", default_size
             )
-            await self._run_actor(
-                server,
-                chan_name,
-                target,
-                mynick,
+            response = await self._run_actor(
                 context[-unsafe_size:],
+                mynick,
                 mode="unsafe",
                 reasoning_effort=reasoning_effort,
+                progress_callback=progress_cb,
             )
         else:
             raise ValueError(f"Unknown mode {mode}")
+
+        # Send response if we got one
+        if response:
+            logger.info(f"Sending {mode} response to {target}: {response}")
+            await self.varlink_sender.send_message(target, response, server)
+            await self.agent.history.add_message(server, chan_name, response, mynick, mynick, True)
+        else:
+            logger.info(f"Agent in {mode} mode chose not to answer for {target}")
 
     async def _connect_with_retry(self, max_retries: int = 5) -> bool:
         """Connect to varlink sockets with exponential backoff retry."""

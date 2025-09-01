@@ -2,6 +2,7 @@
 
 import copy
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ..providers import ModelRouter, build_system_prompt
@@ -19,10 +20,9 @@ class AgenticLLMActor:
         mynick: str,
         mode: str = "serious",
         extra_prompt: str = "",
-        model_override: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str = "low",
         *,
-        progress_enabled: bool = False,
-        progress_callback: Any | None = None,
         allowed_tools: list[str] | None = None,
     ):
         self.config = config
@@ -33,15 +33,15 @@ class AgenticLLMActor:
         actor_cfg = self.config.get("actor", {})
         self.max_iterations = actor_cfg.get("max_iterations", 10)
         self.extra_prompt = extra_prompt
-        self.model_override = model_override
+        self.model = model
+        self.reasoning_effort = reasoning_effort
         # System prompt is now generated dynamically per model call
-        # Progress reporting
+        # Progress reporting config
         prog_cfg = actor_cfg.get("progress", {})
         self.progress_threshold_seconds = int(prog_cfg.get("threshold_seconds", 30))
-        self._progress_start_time: float | None = None
-        self._progress_can_send: bool = bool(progress_callback)
-        # Tool executors with progress callback
-        self.tool_executors = create_tool_executors(config, progress_callback=progress_callback)
+        self.progress_min_interval_seconds = int(prog_cfg.get("min_interval_seconds", 15))
+        # Tool executors (created without callback, will be recreated in run_agent if needed)
+        self.tool_executors = create_tool_executors(config, progress_callback=None)
         self.allowed_tools = allowed_tools
 
     def _get_system_prompt(self, current_model: str = "") -> str:
@@ -53,17 +53,7 @@ class AgenticLLMActor:
         """Async context manager entry."""
         # Lazy-init router when entering
         self.model_router = await ModelRouter(self.config).__aenter__()
-        # Initialize progress timers
-        from time import time as _now
-
-        self._progress_start_time = _now()
         return self
-
-    def configure_progress(self, enabled: bool, callback: Any | None) -> None:
-        """Configure progress reporting at runtime (used by main)."""
-        self._progress_can_send = bool(enabled and callback is not None)
-        # Recreate executors with the provided callback
-        self.tool_executors = create_tool_executors(self.config, progress_callback=callback)
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
@@ -72,9 +62,24 @@ class AgenticLLMActor:
             await self.model_router.__aexit__(exc_type, exc_val, exc_tb)
             self.model_router = None
 
-    async def run_agent(self, context: list[dict], reasoning_effort: str = "low") -> str:
+    async def run_agent(
+        self,
+        context: list[dict],
+        *,
+        progress_callback: Callable[[str], Awaitable[None]] | None = None,
+    ) -> str:
         """Run the agent with tool-calling loop."""
         messages: list[dict[str, Any]] = copy.deepcopy(context)
+
+        # Initialize progress tracking and tool executors if callback provided
+        progress_start_time = None
+        tool_executors = self.tool_executors  # Default to instance executors
+        if progress_callback is not None:
+            from time import time as _now
+
+            progress_start_time = _now()
+            # Create new tool executors with the provided callback
+            tool_executors = create_tool_executors(self.config, progress_callback=progress_callback)
 
         # Tool execution loop
         for iteration in range(self.max_iterations * 2):
@@ -84,8 +89,8 @@ class AgenticLLMActor:
                 logger.warn("Exceeding max iterations...")
 
             # Select model per iteration; last element repeats thereafter for lists
-            if self.model_override:
-                model = self.model_override
+            if self.model:
+                model = self.model
             else:
                 mode_cfg = self.config["rooms"]["irc"]["command"]["modes"][self.mode]["model"]
                 if isinstance(mode_cfg, list):
@@ -101,25 +106,25 @@ class AgenticLLMActor:
             if prompt_reminder:
                 extra_messages += [{"role": "user", "content": f"<meta>{prompt_reminder}</meta>"}]
 
-            if self._progress_can_send and self._progress_start_time is not None:
+            if progress_callback is not None and progress_start_time is not None:
                 from time import time as _now
 
                 # Read last progress time from executor if available
-                last = self._progress_start_time
+                last = progress_start_time
                 try:
-                    prog_exec = self.tool_executors.get("progress_report")
+                    prog_exec = tool_executors.get("progress_report")
                     if prog_exec and getattr(prog_exec, "_last_sent", None):
                         last = max(last, float(prog_exec._last_sent))
                 except Exception:
                     pass
                 elapsed = _now() - last
                 logger.debug(
-                    f"Last: {last} (start: {self._progress_start_time}), elapsed {elapsed}, vs. {self.progress_threshold_seconds}"
+                    f"Last: {last} (start: {progress_start_time}), elapsed {elapsed}, vs. {self.progress_threshold_seconds}"
                 )
                 if (
                     iteration < self.max_iterations - 2
                     and elapsed >= self.progress_threshold_seconds
-                ) or (iteration == 0 and reasoning_effort in ("medium", "high")):
+                ) or (iteration == 0 and self.reasoning_effort in ("medium", "high")):
                     extra_messages = [
                         {
                             "role": "user",
@@ -139,7 +144,7 @@ class AgenticLLMActor:
                     # good thinking model with bad tool calls to a bad thinking
                     # model with good tool calls
                     if (
-                        not self.model_override
+                        not self.model
                         and isinstance(mode_cfg, list)
                         and len(mode_cfg) >= 2
                         and mode_cfg[0] != mode_cfg[1]
@@ -162,7 +167,7 @@ class AgenticLLMActor:
                     system_prompt,
                     tools=available_tools,
                     tool_choice=tool_choice,
-                    reasoning_effort=reasoning_effort,
+                    reasoning_effort=self.reasoning_effort,
                 )
 
                 # Process response using unified handler (provider-aware)
@@ -208,7 +213,7 @@ class AgenticLLMActor:
                     for tool in result["tools"]:
                         try:
                             tool_result = await execute_tool(
-                                tool["name"], self.tool_executors, **tool["input"]
+                                tool["name"], tool_executors, **tool["input"]
                             )
                             logger.info(f"Tool {tool['name']} executed: {tool_result[:100]}...")
 
