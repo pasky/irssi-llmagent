@@ -95,8 +95,14 @@ class AgenticLLMActor:
                 else:
                     model = serious_cfg
 
-            # Conditional progress nudge appended only when threshold elapsed
             extra_messages = []
+
+            prompt_reminder = self.config["rooms"]["irc"]["command"]["modes"][self.mode].get(
+                "prompt_reminder"
+            )
+            if prompt_reminder:
+                extra_messages += [{"role": "user", "content": f"<meta>{prompt_reminder}</meta>"}]
+
             if self._progress_can_send and self._progress_start_time is not None:
                 from time import time as _now
 

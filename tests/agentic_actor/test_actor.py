@@ -98,6 +98,12 @@ class TestAPIAgent:
         # Mock API response with text only
         mock_response = self.create_text_response(api_type, "This is a simple answer.")
 
+        # Add prompt reminder to test config and capture messages
+        agent.config["rooms"]["irc"]["command"]["modes"]["serious"][
+            "prompt_reminder"
+        ] = "Be helpful!"
+        captured_messages = []
+
         class FakeClient:
             def extract_text_from_response(self, r):
                 return "This is a simple answer."
@@ -114,7 +120,8 @@ class TestAPIAgent:
             def format_tool_results(self, results):
                 return {"role": "user", "content": []}
 
-        async def fake_call_raw_with_model(*args, **kwargs):
+        async def fake_call_raw_with_model(model, messages, *args, **kwargs):
+            captured_messages.extend(messages)
             return mock_response, FakeClient(), ModelSpec("anthropic", "dummy")
 
         with patch.object(
@@ -124,6 +131,10 @@ class TestAPIAgent:
 
             assert result == "This is a simple answer."
             mock_call.assert_called_once()
+            # Check prompt reminder was added as last message
+            assert len(captured_messages) == 2
+            assert captured_messages[-1]["role"] == "user"
+            assert "<meta>Be helpful!</meta>" in captured_messages[-1]["content"]
 
     @pytest.mark.asyncio
     async def test_agent_tool_use_flow(self, agent, api_type):
