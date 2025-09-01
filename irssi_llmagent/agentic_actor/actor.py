@@ -5,49 +5,44 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from ..providers import ModelRouter, build_system_prompt
+from ..providers import ModelRouter
 from .tools import TOOLS, create_tool_executors, execute_tool
 
 logger = logging.getLogger(__name__)
 
 
 class AgenticLLMActor:
-    """API agent with web search and webpage visiting capabilities."""
+    """API agent with tool-calling capabilities."""
 
     def __init__(
         self,
         config: dict[str, Any],
-        mynick: str,
-        mode: str = "serious",
-        extra_prompt: str = "",
-        model: str | None = None,
+        model: str | list[str],
+        system_prompt_generator: Callable[[], str],
+        prompt_reminder_generator: Callable[[], str | None] = lambda: None,
         reasoning_effort: str = "low",
         *,
         allowed_tools: list[str] | None = None,
     ):
         self.config = config
-        self.mynick = mynick
-        self.mode = mode
+        self.model = model
+        self.system_prompt_generator = system_prompt_generator
+        self.prompt_reminder_generator = prompt_reminder_generator
+        self.reasoning_effort = reasoning_effort
+        self.allowed_tools = allowed_tools
         self.model_router: ModelRouter | None = None
+
         # Actor configuration
         actor_cfg = self.config.get("actor", {})
         self.max_iterations = actor_cfg.get("max_iterations", 10)
-        self.extra_prompt = extra_prompt
-        self.model = model
-        self.reasoning_effort = reasoning_effort
-        # System prompt is now generated dynamically per model call
+
         # Progress reporting config
         prog_cfg = actor_cfg.get("progress", {})
         self.progress_threshold_seconds = int(prog_cfg.get("threshold_seconds", 30))
         self.progress_min_interval_seconds = int(prog_cfg.get("min_interval_seconds", 15))
+
         # Tool executors (created without callback, will be recreated in run_agent if needed)
         self.tool_executors = create_tool_executors(config, progress_callback=None)
-        self.allowed_tools = allowed_tools
-
-    def _get_system_prompt(self, current_model: str = "") -> str:
-        """Get the system prompt for the agent based on mode."""
-        base_prompt = build_system_prompt(self.config, self.mode, self.mynick)
-        return base_prompt + self.extra_prompt
 
     async def __aenter__(self):
         """Async context manager entry."""
@@ -89,20 +84,15 @@ class AgenticLLMActor:
                 logger.warn("Exceeding max iterations...")
 
             # Select model per iteration; last element repeats thereafter for lists
-            if self.model:
-                model = self.model
+            if isinstance(self.model, list):
+                model = self.model[iteration] if iteration < len(self.model) else self.model[-1]
             else:
-                mode_cfg = self.config["rooms"]["irc"]["command"]["modes"][self.mode]["model"]
-                if isinstance(mode_cfg, list):
-                    model = mode_cfg[iteration] if iteration < len(mode_cfg) else mode_cfg[-1]
-                else:
-                    model = mode_cfg
+                model = self.model
 
             extra_messages = []
 
-            prompt_reminder = self.config["rooms"]["irc"]["command"]["modes"][self.mode].get(
-                "prompt_reminder"
-            )
+            # Add prompt reminder if configured
+            prompt_reminder = self.prompt_reminder_generator()
             if prompt_reminder:
                 extra_messages += [{"role": "user", "content": f"<meta>{prompt_reminder}</meta>"}]
 
@@ -144,10 +134,9 @@ class AgenticLLMActor:
                     # good thinking model with bad tool calls to a bad thinking
                     # model with good tool calls
                     if (
-                        not self.model
-                        and isinstance(mode_cfg, list)
-                        and len(mode_cfg) >= 2
-                        and mode_cfg[0] != mode_cfg[1]
+                        isinstance(self.model, list)
+                        and len(self.model) >= 2
+                        and self.model[0] != self.model[1]
                     ):
                         tool_choice = ["make_plan", "final_answer"]
 
@@ -160,7 +149,7 @@ class AgenticLLMActor:
                     if tool_choice:
                         tool_choice = [tool for tool in tool_choice if tool in self.allowed_tools]
 
-                system_prompt = self._get_system_prompt(model)
+                system_prompt = self.system_prompt_generator()
                 response, client, _ = await self.model_router.call_raw_with_model(
                     model,
                     messages + extra_messages,

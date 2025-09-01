@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -54,6 +55,42 @@ class IRCRoomMonitor:
         """Check if user should be ignored."""
         ignore_list = self.irc_config["command"]["ignore_users"]
         return any(nick.lower() == ignored.lower() for ignored in ignore_list)
+
+    def build_system_prompt(self, mode: str, mynick: str) -> str:
+        """Build a command system prompt with standard substitutions.
+
+        Args:
+            mode: Command mode (e.g., "serious", "sarcastic")
+            mynick: IRC nickname for substitution
+
+        Returns:
+            Formatted system prompt with all substitutions applied
+        """
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        # Get model configurations for context
+        sarcastic_model = self.irc_config["command"]["modes"]["sarcastic"]["model"]
+        serious_cfg = self.irc_config["command"]["modes"]["serious"]["model"]
+        serious_model = (
+            serious_cfg[0] if isinstance(serious_cfg, list) and serious_cfg else serious_cfg
+        )
+        unsafe_model = (
+            self.irc_config["command"]["modes"].get("unsafe", {}).get("model", "not-configured")
+        )
+
+        # Get the prompt template from command section
+        try:
+            prompt_template = self.irc_config["command"]["modes"][mode]["prompt"]
+        except KeyError:
+            raise ValueError(f"Command mode '{mode}' not found in config") from None
+
+        return prompt_template.format(
+            mynick=mynick,
+            current_time=current_time,
+            sarcastic_model=sarcastic_model,
+            serious_model=serious_model,
+            unsafe_model=unsafe_model,
+        )
 
     async def get_mynick(self, server: str) -> str | None:
         """Get bot's nick for a server."""
@@ -327,15 +364,24 @@ class IRCRoomMonitor:
         mynick: str,
         *,
         mode: str,
+        extra_prompt: str = "",
         progress_callback=None,
         **actor_kwargs,
     ) -> str | None:
         """Unified actor runner that returns cleaned IRC response."""
 
+        # Determine model to use if not provided
+        model = actor_kwargs.pop("model", None)
+        if model is None:
+            model = self.irc_config["command"]["modes"][mode]["model"]
+
         async with AgenticLLMActor(
-            self.agent.config,
-            mynick,
-            mode=mode,
+            config=self.agent.config,
+            model=model,
+            system_prompt_generator=lambda: self.build_system_prompt(mode, mynick) + extra_prompt,
+            prompt_reminder_generator=lambda: self.irc_config["command"]["modes"][mode].get(
+                "prompt_reminder"
+            ),
             **actor_kwargs,
         ) as actor:
             response = await actor.run_agent(context, progress_callback=progress_callback)

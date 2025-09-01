@@ -444,10 +444,14 @@ class TestIRCMonitor:
                 "test", "#test", "#test", "user", "!s search for Python news", "mybot"
             )
 
-            # Should create and use agent
-            mock_agent_class.assert_called_once_with(
-                agent.config, "mybot", mode="serious", reasoning_effort="low"
-            )
+            # Should create and use agent - verify key parameters
+            mock_agent_class.assert_called_once()
+            call_args = mock_agent_class.call_args
+            assert call_args[1]["config"] == agent.config
+            assert call_args[1]["reasoning_effort"] == "low"
+            # Model should be the serious model from config (list in this case)
+            expected_model = agent.config["rooms"]["irc"]["command"]["modes"]["serious"]["model"]
+            assert call_args[1]["model"] == expected_model
             # Should call run_agent with context only
             mock_agent.run_agent.assert_called_once()
             call_args = mock_agent.run_agent.call_args
@@ -545,7 +549,8 @@ class TestIRCMonitor:
             # Verify unsafe mode agent was created and called
             mock_agent_class.assert_called_once()
             call_args = mock_agent_class.call_args
-            assert call_args[1]["mode"] == "unsafe"
+            expected_model = agent.config["rooms"]["irc"]["command"]["modes"]["unsafe"]["model"]
+            assert call_args[1]["model"] == expected_model
             mock_agent.run_agent.assert_called_once()
 
             # Verify message was sent
@@ -588,7 +593,8 @@ class TestIRCMonitor:
                 assert mock_call.called
                 mock_agent_class.assert_called_once()
                 call_args = mock_agent_class.call_args
-                assert call_args[1]["mode"] == "unsafe"
+                expected_model = agent.config["rooms"]["irc"]["command"]["modes"]["unsafe"]["model"]
+                assert call_args[1]["model"] == expected_model
                 mock_agent.run_agent.assert_called_once()
 
     @pytest.mark.asyncio

@@ -111,7 +111,14 @@ async def test_progress_report_tool_emits_callback(monkeypatch):
         },
     }
 
-    agent = AgenticLLMActor(config, mynick="bot", mode="serious")
+    def build_test_prompt():
+        return "Test system prompt"
+
+    agent = AgenticLLMActor(
+        config=config,
+        model="anthropic:claude-3-5-sonnet",
+        system_prompt_generator=build_test_prompt,
+    )
 
     # Patch router to use FakeAPIClient
     fake_client = FakeAPIClient()

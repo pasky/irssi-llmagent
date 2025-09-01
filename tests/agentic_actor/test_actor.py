@@ -19,7 +19,28 @@ class TestAPIAgent:
         test_config["rooms"]["irc"]["command"]["modes"]["serious"][
             "prompt"
         ] = "You are IRC user {mynick}. Be helpful and informative. Available models: serious={serious_model}, sarcastic={sarcastic_model}."
-        return AgenticLLMActor(test_config, "testbot", mode="serious")
+
+        def build_test_prompt():
+            from datetime import datetime
+
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+            return test_config["rooms"]["irc"]["command"]["modes"]["serious"]["prompt"].format(
+                mynick="testbot",
+                current_time=current_time,
+                sarcastic_model="anthropic:claude-3-5-haiku",
+                serious_model="anthropic:claude-3-5-sonnet",
+                unsafe_model="not-configured",
+            )
+
+        def get_prompt_reminder():
+            return test_config["rooms"]["irc"]["command"]["modes"]["serious"].get("prompt_reminder")
+
+        return AgenticLLMActor(
+            config=test_config,
+            model="anthropic:claude-3-5-sonnet",
+            system_prompt_generator=build_test_prompt,
+            prompt_reminder_generator=get_prompt_reminder,
+        )
 
     def create_text_response(self, api_type: str, text: str) -> dict:
         """Create a text response in the appropriate format for the API type."""
@@ -69,14 +90,14 @@ class TestAPIAgent:
 
     def test_agent_initialization(self, agent):
         """Test agent initialization."""
-        system_prompt = agent._get_system_prompt("test:model")
+        system_prompt = agent.system_prompt_generator()
         assert "testbot" in system_prompt  # mynick is substituted
         assert "IRC user" in system_prompt
         assert (
-            "serious=" in system_prompt and "dummy-serious" in system_prompt
+            "serious=" in system_prompt and "claude-3-5-sonnet" in system_prompt
         )  # serious model is substituted
         assert (
-            "sarcastic=" in system_prompt and "dummy-sarcastic" in system_prompt
+            "sarcastic=" in system_prompt and "claude-3-5-haiku" in system_prompt
         )  # sarcastic model is substituted
 
     @pytest.mark.asyncio
