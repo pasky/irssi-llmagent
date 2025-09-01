@@ -361,10 +361,18 @@ class IRCRoomMonitor:
             logger.info(f"Agent in {mode} mode chose not to answer for {target}")
             return None
 
+        # IRC-specific response cleaning: remove timestamp/nick prefixes that LLM might include
+        response = response.strip()
+        response = re.sub(r"^(\s*(\[?\d{1,2}:\d{2}\]?\s*)?<[^>]+>)*\s*", "", response)
+
         logger.info(f"Sending {mode} response to {target}: {response}")
         await self.varlink_sender.send_message(target, response, server)
         await self.agent.history.add_message(server, chan_name, response, mynick, mynick, True)
         return response
+
+    def _input_match(self, mynick, message):
+        pattern = rf"^\s*(<?.*?>\s*)?{re.escape(mynick)}[,:]\s*(.*?)$"
+        return re.match(pattern, message, re.IGNORECASE)
 
     async def process_message_event(self, event: dict[str, Any]) -> None:
         """Process incoming IRC message events."""
@@ -401,8 +409,7 @@ class IRCRoomMonitor:
             return
 
         # Check if message is addressing us directly
-        pattern = rf"^\s*(<.*?>\s*)?{re.escape(mynick)}[,:]\s*(.*?)$"
-        match = re.match(pattern, message, re.IGNORECASE)
+        match = self._input_match(mynick, message)
         is_private = subtype != "public"
 
         if match or is_private:
@@ -440,8 +447,7 @@ class IRCRoomMonitor:
             return
 
         # Extract cleaned message
-        pattern = rf"^\s*(<.*?>\s*)?{re.escape(mynick)}[,:]\s*(.*?)$"
-        match = re.match(pattern, message, re.IGNORECASE)
+        match = self._input_match(mynick, message)
         cleaned_msg = match.group(2) if match else message
         logger.info(f"Received command from {nick} on {server}/{chan_name}: {cleaned_msg}")
 

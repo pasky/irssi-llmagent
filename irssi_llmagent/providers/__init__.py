@@ -64,9 +64,6 @@ class BaseAPIClient(ABC):
         text = re.sub(r"<thinking>.*?</thinking>\s*", "", text, flags=re.DOTALL)
         text = text.replace("\n", "; ").strip()
 
-        # Remove IRC nick prefix
-        text = re.sub(r"^(\s*(\[..:..\]\s*)?<[^>]+>)*\s*", "", text)
-
         return text
 
     @abstractmethod
