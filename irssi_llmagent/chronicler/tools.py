@@ -39,13 +39,13 @@ def chronicle_tools_defs() -> list[dict[str, Any]]:
 
 You maintain a Chronicle (arcs → chapters → paragraphs) of your experiences, plans, thoughts and observations, forming the backbone of your consciousness.
 
-Use when important events happen that should be recorded for future reference.""",
+Use when important events happen that should be recorded for future reference.  Keep paragraphs concise and informative, but do not drop out any important details. They serve as stored memories for your future retrieval.  Never invent content.  Retain not just critical facts, but also the tone of voice and emotional charge of the situation, and your feelings about it, if any.""",
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "text": {
                         "type": "string",
-                        "description": "Paragraph text.  Keep paragraphs concise and informative, but do not drop out any important details. They serve as stored memories for your future retrieval.  Never invent content.  Retain not just critical facts, but also the tone of voice and emotional charge of the situation, and your feelings about it, if any.",
+                        "description": "Paragraph text.",
                     },
                 },
                 "required": ["text"],

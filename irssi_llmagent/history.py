@@ -30,7 +30,8 @@ class ChatHistory:
                     nick TEXT NOT NULL,
                     message TEXT NOT NULL,
                     role TEXT NOT NULL,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    chapter_id INTEGER NULL
                 )
             """
             )
@@ -38,6 +39,12 @@ class ChatHistory:
                 """
                 CREATE INDEX IF NOT EXISTS idx_server_channel
                 ON chat_messages (server_tag, channel_name, timestamp)
+            """
+            )
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_chapter_id
+                ON chat_messages (chapter_id)
             """
             )
             await db.commit()
@@ -99,7 +106,7 @@ class ChatHistory:
         """Get full chat history for analysis (not limited by inference_limit)."""
         async with self._lock, aiosqlite.connect(self.db_path) as db:
             query = """
-                    SELECT nick, message, role, timestamp FROM chat_messages
+                    SELECT id, nick, message, role, timestamp FROM chat_messages
                     WHERE server_tag = ? AND channel_name = ?
                     ORDER BY timestamp DESC
                 """
@@ -116,10 +123,11 @@ class ChatHistory:
         rows_list.reverse()
         history = [
             {
-                "nick": str(row[0]),
-                "message": str(row[1]),
-                "role": str(row[2]),
-                "timestamp": str(row[3]),
+                "id": int(row[0]),
+                "nick": str(row[1]),
+                "message": str(row[2]),
+                "role": str(row[3]),
+                "timestamp": str(row[4]),
             }
             for row in rows_list
         ]
@@ -163,6 +171,43 @@ class ChatHistory:
 
         logger.debug(f"Found {len(messages)} followup messages from {nick} since {timestamp}")
         return messages
+
+    async def count_recent_unchronicled(
+        self, server_tag: str, channel_name: str, days: int = 7
+    ) -> int:
+        """Count unchronicled messages from the last N days."""
+        async with self._lock, aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT COUNT(*) FROM chat_messages
+                WHERE server_tag = ? AND channel_name = ?
+                AND chapter_id IS NULL
+                AND timestamp >= datetime('now', '-' || ? || ' days')
+                """,
+                (server_tag, channel_name, days),
+            )
+            row = await cursor.fetchone()
+            return int(row[0]) if row else 0
+
+    async def mark_chronicled(self, message_ids: list[int], chapter_id: int) -> None:
+        """Mark messages as chronicled by setting their chapter_id."""
+        if not message_ids:
+            return
+
+        async with self._lock, aiosqlite.connect(self.db_path) as db:
+            placeholders = ",".join("?" * len(message_ids))
+            await db.execute(
+                f"""
+                UPDATE chat_messages
+                SET chapter_id = ?
+                WHERE id IN ({placeholders})
+                """,
+                [chapter_id] + message_ids,
+            )
+            await db.commit()
+            logger.debug(
+                f"Marked {len(message_ids)} messages as chronicled in chapter {chapter_id}"
+            )
 
     async def close(self) -> None:
         """Close database connections."""

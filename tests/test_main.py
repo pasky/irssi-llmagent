@@ -56,6 +56,10 @@ class TestCLIMode:
                 mock_history.get_context.return_value = [
                     {"role": "user", "content": "!S tell me a joke"}
                 ]
+                # Add new chronicling methods
+                mock_history.count_recent_unchronicled = AsyncMock(return_value=0)
+                mock_history.get_recent_unchronicled = AsyncMock(return_value=[])
+                mock_history.mark_chronicled = AsyncMock()
                 mock_history_class.return_value = mock_history
 
                 # Create a real agent
@@ -98,6 +102,10 @@ class TestCLIMode:
                     mock_history.get_context.return_value = [
                         {"role": "user", "content": "!p what is the weather?"}
                     ]
+                    # Add new chronicling methods
+                    mock_history.count_recent_unchronicled = AsyncMock(return_value=0)
+                    mock_history.get_recent_unchronicled = AsyncMock(return_value=[])
+                    mock_history.mark_chronicled = AsyncMock()
                     mock_history_class.return_value = mock_history
 
                     mock_perplexity = AsyncMock()
@@ -143,6 +151,10 @@ class TestCLIMode:
                     mock_history.get_context.return_value = [
                         {"role": "user", "content": "!s search for Python news"}
                     ]
+                    # Add new chronicling methods
+                    mock_history.count_recent_unchronicled = AsyncMock(return_value=0)
+                    mock_history.get_recent_unchronicled = AsyncMock(return_value=[])
+                    mock_history.mark_chronicled = AsyncMock()
                     mock_history_class.return_value = mock_history
 
                     mock_agent = AsyncMock()
@@ -187,6 +199,10 @@ class TestCLIMode:
                     mock_history.get_context.return_value = [
                         {"role": "user", "content": "!s specific test message"}
                     ]
+                    # Add new chronicling methods
+                    mock_history.count_recent_unchronicled = AsyncMock(return_value=0)
+                    mock_history.get_recent_unchronicled = AsyncMock(return_value=[])
+                    mock_history.mark_chronicled = AsyncMock()
                     mock_history_class.return_value = mock_history
 
                     mock_agent = AsyncMock()

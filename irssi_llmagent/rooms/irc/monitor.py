@@ -14,6 +14,7 @@ from ...agentic_actor import AgenticLLMActor
 from ...providers.perplexity import PerplexityClient
 from ...rate_limiter import RateLimiter
 from .. import ProactiveDebouncer
+from .autochronicler import AutoChronicler
 from .varlink import VarlinkClient, VarlinkSender
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,9 @@ class IRCRoomMonitor:
         )
         self.proactive_debouncer = ProactiveDebouncer(irc_config["proactive"]["debounce_seconds"])
         self.server_nicks: dict[str, str] = {}  # Cache of nicks per server
+
+        # Initialize auto-chronicler
+        self.autochronicler = AutoChronicler(self.agent.history, self)
 
     @property
     def irc_config(self) -> dict[str, Any]:
@@ -458,6 +462,10 @@ class IRCRoomMonitor:
                 server, chan_name, nick, message, mynick, self._handle_debounced_proactive_check
             )
 
+        # Check if auto-chronicling is needed
+        max_size = self.irc_config["command"]["history_size"]
+        await self.autochronicler.check_and_chronicle(server, chan_name, max_size)
+
     async def handle_command(
         self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
     ) -> None:
@@ -501,6 +509,9 @@ class IRCRoomMonitor:
             server, chan_name, target, nick, mynick, cleaned_msg, context, default_size
         )
         await self.proactive_debouncer.cancel_channel(chan_name)
+
+        # Check if auto-chronicling is needed after command handling
+        await self.autochronicler.check_and_chronicle(server, chan_name, default_size)
 
     async def _route_command(
         self,

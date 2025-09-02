@@ -29,10 +29,12 @@
   - No backwards compatibility is kept for legacy config keys; tests are aligned to the new schema.
 - **Logging**: Console output (INFO+) and debug.log file (DEBUG+), third-party libraries suppressed from console
 - **Database**: SQLite persistent chat history with configurable inference limits
+- **Continuous Chronicling**: Automatic chronicling triggered when unchronicled messages exceed `history_size` threshold. Uses `chronicler.model` to summarize conversation activity into Chronicle chapters. Messages get linked via `chapter_id` field in ChatHistory. Includes safety limits (100 message batches, 7-day lookback) and overlap for context continuity
 - **Proactive Interjecting**: Channel-based whitelist feature using claude-3-haiku to scan non-directed messages and interject in serious conversations when useful. Includes rate limiting, test mode, and channel whitelisting
 - **Key Modules**:
   - `rooms/irc/monitor.py` - IRCRoomMonitor (main IRC message processing, command handling, mode classification)
   - `rooms/irc/varlink.py` - VarlinkClient (events), VarlinkSender (messages)
+  - `rooms/irc/autochronicler.py` - AutoChronicler (automatic chronicling of IRC messages when threshold exceeded)
   - `rooms/proactive.py` - ProactiveDebouncer (channel-based proactive interjecting)
   - `history.py` - ChatHistory (persistent SQLite storage)
   - `providers/` - async API clients (anthropic, openai, perplexity) and base classes

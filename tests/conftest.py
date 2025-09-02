@@ -120,3 +120,39 @@ def event_loop():
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
+
+
+class MockAPIClient:
+    """Mock API client with all required methods for testing."""
+
+    def __init__(self, response_text: str = "Mock response"):
+        self.response_text = response_text
+
+    def extract_text_from_response(self, r):
+        return self.response_text
+
+    def has_tool_calls(self, response):
+        return False
+
+    def extract_tool_calls(self, response):
+        return None
+
+    def format_assistant_message(self, response):
+        return {"role": "assistant", "content": self.response_text}
+
+    def format_tool_results(self, tool_results):
+        return {"role": "user", "content": "Tool results"}
+
+
+@pytest.fixture
+def mock_model_call():
+    """Fixture that provides a mock model call function for testing."""
+
+    def _mock_model_call(response_text: str = "Mock response"):
+        async def fake_call_raw_with_model(*args, **kwargs):
+            resp = {"output_text": response_text}
+            return resp, MockAPIClient(response_text), None
+
+        return fake_call_raw_with_model
+
+    return _mock_model_call
