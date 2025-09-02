@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .monitor import IRCRoomMonitor
 
+from ...chronicler.chapters import chapter_append_paragraph
 from ...chronicler.tools import chronicle_tools_defs
 from ...history import ChatHistory
 
@@ -134,8 +135,8 @@ class AutoChronicler:
         response = client.extract_text_from_response(resp)
 
         if response and response.strip():
-            # Append to chronicle and get current chapter info
-            await self.monitor.agent.chronicle.append_paragraph(arc, response.strip())
+            # Append to chronicle with chapter management
+            await chapter_append_paragraph(arc, response.strip(), self.monitor.agent)
 
             # Get the current chapter ID
             current_chapter = await self.monitor.agent.chronicle.get_or_open_current_chapter(arc)

@@ -598,7 +598,7 @@ def create_tool_executors(
         "share_artifact": ShareArtifactExecutor(
             artifacts_path=artifacts_path, artifacts_url=artifacts_url
         ),
-        "chronicle_append": ChapterAppendExecutor(chronicle=agent.chronicle, arc=arc),
+        "chronicle_append": ChapterAppendExecutor(agent=agent, arc=arc),
         "chronicle_read": ChapterRenderExecutor(chronicle=agent.chronicle, arc=arc),
     }
 

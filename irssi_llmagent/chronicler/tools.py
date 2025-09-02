@@ -6,17 +6,19 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from .chapters import chapter_append_paragraph
+
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ChapterAppendExecutor:
-    chronicle: Any  # Chronicle
+    agent: Any
     arc: str
 
     async def execute(self, text: str) -> str:
         logger.info(f"Appending to {self.arc} chapter: {text}")
-        await self.chronicle.append_paragraph(self.arc, text)
+        await chapter_append_paragraph(self.arc, text, self.agent)
         return "OK"
 
 

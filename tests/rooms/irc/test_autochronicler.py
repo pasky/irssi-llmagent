@@ -1,6 +1,6 @@
 """Tests for AutoChronicler functionality."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -25,9 +25,11 @@ class TestAutoChronicler:
         """Create a mock IRC monitor."""
         monitor = MagicMock()
         monitor.agent.model_router.call_raw_with_model = AsyncMock()
+        monitor.agent.model_router.extract_text_from_response = Mock(return_value="Test summary")
         monitor.agent.chronicle.append_paragraph = AsyncMock()
         monitor.agent.chronicle.get_or_open_current_chapter = AsyncMock(return_value={"id": 123})
-        monitor.agent.config = {"chronicler": {"model": "test:model"}}
+        monitor.agent.chronicle.db_path = ":memory:"  # For chapter functions
+        monitor.agent.config = {"chronicler": {"model": "test:model", "paragraphs_per_chapter": 10}}
         return monitor
 
     @pytest.mark.asyncio
@@ -44,7 +46,10 @@ class TestAutoChronicler:
         )
 
     @pytest.mark.asyncio
-    async def test_chronicling_triggered(self, mock_history, mock_monitor, mock_model_call):
+    @patch("irssi_llmagent.rooms.irc.autochronicler.chapter_append_paragraph")
+    async def test_chronicling_triggered(
+        self, mock_chapter_append, mock_history, mock_monitor, mock_model_call
+    ):
         """Test that chronicling is triggered when above threshold."""
         mock_history.count_recent_unchronicled.return_value = 15
         mock_history.get_full_history.return_value = [
@@ -69,6 +74,9 @@ class TestAutoChronicler:
             side_effect=mock_model_call("Chronicled test messages")
         )
 
+        # Mock chapter_append_paragraph to avoid database operations
+        mock_chapter_append.return_value = AsyncMock()
+
         autochronicler = AutoChronicler(mock_history, mock_monitor)
 
         result = await autochronicler.check_and_chronicle("testserver", "#testchannel", max_size=10)
@@ -85,8 +93,9 @@ class TestAutoChronicler:
         mock_history.mark_chronicled.assert_called_once_with([1, 2], 123)
 
     @pytest.mark.asyncio
+    @patch("irssi_llmagent.rooms.irc.autochronicler.chapter_append_paragraph")
     async def test_run_chronicler_creates_proper_context(
-        self, mock_history, mock_monitor, mock_model_call
+        self, mock_chapter_append, mock_history, mock_monitor, mock_model_call
     ):
         """Test that _run_chronicler creates proper context from messages."""
         messages = [
@@ -109,6 +118,9 @@ class TestAutoChronicler:
         # Use the generalized mock pattern
         mock_call = AsyncMock(side_effect=mock_model_call("Test chronicle entry"))
         mock_monitor.agent.model_router.call_raw_with_model = mock_call
+
+        # Mock chapter_append_paragraph to avoid database operations
+        mock_chapter_append.return_value = AsyncMock()
 
         autochronicler = AutoChronicler(mock_history, mock_monitor)
         result = await autochronicler._run_chronicler("test#arc", messages)

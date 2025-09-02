@@ -92,6 +92,11 @@ def test_config(api_type) -> dict[str, Any]:
                 },
             }
         },
+        "chronicler": {
+            "model": f"{api_type}:dummy-chronicler",
+            "paragraphs_per_chapter": 10,
+            "database": {"path": f"/tmp/test_chronicle_{api_type}_{hash(api_type)}.db"},
+        },
     }
     return base_config
 

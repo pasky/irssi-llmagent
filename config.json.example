@@ -53,6 +53,7 @@
 
   "chronicler": {
     "model": "anthropic:claude-3-5-haiku-latest",
+    "paragraphs_per_chapter": 10,
     "database": {
       "path": "chronicle.db"
     }

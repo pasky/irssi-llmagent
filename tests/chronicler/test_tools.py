@@ -13,7 +13,7 @@ async def test_chapter_append_executor(temp_config_file):
     await agent.chronicle.initialize()
 
     arc = "test-arc"
-    executor = ChapterAppendExecutor(chronicle=agent.chronicle, arc=arc)
+    executor = ChapterAppendExecutor(agent=agent, arc=arc)
 
     # Test successful append
     result = await executor.execute(text="Test paragraph")

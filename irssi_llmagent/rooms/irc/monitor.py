@@ -353,6 +353,9 @@ class IRCRoomMonitor:
                 await self.agent.history.add_message(
                     server, chan_name, response, mynick, mynick, True
                 )
+                await self.autochronicler.check_and_chronicle(
+                    server, chan_name, self.irc_config["command"]["history_size"]
+                )
             else:
                 logger.info(f"[TEST MODE] Generated proactive response for {target}: {response}")
         except Exception as e:
