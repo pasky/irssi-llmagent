@@ -13,7 +13,7 @@ class TestAPIAgent:
     """Test API agent functionality with both Anthropic and OpenAI."""
 
     @pytest.fixture
-    def agent(self, test_config):
+    def agent(self, test_config, mock_agent):
         """Create agent instance for testing."""
         # Update serious prompt for agent tests (config structure already has the prompt)
         test_config["rooms"]["irc"]["command"]["modes"]["serious"][
@@ -40,7 +40,7 @@ class TestAPIAgent:
             model="anthropic:claude-3-5-sonnet",
             system_prompt_generator=build_test_prompt,
             prompt_reminder_generator=get_prompt_reminder,
-            agent="dummy_agent",
+            agent=mock_agent,
         )
 
     def create_text_response(self, api_type: str, text: str) -> dict:

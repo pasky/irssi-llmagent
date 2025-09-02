@@ -70,7 +70,7 @@ class FakeAPIClient:
 
 
 @pytest.mark.asyncio
-async def test_progress_report_tool_emits_callback(monkeypatch):
+async def test_progress_report_tool_emits_callback(monkeypatch, mock_agent):
     # Progress callback tracker
     sent = []
 
@@ -118,7 +118,7 @@ async def test_progress_report_tool_emits_callback(monkeypatch):
         config=config,
         model="anthropic:claude-3-5-sonnet",
         system_prompt_generator=build_test_prompt,
-        agent="dummy_agent",
+        agent=mock_agent,
     )
 
     # Patch router to use FakeAPIClient

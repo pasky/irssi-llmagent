@@ -167,11 +167,9 @@ async def cli_chronicler(arc: str, instructions: str, config_path: str | None = 
         agent = IRSSILLMAgent(str(config_file))
         await agent.chronicle.initialize()
 
-        # Import here to avoid circular imports
-        from .chronicler.subagent import run_chronicler
-
-        result = await run_chronicler(agent, arc=arc, instructions=instructions)
-        print(result)
+        print(
+            "Error: Chronicler subagent functionality has been removed. Use direct chronicle_append and chronicle_read tools instead."
+        )
 
     except Exception as e:
         print(f"❌ Error: {e}")

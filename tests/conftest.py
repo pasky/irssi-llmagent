@@ -5,8 +5,17 @@ import json
 import tempfile
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
+
+
+@pytest.fixture
+def mock_agent():
+    """Create a mock agent with chronicle attribute."""
+    agent = MagicMock()
+    agent.chronicle = MagicMock()
+    return agent
 
 
 @pytest.fixture(params=["anthropic", "openai"])

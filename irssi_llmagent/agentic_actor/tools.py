@@ -12,6 +12,8 @@ from typing import Any, TypedDict
 import aiohttp
 from ddgs import DDGS
 
+from ..chronicler.tools import ChapterAppendExecutor, ChapterRenderExecutor, chronicle_tools_defs
+
 logger = logging.getLogger(__name__)
 
 
@@ -124,21 +126,10 @@ TOOLS: list[Tool] = [
             "required": ["content"],
         },
     },
-    {
-        "name": "chronicler",
-        "description": "Record events and maintain a chronicle of the current conversation context. Use when important events happen that should be recorded for future reference, or when asked about what has been happening.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "instruction": {
-                    "type": "string",
-                    "description": "Natural language instruction for the chronicler (e.g. 'record that we finished the refactoring' or 'show what happened in the last hour')",
-                }
-            },
-            "required": ["instruction"],
-        },
-    },
 ]
+
+# Add chronicle tools to the main tools list
+TOOLS.extend(chronicle_tools_defs())  # type: ignore
 
 
 class RateLimiter:
@@ -547,39 +538,6 @@ class ShareArtifactExecutor:
         return f"Artifact shared: {file_url}"
 
 
-class ChroniclerExecutor:
-    """Chronicler tool executor that maintains a record of events."""
-
-    def __init__(self, agent: Any, arc: str):
-        """Initialize chronicler executor.
-
-        Args:
-            agent: IRSSILLMAgent instance
-            arc: Arc name for the chronicle
-        """
-        self.agent = agent
-        self.arc = arc
-
-    async def execute(self, instruction: str) -> str:
-        """Execute chronicler instruction.
-
-        Args:
-            instruction: Natural language instruction for the chronicler
-
-        Returns:
-            Chronicler's response
-        """
-        try:
-            # Import here to avoid circular import
-            from ..chronicler.subagent import run_chronicler
-
-            response = await run_chronicler(self.agent, arc=self.arc, instructions=instruction)
-            return response or "Chronicler completed task silently"
-        except Exception as e:
-            logger.error(f"Chronicler error: {e}")
-            return f"Chronicler error: {str(e)}"
-
-
 def create_tool_executors(
     config: dict | None = None,
     *,
@@ -640,7 +598,8 @@ def create_tool_executors(
         "share_artifact": ShareArtifactExecutor(
             artifacts_path=artifacts_path, artifacts_url=artifacts_url
         ),
-        "chronicler": ChroniclerExecutor(agent=agent, arc=arc),
+        "chronicle_append": ChapterAppendExecutor(chronicle=agent.chronicle, arc=arc),
+        "chronicle_read": ChapterRenderExecutor(chronicle=agent.chronicle, arc=arc),
     }
 
 

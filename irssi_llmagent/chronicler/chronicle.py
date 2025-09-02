@@ -202,7 +202,7 @@ class Chronicle:
         lines = [title, "", "Paragraphs:"]
         for ts, content in rows_list:
             hhmm = str(ts)[11:16] if len(str(ts)) >= 16 else str(ts)
-            lines.append(f"- [{hhmm}] {content}")
+            lines.append(f"[{hhmm}] {content}")
         if len(rows_list) == 0:
             lines.append("(No paragraphs)")
         return "\n".join(lines)
