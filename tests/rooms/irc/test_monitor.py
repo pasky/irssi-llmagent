@@ -83,7 +83,7 @@ class TestIRCMonitor:
             return resp, MockAPIClient("Test response"), None
 
         with patch(
-            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
+            "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
             new=AsyncMock(side_effect=fake_call_raw_with_model),
         ):
             # proceed
@@ -120,7 +120,7 @@ class TestIRCMonitor:
             return resp, MockAPIClient("Test response"), None
 
         with patch(
-            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
+            "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
             new=AsyncMock(side_effect=fake_call_raw_with_model),
         ):
             # Test private message without nick prefix (should be treated as command)
@@ -477,7 +477,7 @@ class TestIRCMonitor:
             return resp, MockAPIClient("Sarcastic response"), None
 
         with patch(
-            "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
+            "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
             new=AsyncMock(side_effect=fake_call_raw_with_model),
         ) as mock_call:
             # Test sarcastic mode (default - should use router)

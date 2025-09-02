@@ -71,7 +71,7 @@ class TestCLIMode:
                 # Patch the agent creation in cli_message and model router
                 with patch("irssi_llmagent.main.IRSSILLMAgent", return_value=agent):
                     with patch(
-                        "irssi_llmagent.rooms.irc.monitor.ModelRouter.call_raw_with_model",
+                        "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
                         new=AsyncMock(side_effect=fake_call_raw_with_model),
                     ):
                         await cli_message("!S tell me a joke", temp_config_file)
