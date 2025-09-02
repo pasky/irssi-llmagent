@@ -124,6 +124,20 @@ TOOLS: list[Tool] = [
             "required": ["content"],
         },
     },
+    {
+        "name": "chronicler",
+        "description": "Record events and maintain a chronicle of the current conversation context. Use when important events happen that should be recorded for future reference, or when asked about what has been happening.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "instruction": {
+                    "type": "string",
+                    "description": "Natural language instruction for the chronicler (e.g. 'record that we finished the refactoring' or 'show what happened in the last hour')",
+                }
+            },
+            "required": ["instruction"],
+        },
+    },
 ]
 
 
@@ -533,8 +547,45 @@ class ShareArtifactExecutor:
         return f"Artifact shared: {file_url}"
 
 
+class ChroniclerExecutor:
+    """Chronicler tool executor that maintains a record of events."""
+
+    def __init__(self, agent: Any, arc: str):
+        """Initialize chronicler executor.
+
+        Args:
+            agent: IRSSILLMAgent instance
+            arc: Arc name for the chronicle
+        """
+        self.agent = agent
+        self.arc = arc
+
+    async def execute(self, instruction: str) -> str:
+        """Execute chronicler instruction.
+
+        Args:
+            instruction: Natural language instruction for the chronicler
+
+        Returns:
+            Chronicler's response
+        """
+        try:
+            # Import here to avoid circular import
+            from ..chronicler.subagent import run_chronicler
+
+            response = await run_chronicler(self.agent, arc=self.arc, instructions=instruction)
+            return response or "Chronicler completed task silently"
+        except Exception as e:
+            logger.error(f"Chronicler error: {e}")
+            return f"Chronicler error: {str(e)}"
+
+
 def create_tool_executors(
-    config: dict | None = None, *, progress_callback: Any | None = None
+    config: dict | None = None,
+    *,
+    progress_callback: Any | None = None,
+    agent: Any,
+    arc: str,
 ) -> dict[str, Any]:
     """Create tool executors with configuration."""
     # Tool configs
@@ -589,18 +640,13 @@ def create_tool_executors(
         "share_artifact": ShareArtifactExecutor(
             artifacts_path=artifacts_path, artifacts_url=artifacts_url
         ),
+        "chronicler": ChroniclerExecutor(agent=agent, arc=arc),
     }
 
 
-# Default tool executor registry (for backwards compatibility)
-TOOL_EXECUTORS = create_tool_executors()
-
-
-async def execute_tool(
-    tool_name: str, tool_executors: dict[str, Any] | None = None, **kwargs
-) -> str:
+async def execute_tool(tool_name: str, tool_executors: dict[str, Any], **kwargs) -> str:
     """Execute a tool by name with given arguments."""
-    executors = tool_executors or TOOL_EXECUTORS
+    executors = tool_executors
 
     if tool_name not in executors:
         raise ValueError(f"Unknown tool '{tool_name}'")

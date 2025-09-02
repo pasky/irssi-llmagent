@@ -118,6 +118,7 @@ async def test_progress_report_tool_emits_callback(monkeypatch):
         config=config,
         model="anthropic:claude-3-5-sonnet",
         system_prompt_generator=build_test_prompt,
+        agent="dummy_agent",
     )
 
     # Patch router to use FakeAPIClient
@@ -150,7 +151,7 @@ async def test_progress_report_tool_emits_callback(monkeypatch):
         context = [{"role": "user", "content": "Hello"}]
 
         # Run agent without using context manager (fake client doesn't need it here)
-        result = await agent.run_agent(context, progress_callback=progress_cb)
+        result = await agent.run_agent(context, progress_callback=progress_cb, arc="test-arc")
 
     assert result == "Final answer"
     assert sent, "Expected progress callback to be called at least once"

@@ -40,6 +40,7 @@ class TestAPIAgent:
             model="anthropic:claude-3-5-sonnet",
             system_prompt_generator=build_test_prompt,
             prompt_reminder_generator=get_prompt_reminder,
+            agent="dummy_agent",
         )
 
     def create_text_response(self, api_type: str, text: str) -> dict:
@@ -148,7 +149,9 @@ class TestAPIAgent:
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ) as mock_call:
-            result = await agent.run_agent([{"role": "user", "content": "What is 2+2?"}])
+            result = await agent.run_agent(
+                [{"role": "user", "content": "What is 2+2?"}], arc="test"
+            )
 
             assert result == "This is a simple answer."
             mock_call.assert_called_once()
@@ -212,7 +215,7 @@ class TestAPIAgent:
                 mock_tool.return_value = "Search results: Python is a programming language..."
 
                 result = await agent.run_agent(
-                    [{"role": "user", "content": "Tell me about Python tutorials"}]
+                    [{"role": "user", "content": "Tell me about Python tutorials"}], arc="test"
                 )
 
                 assert "Based on the search results" in result
@@ -267,7 +270,9 @@ class TestAPIAgent:
             ) as mock_tool:
                 mock_tool.return_value = "Tool result"
 
-                result = await agent.run_agent([{"role": "user", "content": "Keep using tools"}])
+                result = await agent.run_agent(
+                    [{"role": "user", "content": "Keep using tools"}], arc="test"
+                )
 
                 assert "Final response" in result
                 assert mock_call.call_count == 3  # 3 iterations max
@@ -283,7 +288,7 @@ class TestAPIAgent:
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ):
             with pytest.raises(RuntimeError, match="coroutine raised StopIteration"):
-                await agent.run_agent([{"role": "user", "content": "Test query"}])
+                await agent.run_agent([{"role": "user", "content": "Test query"}], arc="test")
 
     @pytest.mark.asyncio
     async def test_agent_tool_execution_error(self, agent, api_type):
@@ -330,7 +335,7 @@ class TestAPIAgent:
                 mock_tool.return_value = "Tool execution failed: Network error"
 
                 result = await agent.run_agent(
-                    [{"role": "user", "content": "Search for something"}]
+                    [{"role": "user", "content": "Search for something"}], arc="test"
                 )
 
                 assert "encountered an error" in result or "what I can tell you" in result
@@ -602,7 +607,9 @@ class TestAPIAgent:
             ) as mock_tool:
                 mock_tool.side_effect = ["Search result", "Page content"]
 
-                result = await agent.run_agent([{"role": "user", "content": "Search and visit"}])
+                result = await agent.run_agent(
+                    [{"role": "user", "content": "Search and visit"}], arc="test"
+                )
 
                 # Verify both tools were executed
                 assert mock_tool.call_count == 2
@@ -660,7 +667,7 @@ class TestAPIAgent:
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ) as mock_call:
-            await agent.run_agent(context)
+            await agent.run_agent(context, arc="test")
 
             # Verify the full context was passed to AI
             call_args = mock_call.call_args[0]
@@ -709,7 +716,7 @@ class TestAPIAgent:
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ) as mock_call:
-            await agent.run_agent([{"role": "user", "content": "Hello"}])
+            await agent.run_agent([{"role": "user", "content": "Hello"}], arc="test")
 
             # Verify only the current query was passed
             call_args = mock_call.call_args[0]
@@ -877,7 +884,9 @@ class TestAPIAgent:
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ) as mock_call:
-            result = await agent.run_agent([{"role": "user", "content": "Search for something"}])
+            result = await agent.run_agent(
+                [{"role": "user", "content": "Search for something"}], arc="test"
+            )
 
             # Should have made 2 calls - first truncated, then retry
             assert mock_call.call_count == 2

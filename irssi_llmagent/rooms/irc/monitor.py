@@ -324,6 +324,7 @@ class IRCRoomMonitor:
                 send_message = True
 
             target = chan_name  # For proactive interjections, target is the channel
+            arc = f"{server}#{chan_name}"
             response = await self._run_actor(
                 context,
                 mynick,
@@ -331,6 +332,7 @@ class IRCRoomMonitor:
                 reasoning_effort="low" if classified_mode == "EASY_SERIOUS" else "medium",
                 model=self.irc_config["proactive"]["models"]["serious"],
                 extra_prompt=" " + self.irc_config["proactive"]["prompts"]["serious_extra"],
+                arc=arc,
             )
 
             # Check for NULL response (proactive interjections can decide not to respond)
@@ -369,6 +371,9 @@ class IRCRoomMonitor:
         if model is None:
             model = self.irc_config["command"]["modes"][mode]["model"]
 
+        # Extract arc for run_agent call
+        arc = actor_kwargs.pop("arc", "")
+
         async with AgenticLLMActor(
             config=self.agent.config,
             model=model,
@@ -376,9 +381,10 @@ class IRCRoomMonitor:
             prompt_reminder_generator=lambda: self.irc_config["command"]["modes"][mode].get(
                 "prompt_reminder"
             ),
+            agent=self.agent,
             **actor_kwargs,
         ) as actor:
-            response = await actor.run_agent(context, progress_callback=progress_callback)
+            response = await actor.run_agent(context, progress_callback=progress_callback, arc=arc)
 
         if not response or response.strip().upper() == "NULL":
             return None
@@ -621,23 +627,29 @@ class IRCRoomMonitor:
             assert (
                 reasoning_effort == "minimal"
             )  # test we didn't override it earlier since we ignore it here
+            # Pass arc to actor for chronicler context
+            arc = f"{server}#{chan_name}"
             response = await self._run_actor(
                 context[-serious_size:],
                 mynick,
                 mode="serious",
                 reasoning_effort="low" if mode == "EASY_SERIOUS" else "medium",
                 progress_callback=progress_cb,
+                arc=arc,
             )
         elif mode == "UNSAFE":
             unsafe_size = self.irc_config["command"]["modes"]["unsafe"].get(
                 "history_size", default_size
             )
+            # Pass arc to actor for chronicler context
+            arc = f"{server}#{chan_name}"
             response = await self._run_actor(
                 context[-unsafe_size:],
                 mynick,
                 mode="unsafe",
                 reasoning_effort=reasoning_effort,
                 progress_callback=progress_cb,
+                arc=arc,
             )
         else:
             raise ValueError(f"Unknown mode {mode}")

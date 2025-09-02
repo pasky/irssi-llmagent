@@ -25,6 +25,7 @@ class AgenticLLMActor:
         allowed_tools: list[str] | None = None,
         additional_tools: list[dict[str, Any]] | None = None,
         additional_tool_executors: dict[str, Any] | None = None,
+        agent: Any,
     ):
         self.config = config
         self.model = model
@@ -34,6 +35,7 @@ class AgenticLLMActor:
         self.allowed_tools = allowed_tools
         self.additional_tools = additional_tools or []
         self.additional_tool_executors = additional_tool_executors or {}
+        self.agent = agent
         self.model_router: ModelRouter | None = None
 
         # Actor configuration
@@ -45,9 +47,7 @@ class AgenticLLMActor:
         self.progress_threshold_seconds = int(prog_cfg.get("threshold_seconds", 30))
         self.progress_min_interval_seconds = int(prog_cfg.get("min_interval_seconds", 15))
 
-        # Tool executors (created without callback, will be recreated in run_agent if needed)
-        base_executors = create_tool_executors(config, progress_callback=None)
-        self.tool_executors = {**base_executors, **self.additional_tool_executors}
+        # Tool executors will be created in run_agent with arc parameter
 
     async def __aenter__(self):
         """Async context manager entry."""
@@ -67,20 +67,23 @@ class AgenticLLMActor:
         context: list[dict],
         *,
         progress_callback: Callable[[str], Awaitable[None]] | None = None,
+        arc: str,
     ) -> str:
         """Run the agent with tool-calling loop."""
         messages: list[dict[str, Any]] = copy.deepcopy(context)
 
-        # Initialize progress tracking and tool executors if callback provided
+        # Create tool executors with the provided arc
+        base_executors = create_tool_executors(
+            self.config, progress_callback=progress_callback, agent=self.agent, arc=arc
+        )
+        tool_executors = {**base_executors, **self.additional_tool_executors}
+
+        # Initialize progress tracking
         progress_start_time = None
-        tool_executors = self.tool_executors  # Default to instance executors
         if progress_callback is not None:
             from time import time as _now
 
             progress_start_time = _now()
-            # Create new tool executors with the provided callback
-            base_executors = create_tool_executors(self.config, progress_callback=progress_callback)
-            tool_executors = {**base_executors, **self.additional_tool_executors}
 
         # Tool execution loop
         for iteration in range(self.max_iterations * 2):

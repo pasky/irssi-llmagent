@@ -320,7 +320,8 @@ class TestToolRegistry:
         with patch.object(WebSearchExecutor, "execute", new_callable=AsyncMock) as mock_execute:
             mock_execute.return_value = "Search results"
 
-            result = await execute_tool("web_search", query="test")
+            tool_executors = create_tool_executors(agent="dummy", arc="test")
+            result = await execute_tool("web_search", tool_executors, query="test")
 
             assert result == "Search results"
             mock_execute.assert_called_once_with(query="test")
@@ -333,7 +334,8 @@ class TestToolRegistry:
         ) as mock_execute:
             mock_execute.return_value = "Webpage content"
 
-            result = await execute_tool("visit_webpage", url="https://example.com")
+            tool_executors = create_tool_executors(agent="dummy", arc="test")
+            result = await execute_tool("visit_webpage", tool_executors, url="https://example.com")
 
             assert result == "Webpage content"
             mock_execute.assert_called_once_with(url="https://example.com")
@@ -344,7 +346,8 @@ class TestToolRegistry:
         with patch.object(PythonExecutorE2B, "execute", new_callable=AsyncMock) as mock_execute:
             mock_execute.return_value = "Code output"
 
-            result = await execute_tool("execute_python", code="print('test')")
+            tool_executors = create_tool_executors(agent="dummy", arc="test")
+            result = await execute_tool("execute_python", tool_executors, code="print('test')")
 
             assert result == "Code output"
             mock_execute.assert_called_once_with(code="print('test')")
@@ -352,7 +355,10 @@ class TestToolRegistry:
     @pytest.mark.asyncio
     async def test_execute_make_plan_tool(self):
         """Test executing make_plan tool."""
-        result = await execute_tool("make_plan", plan="Test plan for searching news")
+        tool_executors = create_tool_executors(agent="dummy", arc="test")
+        result = await execute_tool(
+            "make_plan", tool_executors, plan="Test plan for searching news"
+        )
         assert result.startswith("OK")
 
     @pytest.mark.asyncio
@@ -361,7 +367,8 @@ class TestToolRegistry:
         with patch.object(ShareArtifactExecutor, "execute", new_callable=AsyncMock) as mock_execute:
             mock_execute.return_value = "Artifact shared: https://example.com/artifacts/123.txt"
 
-            result = await execute_tool("share_artifact", content="test content")
+            tool_executors = create_tool_executors(agent="dummy", arc="test")
+            result = await execute_tool("share_artifact", tool_executors, content="test content")
 
             assert result == "Artifact shared: https://example.com/artifacts/123.txt"
             mock_execute.assert_called_once_with(content="test content")
@@ -370,7 +377,8 @@ class TestToolRegistry:
     async def test_execute_unknown_tool(self):
         """Test executing unknown tool."""
         with pytest.raises(ValueError, match="Unknown tool"):
-            await execute_tool("unknown_tool", param="value")
+            tool_executors = create_tool_executors(agent="dummy", arc="test")
+            await execute_tool("unknown_tool", tool_executors, param="value")
 
 
 class TestToolDefinitions:
@@ -380,7 +388,7 @@ class TestToolDefinitions:
         """Test that tool executors are created with configuration."""
         config = {"tools": {"e2b": {"api_key": "test-key-123"}}}
 
-        executors = create_tool_executors(config)
+        executors = create_tool_executors(config, agent="dummy", arc="test")
 
         assert "execute_python" in executors
         python_executor = executors["execute_python"]
@@ -389,7 +397,7 @@ class TestToolDefinitions:
 
     def test_create_tool_executors_without_config(self):
         """Test that tool executors are created without configuration."""
-        executors = create_tool_executors()
+        executors = create_tool_executors(agent="dummy", arc="test")
 
         assert "execute_python" in executors
         python_executor = executors["execute_python"]

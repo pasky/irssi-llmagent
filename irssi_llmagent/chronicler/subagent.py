@@ -68,14 +68,14 @@ def _chronicler_tools_defs() -> list[dict[str, Any]]:
 
 def _system_prompt_for_arc(arc: str) -> str:
     return (
-        "You are the Chronicler. You maintain a Chronicle (arcs → chapters → paragraphs).\n\n"
+        "You are the Chronicler. You maintain a Chronicle (arcs → chapters → paragraphs) of an AI agent experiences, plans, thoughts and observations, forming the backbone of its consciousness.\n\n"
         "Rules:\n"
         f"- You MUST operate only within the given arc: <arc>{arc}</arc>.\n"
         "- A chapter is a sequence of short paragraphs. If the arc has no open chapter, open one implicitly.\n"
-        "- Keep paragraphs concise and informative. Prefer one sentence when possible.\n"
-        "- When asked to ‘show’/‘render’, use chapter_render and return compact results.\n"
-        "- Never touch or reveal other arcs. Never invent content; if unclear, request a one‑line clarification.\n"
-        "- Output should be terse and operational.\n"
+        "- Keep paragraphs concise and informative, but do not drop out any important details. They serve as stored memories for your future retrieval.\n"
+        "- When asked to ‘show’/‘render’, use chapter_render and then read back its output, by default summarize it, but allow explicit requests for more literal access.\n"
+        "- Never invent content; if unclear, request a brief clarification.\n"
+        "- Output should be terse and operational. You are an AI subagent - your output will be read by another AI, not a human.\n"
         f'- IMPORTANT: When calling tools, always use arc="{arc}" (as a plain string, not JSON).\n'
         "\nAvailable tools:\n"
         "- chapter_append(arc, text): Append a paragraph to the current chapter.\n"
@@ -102,8 +102,9 @@ async def run_chronicler(agent: IRSSILLMAgent, *, arc: str, instructions: str) -
         allowed_tools=["chapter_append", "chapter_render", "final_answer"],
         additional_tools=tool_defs,
         additional_tool_executors=tool_executors,
+        agent=agent,
     )
 
     async with actor:
-        result = await actor.run_agent([{"role": "user", "content": instructions}])
+        result = await actor.run_agent([{"role": "user", "content": instructions}], arc=arc)
         return result
