@@ -36,7 +36,9 @@ class TestAutoChronicler:
         mock_history.count_recent_unchronicled.return_value = 5
         autochronicler = AutoChronicler(mock_history, mock_monitor)
 
-        result = await autochronicler.check_and_chronicle("testserver", "#testchannel", max_size=10)
+        result = await autochronicler.check_and_chronicle(
+            "user1", "testserver", "#testchannel", max_size=10
+        )
 
         assert result is False
         mock_history.count_recent_unchronicled.assert_called_once_with(
@@ -71,7 +73,9 @@ class TestAutoChronicler:
 
         autochronicler = AutoChronicler(mock_history, mock_monitor)
 
-        result = await autochronicler.check_and_chronicle("testserver", "#testchannel", max_size=10)
+        result = await autochronicler.check_and_chronicle(
+            "user1", "testserver", "#testchannel", max_size=10
+        )
 
         assert result is True
         mock_history.count_recent_unchronicled.assert_called_once_with(
@@ -111,7 +115,7 @@ class TestAutoChronicler:
         mock_monitor.agent.model_router.call_raw_with_model = mock_call
 
         autochronicler = AutoChronicler(mock_history, mock_monitor)
-        result = await autochronicler._run_chronicler("test#arc", messages)
+        result = await autochronicler._run_chronicler("user1", "test#arc", messages)
 
         assert result == 123  # Expected chapter ID
 

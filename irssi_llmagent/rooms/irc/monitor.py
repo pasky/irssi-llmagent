@@ -464,7 +464,7 @@ class IRCRoomMonitor:
 
         # Check if auto-chronicling is needed
         max_size = self.irc_config["command"]["history_size"]
-        await self.autochronicler.check_and_chronicle(server, chan_name, max_size)
+        await self.autochronicler.check_and_chronicle(mynick, server, chan_name, max_size)
 
     async def handle_command(
         self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
@@ -511,7 +511,7 @@ class IRCRoomMonitor:
         await self.proactive_debouncer.cancel_channel(chan_name)
 
         # Check if auto-chronicling is needed after command handling
-        await self.autochronicler.check_and_chronicle(server, chan_name, default_size)
+        await self.autochronicler.check_and_chronicle(mynick, server, chan_name, default_size)
 
     async def _route_command(
         self,
