@@ -15,7 +15,7 @@ class ChapterAppendExecutor:
     arc: str
 
     async def execute(self, text: str) -> str:
-        logger.info(f"Appending to {self.arc} chapter: text")
+        logger.info(f"Appending to {self.arc} chapter: {text}")
         await self.chronicle.append_paragraph(self.arc, text)
         return "OK"
 
