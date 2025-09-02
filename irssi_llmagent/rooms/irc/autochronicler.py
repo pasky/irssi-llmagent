@@ -131,7 +131,8 @@ class AutoChronicler:
 
         user_prompt = f"Review the following {len(messages)} recent IRC messages (your nick is {mynick}) and create a single paragraph with chronicle entry that captures what you should remember about it in the future:\n\n{messages_text}\n\nRespond only with the paragraph, no preamble."
 
-        chronicler_model = self.monitor.agent.config["chronicler"]["model"]
+        chronicler_config = self.monitor.agent.config["chronicler"]
+        chronicler_model = chronicler_config["arc_models"].get(arc, chronicler_config["model"])
         resp, client, _ = await self.monitor.agent.model_router.call_raw_with_model(
             model_str=chronicler_model,
             context=[{"role": "user", "content": user_prompt}],
