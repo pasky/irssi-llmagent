@@ -31,7 +31,7 @@ def _get_arc_lock(arc: str) -> asyncio.Lock:
     return _arc_locks[arc]
 
 
-async def _generate_chapter_summary(chapter_paragraphs: list[str], agent: Any) -> str:
+async def _generate_chapter_summary(agent: Any, arc: str, chapter_paragraphs: list[str]) -> str:
     """Generate a single-paragraph summary of chapter paragraphs."""
     summary_prompt = """As an AI agent, you maintain a Chronicle (arcs → chapters → paragraphs) of your experiences, plans, thoughts and observations, forming the backbone of your consciousness.
 
@@ -43,7 +43,8 @@ Respond only with the summary, no preamble."""
 
     user_content = "\n\n".join(chapter_paragraphs)
 
-    model = agent.config.get("chronicler", {}).get("model")
+    chronicler_config = agent.config["chronicler"]
+    model = chronicler_config.get("arc_models", {}).get(arc, chronicler_config["model"])
 
     resp, client, _ = await agent.model_router.call_raw_with_model(
         model_str=model,
@@ -119,7 +120,7 @@ async def chapter_append_paragraph(arc: str, paragraph_text: str, agent: Any) ->
             assert chapter_paragraphs, f"Chapter {chapter_id} should have paragraphs but found none"
 
             # Generate chapter summary
-            summary = await _generate_chapter_summary(chapter_paragraphs, agent)
+            summary = await _generate_chapter_summary(agent, arc, chapter_paragraphs)
             logger.info(f"Generated summary for chapter {chapter_id}: {summary[:500]}...")
 
             # Close current chapter with summary
