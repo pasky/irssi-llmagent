@@ -8,8 +8,8 @@ A modern Python-based agentic LLM chatbot service that connects to irssi via var
 - **Agentic Capability**: Ability to visit websites, view images, perform deep research, execute Python code, publish artifacts
 - **Command System**: Extensible command-based interaction with prefixes for various modes
 - **Proactive Interjecting**: Channel-based whitelist system for automatic participation in relevant conversations
+- **Restartable and Persistent Memory**: All state is persisted; AI agent maintains a continuous chronicle of events and experiences to refer to
 - **Async Architecture**: Non-blocking message processing with concurrent handling
-- **Persistent History**: SQLite database with unlimited storage and configurable inference limits
 - **Modern Python**: Built with uv, type safety, and comprehensive testing
 - **Rate Limiting**: Configurable rate limiting and user management
 
