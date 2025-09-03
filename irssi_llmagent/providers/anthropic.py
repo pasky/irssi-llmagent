@@ -119,7 +119,7 @@ class BaseAnthropicAPIClient(BaseAPIClient):
         self.logger.debug(f"Calling {self.provider_name} API with model: {model}")
         self.logger.debug(f"{self.provider_name} request payload: {json.dumps(payload, indent=2)}")
 
-        # Exponential backoff retry for 529 (overloaded) errors
+        # Exponential backoff retry for 5xx (overloaded) errors
         backoff_delays = [0, 2, 5, 10, 20]  # No delay, then 2s, 5s, 10s, 20s
 
         for attempt, delay in enumerate(backoff_delays):
@@ -134,11 +134,11 @@ class BaseAnthropicAPIClient(BaseAPIClient):
                     data = await response.json()
 
                     if not response.ok:
-                        # Check for 529 overloaded error and retry if not last attempt
-                        if response.status == 529 and attempt < len(backoff_delays) - 1:
+                        # Check for 5xx overloaded error and retry if not last attempt
+                        if response.status >= 500 and attempt < len(backoff_delays) - 1:
                             error_body = json.dumps(data) if data else f"HTTP {response.status}"
                             self.logger.warning(
-                                f"{self.provider_name} overloaded (HTTP 529), retrying in {backoff_delays[attempt + 1]}s..."
+                                f"{self.provider_name} overloaded (HTTP {response.status}), retrying in {backoff_delays[attempt + 1]}s..."
                             )
                             continue
 
@@ -151,8 +151,8 @@ class BaseAnthropicAPIClient(BaseAPIClient):
                 return data
 
             except aiohttp.ClientError as e:
-                # Only retry 529 errors, fail fast on other errors
-                if "HTTP status 529" in str(e) and attempt < len(backoff_delays) - 1:
+                # Only retry 5xx errors, fail fast on other errors
+                if "HTTP status 5" in str(e) and attempt < len(backoff_delays) - 1:
                     continue
                 self.logger.error(f"{self.provider_name} API error: {e}")
                 return {"error": f"API error: {e}"}
