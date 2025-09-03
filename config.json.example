@@ -73,9 +73,9 @@
         "rate_period": 900,
         "debounce": 1.5,
         "ignore_users": [],
-        "default_mode": "classifier",
+        "default_mode": "serious",
         "channel_modes": {
-          "#serious-work": "serious",
+          "#random": "classifier",
           "#sarcasm-corner": "sarcastic"
         },
         "modes": {
