@@ -59,6 +59,26 @@ class IRCRoomMonitor:
         ignore_list = self.irc_config["command"]["ignore_users"]
         return any(nick.lower() == ignored.lower() for ignored in ignore_list)
 
+    async def get_chapter_context_messages(self, arc: str) -> list[dict[str, str]]:
+        """Get chapter context as user messages for prepending to conversation.
+
+        Args:
+            arc: Arc name in format "server#channel"
+
+        Returns:
+            List of context messages to prepend, each wrapped in <context_summary> tags
+        """
+        current_chapter = await self.agent.chronicle.get_or_open_current_chapter(arc)
+        chapter_id = current_chapter["id"]
+        paragraphs = await self.agent.chronicle.read_chapter(int(chapter_id))
+        context_messages = []
+        for paragraph in paragraphs:
+            context_messages.append(
+                {"role": "user", "content": f"<context_summary>{paragraph}</context_summary>"}
+            )
+
+        return context_messages
+
     def build_system_prompt(self, mode: str, mynick: str) -> str:
         """Build a command system prompt with standard substitutions.
 
@@ -381,13 +401,26 @@ class IRCRoomMonitor:
         # Extract arc for run_agent call
         arc = actor_kwargs.pop("arc", "")
 
+        # Check if chapter summary should be included for this mode
+        mode_config = self.irc_config["command"]["modes"][mode]
+        include_chapter = mode_config.get("include_chapter_summary", True)
+
+        # Get chapter context messages if enabled for this mode
+        prepended_context = []
+        if include_chapter and arc:
+            prepended_context = await self.get_chapter_context_messages(arc)
+
+        # Generate system prompt (no longer async)
+        system_prompt = self.build_system_prompt(mode, mynick) + extra_prompt
+
         async with AgenticLLMActor(
             config=self.agent.config,
             model=model,
-            system_prompt_generator=lambda: self.build_system_prompt(mode, mynick) + extra_prompt,
+            system_prompt_generator=lambda: system_prompt,
             prompt_reminder_generator=lambda: self.irc_config["command"]["modes"][mode].get(
                 "prompt_reminder"
             ),
+            prepended_context=prepended_context,
             agent=self.agent,
             **actor_kwargs,
         ) as actor:
@@ -626,6 +659,8 @@ class IRCRoomMonitor:
             sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(
                 "history_size", default_size
             )
+            # Pass arc to actor for chapter context
+            arc = f"{server}#{chan_name}"
             response = await self._run_actor(
                 context[-sarcastic_size:],
                 mynick,
@@ -633,6 +668,7 @@ class IRCRoomMonitor:
                 reasoning_effort=reasoning_effort,
                 allowed_tools=[],
                 progress_callback=progress_cb,
+                arc=arc,
             )
         elif mode and mode.endswith("SERIOUS"):
             serious_size = self.irc_config["command"]["modes"]["serious"].get(

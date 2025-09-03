@@ -425,13 +425,20 @@ class TestIRCMonitor:
 
     @pytest.mark.asyncio
     async def test_serious_agent_mode(self, temp_config_file):
-        """Test serious mode now uses agent."""
+        """Test serious mode now uses agent with chapter context."""
         agent = IRSSILLMAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
         agent.history.add_message = AsyncMock()
         agent.history.get_context = AsyncMock(
             return_value=[{"role": "user", "content": "user search for Python news"}]
+        )
+
+        # Mock chronicle for chapter context
+        agent.chronicle = AsyncMock()
+        agent.chronicle.get_or_open_current_chapter = AsyncMock(return_value={"id": 123})
+        agent.chronicle.read_chapter = AsyncMock(
+            return_value=["Previous discussion about Python", "User asked about imports"]
         )
 
         with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
@@ -452,6 +459,22 @@ class TestIRCMonitor:
             # Model should be the serious model from config (list in this case)
             expected_model = agent.config["rooms"]["irc"]["command"]["modes"]["serious"]["model"]
             assert call_args[1]["model"] == expected_model
+
+            # Should have chapter context prepended
+            assert "prepended_context" in call_args[1]
+            prepended = call_args[1]["prepended_context"]
+            assert len(prepended) == 2  # Two paragraphs
+            assert prepended[0]["role"] == "user"
+            assert (
+                "<context_summary>Previous discussion about Python</context_summary>"
+                in prepended[0]["content"]
+            )
+            assert prepended[1]["role"] == "user"
+            assert (
+                "<context_summary>User asked about imports</context_summary>"
+                in prepended[1]["content"]
+            )
+
             # Should call run_agent with context only
             mock_agent.run_agent.assert_called_once()
             call_args = mock_agent.run_agent.call_args
@@ -462,12 +485,24 @@ class TestIRCMonitor:
 
     @pytest.mark.asyncio
     async def test_sarcastic_mode_unchanged(self, temp_config_file):
-        """Test sarcastic mode still uses regular API client."""
+        """Test sarcastic mode excludes chapter context."""
         agent = IRSSILLMAgent(temp_config_file)
+        # Set include_chapter_summary to false for sarcastic mode
+        agent.config["rooms"]["irc"]["command"]["modes"]["sarcastic"][
+            "include_chapter_summary"
+        ] = False
+
         agent.irc_monitor.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
         agent.history.add_message = AsyncMock()
         agent.history.get_context = AsyncMock(return_value=[])
+
+        # Mock chronicle (should not be called since sarcastic mode excludes it)
+        agent.chronicle = AsyncMock()
+        agent.chronicle.get_or_open_current_chapter = AsyncMock(return_value={"id": 123})
+        agent.chronicle.read_chapter = AsyncMock(
+            return_value=["Previous discussion about Python", "User asked about imports"]
+        )
 
         # Mock the API client class that would be returned by _get_api_client_class
         async def fake_call_raw_with_model(*args, **kwargs):
@@ -476,17 +511,26 @@ class TestIRCMonitor:
 
             return resp, MockAPIClient("Sarcastic response"), None
 
-        with patch(
-            "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
-            new=AsyncMock(side_effect=fake_call_raw_with_model),
-        ) as mock_call:
-            # Test sarcastic mode (default - should use router)
+        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+            mock_agent = AsyncMock()
+            mock_agent.run_agent = AsyncMock(return_value="Sarcastic response")
+            mock_agent_class.return_value.__aenter__.return_value = mock_agent
+
+            # Test sarcastic mode
             await agent.irc_monitor.handle_command(
-                "test", "#test", "#test", "user", "tell me jokes", "mybot"
+                "test", "#test", "#test", "user", "!d make fun of user", "mybot"
             )
 
-            # Should have been called
-            assert mock_call.called
+            # Should create agent but without chapter context
+            mock_agent_class.assert_called_once()
+            call_args = mock_agent_class.call_args
+            assert "prepended_context" in call_args[1]
+            prepended = call_args[1]["prepended_context"]
+            assert len(prepended) == 0  # No chapter context for sarcastic mode
+
+            # Chronicle should not be called since include_chapter_summary is false
+            agent.chronicle.get_or_open_current_chapter.assert_not_called()
+            agent.chronicle.read_chapter.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_mode_classification(self, temp_config_file):
@@ -613,6 +657,13 @@ class TestIRCMonitor:
             return_value=[{"role": "user", "content": "I need help with Python imports"}]
         )
         agent.irc_monitor.server_nicks["test"] = "mybot"
+
+        # Mock chronicle for chapter context
+        agent.chronicle = AsyncMock()
+        agent.chronicle.get_or_open_current_chapter = AsyncMock(
+            return_value={"id": 123}  # Chapter exists
+        )
+        agent.chronicle.read_chapter = AsyncMock(return_value=["Previous context", "More context"])
 
         # Mock the router for proactive decisions and classification
         seq = ["Should help with this: 9/10", "SERIOUS"]

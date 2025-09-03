@@ -63,7 +63,7 @@ async def test_chapter_append_paragraph_over_limit(temp_config_file):
 
     # Add paragraphs up to limit (5 paragraphs)
     for i in range(5):
-        await chapter_append_paragraph(arc, f"Paragraph {i+1}", agent)
+        await chapter_append_paragraph(arc, f"Paragraph {i + 1}", agent)
 
     # Get current chapter ID
     chapter_before = await agent.chronicle.get_or_open_current_chapter(arc)

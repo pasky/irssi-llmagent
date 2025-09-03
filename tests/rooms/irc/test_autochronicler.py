@@ -28,8 +28,18 @@ class TestAutoChronicler:
         monitor.agent.model_router.extract_text_from_response = Mock(return_value="Test summary")
         monitor.agent.chronicle.append_paragraph = AsyncMock()
         monitor.agent.chronicle.get_or_open_current_chapter = AsyncMock(return_value={"id": 123})
+        monitor.agent.chronicle.read_chapter = AsyncMock(
+            return_value=["Previous context", "More context"]
+        )
         monitor.agent.chronicle.db_path = ":memory:"  # For chapter functions
         monitor.agent.config = {"chronicler": {"model": "test:model", "paragraphs_per_chapter": 10}}
+        # Mock the get_chapter_context_messages method
+        monitor.get_chapter_context_messages = AsyncMock(
+            return_value=[
+                {"role": "user", "content": "<context_summary>Previous context</context_summary>"},
+                {"role": "user", "content": "<context_summary>More context</context_summary>"},
+            ]
+        )
         return monitor
 
     @pytest.mark.asyncio
@@ -139,8 +149,20 @@ class TestAutoChronicler:
         assert call_args.kwargs["system_prompt"] is not None
         assert "chronicle" in call_args.kwargs["system_prompt"].lower()
 
-        # Check that the user prompt includes the messages
-        user_prompt = call_args.kwargs["context"][0]["content"]
+        # Check that there are three context messages: 2 chapter contexts + message content
+        context_messages = call_args.kwargs["context"]
+        assert len(context_messages) == 3
+
+        # First two messages should be chapter context
+        assert context_messages[0]["role"] == "user"
+        assert (
+            "<context_summary>Previous context</context_summary>" in context_messages[0]["content"]
+        )
+        assert context_messages[1]["role"] == "user"
+        assert "<context_summary>More context</context_summary>" in context_messages[1]["content"]
+
+        # Third message should be the actual messages to chronicle
+        user_prompt = context_messages[2]["content"]
         assert "[2025-01-01 10:00" in user_prompt
         assert "<user1> hello world" in user_prompt
         assert "<user2> how are you?" in user_prompt

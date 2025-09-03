@@ -78,16 +78,6 @@ async def _count_paragraphs_in_chapter(chronicle: Any, chapter_id: int) -> int:
         return int(row[0]) if row else 0
 
 
-async def _get_paragraphs_for_chapter(chronicle: Any, chapter_id: int) -> list[str]:
-    """Get all paragraph content for a chapter, ordered by timestamp."""
-    async with aiosqlite.connect(chronicle.db_path) as db:
-        cursor = await db.execute(
-            "SELECT content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC", (chapter_id,)
-        )
-        rows = await cursor.fetchall()
-        return [row[0] for row in rows]
-
-
 async def chapter_append_paragraph(arc: str, paragraph_text: str, agent: Any) -> dict[str, Any]:
     """
     Append paragraph to chronicle, handling chapter management.
@@ -116,7 +106,7 @@ async def chapter_append_paragraph(arc: str, paragraph_text: str, agent: Any) ->
 
         if paragraph_count >= max_paragraphs:
             # Get all paragraphs from current chapter
-            chapter_paragraphs = await _get_paragraphs_for_chapter(agent.chronicle, chapter_id)
+            chapter_paragraphs = await agent.chronicle.read_chapter(chapter_id)
             assert chapter_paragraphs, f"Chapter {chapter_id} should have paragraphs but found none"
 
             # Generate chapter summary

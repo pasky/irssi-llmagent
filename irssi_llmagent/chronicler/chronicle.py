@@ -114,6 +114,9 @@ class Chronicle:
             chapter = await self._get_open_chapter_row(arc_id)
             if not chapter:
                 chapter = await self._open_new_chapter(arc_id)
+                await self.append_paragraph(
+                    arc, "<meta>This is a beginning of an entirely new story arc!</meta>"
+                )
         return {
             "id": chapter.id,
             "arc_id": chapter.arc_id,
@@ -176,6 +179,15 @@ class Chronicle:
             if not row:
                 return None, None
             return int(row[0]), Chapter(int(row[0]), int(row[1]), str(row[2]), row[3], row[4])
+
+    async def read_chapter(self, chapter_id: int) -> list[str]:
+        """Read all paragraphs from a chapter."""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC", (chapter_id,)
+            )
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
 
     async def render_chapter(
         self, arc: str, chapter_id: int | None = None, last_n: int | None = None

@@ -130,7 +130,9 @@ class AutoChronicler:
         assert chronicle_tools[0]["name"] == "chronicle_append"
         system_prompt = chronicle_tools[0]["description"]  # chronicle_append is first tool
 
+        context_messages = await self.monitor.get_chapter_context_messages(arc)
         user_prompt = f"Review the following {len(messages)} recent IRC messages (your nick is {mynick}) and create a single paragraph with chronicle entry that captures what you should remember about it in the future:\n\n{messages_text}\n\nRespond only with the paragraph, no preamble."
+        context_messages.append({"role": "user", "content": user_prompt})
 
         chronicler_config = self.monitor.agent.config["chronicler"]
         chronicler_model = chronicler_config.get("arc_models", {}).get(
@@ -138,7 +140,7 @@ class AutoChronicler:
         )
         resp, client, _ = await self.monitor.agent.model_router.call_raw_with_model(
             model_str=chronicler_model,
-            context=[{"role": "user", "content": user_prompt}],
+            context=context_messages,
             system_prompt=system_prompt,
         )
         response = client.extract_text_from_response(resp)
@@ -149,11 +151,13 @@ class AutoChronicler:
 
             # Get the current chapter ID
             current_chapter = await self.monitor.agent.chronicle.get_or_open_current_chapter(arc)
-            chapter_id = current_chapter.get("id")
+            chapter_id = current_chapter["id"]
 
             logger.info(
                 f"Chronicled {len(messages)} messages for arc {arc} to chapter {chapter_id}: {response}"
             )
             return chapter_id
+        else:
+            logger.warning(f"Model {chronicler_model} for arc {arc} returned no response")
 
         return None

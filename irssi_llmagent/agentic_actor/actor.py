@@ -25,6 +25,7 @@ class AgenticLLMActor:
         allowed_tools: list[str] | None = None,
         additional_tools: list[dict[str, Any]] | None = None,
         additional_tool_executors: dict[str, Any] | None = None,
+        prepended_context: list[dict[str, str]] | None = None,
         agent: Any,
     ):
         self.config = config
@@ -35,6 +36,7 @@ class AgenticLLMActor:
         self.allowed_tools = allowed_tools
         self.additional_tools = additional_tools or []
         self.additional_tool_executors = additional_tool_executors or {}
+        self.prepended_context = prepended_context or []
         self.agent = agent
         self.model_router: ModelRouter | None = None
 
@@ -70,7 +72,9 @@ class AgenticLLMActor:
         arc: str,
     ) -> str:
         """Run the agent with tool-calling loop."""
-        messages: list[dict[str, Any]] = copy.deepcopy(context)
+        messages: list[dict[str, Any]] = copy.deepcopy(self.prepended_context) + copy.deepcopy(
+            context
+        )
 
         # Create tool executors with the provided arc
         base_executors = create_tool_executors(
