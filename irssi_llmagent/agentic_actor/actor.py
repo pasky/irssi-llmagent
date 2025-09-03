@@ -227,8 +227,15 @@ class AgenticLLMActor:
                                     logger.warning(
                                         "Rejecting final answer {tool_result}, since multiple tool calls were seen."
                                     )
-                                else:
-                                    return client.cleanup_raw_text(tool_result)
+                                    continue
+                                cleaned_result = client.cleanup_raw_text(tool_result)
+                                if (
+                                    cleaned_result and cleaned_result != "..."
+                                ) or "<thinking>" not in tool_result:
+                                    return cleaned_result
+                                logger.warning(
+                                    "Final answer was empty after stripping thinking tags, continuing turn"
+                                )
 
                         except Exception as e:
                             import traceback

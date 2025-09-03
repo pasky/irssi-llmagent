@@ -836,6 +836,94 @@ class TestAPIAgent:
         assert "No valid text" in result["message"]
 
     @pytest.mark.asyncio
+    async def test_final_answer_empty_with_thinking_continues_turn(self, agent):
+        """Test that empty final answer with thinking tags continues the turn."""
+
+        class MockClient:
+            def __init__(self, responses):
+                self.responses = responses
+                self.call_count = 0
+
+            def cleanup_raw_text(self, text):
+                # Simulate cleanup_raw_text stripping thinking tags
+                import re
+
+                cleaned = re.sub(r"<thinking>.*?</thinking>\s*", "", text, flags=re.DOTALL).strip()
+                return cleaned if cleaned else "..."
+
+            def has_tool_calls(self, response):
+                return "tool_calls" in response
+
+            def extract_tool_calls(self, response):
+                return response.get("tool_calls", [])
+
+            def format_assistant_message(self, response):
+                return {"role": "assistant", "content": ""}
+
+            def format_tool_results(self, results):
+                # Format tool results to preserve original content
+                formatted = []
+                for result in results:
+                    formatted.append(
+                        {
+                            "role": "user",
+                            "content": result["content"],  # Keep original content verbatim
+                        }
+                    )
+                return formatted
+
+        # First response: only thinking, no actual answer
+        # Second response: proper answer
+        responses = [
+            {
+                "tool_calls": [
+                    {
+                        "id": "1",
+                        "name": "final_answer",
+                        "input": {"answer": "<thinking>I need to think about this...</thinking>"},
+                    }
+                ]
+            },
+            {
+                "tool_calls": [
+                    {
+                        "id": "2",
+                        "name": "final_answer",
+                        "input": {"answer": "This is the actual answer"},
+                    }
+                ]
+            },
+        ]
+
+        mock_client = MockClient(responses)
+
+        call_messages = []  # Track messages for each call
+
+        async def mock_call_raw_with_model(model, messages, *args, **kwargs):
+            if isinstance(messages, list):
+                call_messages.append(messages.copy())  # Store messages for verification
+            response = responses[mock_client.call_count]
+            mock_client.call_count += 1
+            return response, mock_client, None
+
+        with patch(
+            "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
+            new=AsyncMock(side_effect=mock_call_raw_with_model),
+        ):
+            result = await agent.run_agent([{"role": "user", "content": "test"}], arc="test")
+            assert result == "This is the actual answer"
+            assert mock_client.call_count == 2  # Should have made 2 calls
+
+            # Verify second call includes the original thinking content
+            assert len(call_messages) == 2
+            second_call_messages = call_messages[1]
+            thinking_found = any(
+                "<thinking>I need to think about this...</thinking>" in str(msg.get("content", ""))
+                for msg in second_call_messages
+            )
+            assert thinking_found, "Second call should include original thinking content verbatim"
+
+    @pytest.mark.asyncio
     async def test_agent_max_tokens_tool_retry(self, agent):
         """Test agent handles max_tokens truncated tool calls by retrying."""
         # Create truncated Claude response first, then successful response
