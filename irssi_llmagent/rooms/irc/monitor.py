@@ -93,13 +93,13 @@ class IRCRoomMonitor:
 
         # Get model configurations for context
         sarcastic_model = self.irc_config["command"]["modes"]["sarcastic"]["model"]
-        serious_cfg = self.irc_config["command"]["modes"]["serious"]["model"]
-        serious_model = (
-            serious_cfg[0] if isinstance(serious_cfg, list) and serious_cfg else serious_cfg
-        )
-        unsafe_model = (
-            self.irc_config["command"]["modes"].get("unsafe", {}).get("model", "not-configured")
-        )
+        serious_model = str(self.irc_config["command"]["modes"]["serious"]["model"])
+        unsafe_model = self.irc_config["command"]["modes"]["unsafe"]["model"]
+
+        # Extract core model names: provider:namespace/model#routing -> model
+        sarcastic_core = re.sub(r"(?:[^:]*:)?(?:.*/)?([^#/]+)(?:#.*)?", r"\1", sarcastic_model)
+        serious_core = re.sub(r"(?:[^:]*:)?(?:.*/)?([^#/]+)(?:#.*)?", r"\1", serious_model)
+        unsafe_core = re.sub(r"(?:[^:]*:)?(?:.*/)?([^#/]+)(?:#.*)?", r"\1", unsafe_model)
 
         # Get the prompt template from command section
         try:
@@ -110,9 +110,9 @@ class IRCRoomMonitor:
         return prompt_template.format(
             mynick=mynick,
             current_time=current_time,
-            sarcastic_model=sarcastic_model,
-            serious_model=serious_model,
-            unsafe_model=unsafe_model,
+            sarcastic_model=sarcastic_core,
+            serious_model=serious_core,
+            unsafe_model=unsafe_core,
         )
 
     async def get_mynick(self, server: str) -> str | None:
