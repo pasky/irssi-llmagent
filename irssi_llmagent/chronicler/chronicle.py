@@ -70,15 +70,15 @@ class Chronicle:
             )
             await db.commit()
 
-    async def get_or_create_arc(self, arc: str) -> int:
+    async def _get_or_create_arc(self, arc: str) -> tuple[int, bool]:
         async with self._lock, aiosqlite.connect(self.db_path) as db:
             cur = await db.execute("SELECT id FROM arcs WHERE name = ?", (arc,))
             row = await cur.fetchone()
             if row:
-                return int(row[0])
+                return int(row[0]), False
             cur = await db.execute("INSERT INTO arcs(name) VALUES (?)", (arc,))
             await db.commit()
-            return int(cur.lastrowid or 0)
+            return int(cur.lastrowid or 0), True
 
     async def _get_open_chapter_row(self, arc_id: int) -> Chapter | None:
         async with aiosqlite.connect(self.db_path) as db:
@@ -109,14 +109,15 @@ class Chronicle:
             return Chapter(int(row[0]), int(row[1]), str(row[2]), row[3], row[4])
 
     async def get_or_open_current_chapter(self, arc: str) -> dict[str, Any]:
-        arc_id = await self.get_or_create_arc(arc)
+        arc_id, new_arc = await self._get_or_create_arc(arc)
         async with self._lock:
             chapter = await self._get_open_chapter_row(arc_id)
             if not chapter:
                 chapter = await self._open_new_chapter(arc_id)
-                await self.append_paragraph(
-                    arc, "<meta>This is a beginning of an entirely new story arc!</meta>"
-                )
+        if new_arc:
+            await self.append_paragraph(
+                arc, "<meta>This is a beginning of an entirely new story arc!</meta>"
+            )
         return {
             "id": chapter.id,
             "arc_id": chapter.arc_id,
@@ -153,7 +154,7 @@ class Chronicle:
     async def _resolve_chapter_id(
         self, arc: str, chapter_id: int | None
     ) -> tuple[int | None, Chapter | None]:
-        arc_id = await self.get_or_create_arc(arc)
+        arc_id, _ = await self._get_or_create_arc(arc)
         if chapter_id is not None:
             async with aiosqlite.connect(self.db_path) as db:
                 cur = await db.execute(
