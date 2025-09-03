@@ -185,7 +185,7 @@ class Chronicle:
         self, arc: str, relative_chapter_id: int
     ) -> tuple[int | None, Chapter | None]:
         """Resolve a relative chapter ID (0=current, -1=previous, -2=two chapters back, etc.)"""
-        arc_id = await self.get_or_create_arc(arc)
+        arc_id, _ = await self._get_or_create_arc(arc)
 
         # Get all chapters for this arc, ordered by opened_at (oldest first)
         async with aiosqlite.connect(self.db_path) as db:
