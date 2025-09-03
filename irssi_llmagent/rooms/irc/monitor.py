@@ -646,6 +646,9 @@ class IRCRoomMonitor:
             elif channel_mode == "sarcastic":
                 mode = "SARCASTIC"
                 logger.debug(f"Using channel-configured sarcastic mode for {chan_name}")
+            elif channel_mode == "unsafe":
+                mode = "UNSAFE"
+                logger.debug(f"Using channel-configured unsafe mode for {chan_name}")
             else:
                 mode = await self.classify_mode(context)
                 logger.debug(f"Auto-classified message as {mode} mode")
