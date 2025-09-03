@@ -180,6 +180,52 @@ class Chronicle:
                 return None, None
             return int(row[0]), Chapter(int(row[0]), int(row[1]), str(row[2]), row[3], row[4])
 
+    async def _resolve_relative_chapter_id(
+        self, arc: str, relative_chapter_id: int
+    ) -> tuple[int | None, Chapter | None]:
+        """Resolve a relative chapter ID (0=current, -1=previous, -2=two chapters back, etc.)"""
+        arc_id = await self.get_or_create_arc(arc)
+
+        # Get all chapters for this arc, ordered by opened_at (oldest first)
+        async with aiosqlite.connect(self.db_path) as db:
+            cur = await db.execute(
+                "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters"
+                " WHERE arc_id = ? ORDER BY opened_at ASC",
+                (arc_id,),
+            )
+            rows = await cur.fetchall()
+
+        if not rows:
+            return None, None
+
+        # Find current chapter (open chapter or latest chapter)
+        open_ch = await self._get_open_chapter_row(arc_id)
+        current_chapter_id = open_ch.id if open_ch else max(int(row[0]) for row in rows)
+
+        # Build ordered list of chapter IDs (oldest to newest)
+        chapter_ids = [int(row[0]) for row in rows]
+
+        # Find index of current chapter
+        try:
+            current_index = chapter_ids.index(current_chapter_id)
+        except ValueError:
+            return None, None
+
+        # Calculate target index based on relative offset
+        target_index = current_index + relative_chapter_id
+
+        if target_index < 0 or target_index >= len(chapter_ids):
+            return None, None
+
+        target_chapter_id = chapter_ids[target_index]
+
+        # Find the row data for the target chapter
+        for row in rows:
+            if int(row[0]) == target_chapter_id:
+                return int(row[0]), Chapter(int(row[0]), int(row[1]), str(row[2]), row[3], row[4])
+
+        return None, None
+
     async def read_chapter(self, chapter_id: int) -> list[str]:
         """Read all paragraphs from a chapter."""
         async with aiosqlite.connect(self.db_path) as db:
@@ -209,6 +255,42 @@ class Chronicle:
 
         # Format markdown
         title = f"# Arc: {arc} — Chapter {chap.id} (opened {chap.opened_at.split('.')[0]})"
+        if chap.closed_at:
+            title += f", closed {str(chap.closed_at).split('.')[0]}"
+        lines = [title, "", "Paragraphs:"]
+        for ts, content in rows_list:
+            hhmm = str(ts)[11:16] if len(str(ts)) >= 16 else str(ts)
+            lines.append(f"[{hhmm}] {content}")
+        if len(rows_list) == 0:
+            lines.append("(No paragraphs)")
+        return "\n".join(lines)
+
+    async def render_chapter_relative(
+        self, arc: str, relative_chapter_id: int, last_n: int | None = None
+    ) -> str:
+        """Render a chapter using relative chapter ID (0=current, -1=previous, etc.)"""
+        chap_id, chap = await self._resolve_relative_chapter_id(arc, relative_chapter_id)
+        if chap_id is None or chap is None:
+            return f"# Arc: {arc} — No chapters at relative offset {relative_chapter_id}\n\n(Empty)"
+
+        async with aiosqlite.connect(self.db_path) as db:
+            cur = await db.execute(
+                "SELECT ts, content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC",
+                (chap_id,),
+            )
+            rows = await cur.fetchall()
+
+        rows_list = list(rows)
+        if last_n is not None and last_n > 0:
+            rows_list = rows_list[-last_n:]
+
+        # Format markdown with relative offset info
+        relative_desc = (
+            "current"
+            if relative_chapter_id == 0
+            else f"{abs(relative_chapter_id)} chapter{'s' if abs(relative_chapter_id) > 1 else ''} {'back' if relative_chapter_id < 0 else 'forward'}"
+        )
+        title = f"# Arc: {arc} — Chapter {chap.id} ({relative_desc}, opened {chap.opened_at.split('.')[0]})"
         if chap.closed_at:
             title += f", closed {str(chap.closed_at).split('.')[0]}"
         lines = [title, "", "Paragraphs:"]

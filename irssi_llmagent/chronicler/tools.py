@@ -27,9 +27,11 @@ class ChapterRenderExecutor:
     chronicle: Any  # Chronicle
     arc: str
 
-    async def execute(self, chapter_id: int | None = None) -> str:
-        result = await self.chronicle.render_chapter(self.arc, chapter_id=chapter_id)
-        logger.debug(f"Read chapter from {self.arc} {chapter_id}: {result[:500]}...")
+    async def execute(self, relative_chapter_id: int) -> str:
+        result = await self.chronicle.render_chapter_relative(self.arc, relative_chapter_id)
+        logger.debug(
+            f"Read relative chapter from {self.arc} {relative_chapter_id}: {result[:500]}..."
+        )
         return result
 
 
@@ -59,15 +61,16 @@ Never invent content.  In case it is important for you to remember even a sensit
         },
         {
             "name": "chronicle_read",
-            "description": "Read from a chapter in the Chronicle.  Use this to come back to your recent memories, observations and events of what has been happenning.",
+            "description": "Read from a chapter in the Chronicle. Use this to come back to your recent memories, observations and events of what has been happening. Since the current chapter is always included in context, use relative offsets to access previous chapters.",
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "chapter_id": {
+                    "relative_chapter_id": {
                         "type": "integer",
-                        "description": "By default, read from the currently open chapter.",
+                        "description": "Relative chapter offset from current chapter. Use -1 for previous chapter, -2 for two chapters back, etc.",
                     },
                 },
+                "required": ["relative_chapter_id"],
             },
         },
     ]
