@@ -153,7 +153,7 @@ class AutoChronicler:
             current_chapter = await self.monitor.agent.chronicle.get_or_open_current_chapter(arc)
             chapter_id = current_chapter["id"]
 
-            logger.info(
+            logger.debug(
                 f"Chronicled {len(messages)} messages for arc {arc} to chapter {chapter_id}: {response}"
             )
             return chapter_id
