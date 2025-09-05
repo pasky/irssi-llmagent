@@ -554,6 +554,102 @@ class TestAPIAgent:
         assert tool_uses is None
 
     @pytest.mark.asyncio
+    async def test_vision_fallback_switches_model_and_appends_suffix(self, test_config, mock_agent):
+        """Image via visit_webpage triggers switching to vision_model and suffix in final text."""
+        # Minimal prompt wiring
+        test_config["rooms"]["irc"]["command"]["modes"]["serious"][
+            "prompt"
+        ] = "You are IRC user {mynick}."
+
+        # Build actor with openrouter base and anthropic vision
+        from irssi_llmagent.agentic_actor import AgenticLLMActor
+        from irssi_llmagent.providers import ModelRouter, ModelSpec
+
+        model_calls: list[str] = []
+
+        # First response: tool call to visit_webpage; Second: final text
+        tool_resp = {
+            "content": [
+                {"type": "text", "text": "I'll visit"},
+                {
+                    "type": "tool_use",
+                    "id": "tool_1",
+                    "name": "visit_webpage",
+                    "input": {"url": "https://x"},
+                },
+            ],
+            "stop_reason": "tool_use",
+        }
+        final_resp = {"content": [{"type": "text", "text": "Done."}], "stop_reason": "end_turn"}
+        seq = [tool_resp, final_resp]
+
+        async def fake_call_raw_with_model(model, messages, *args, **kwargs):
+            model_calls.append(model)
+            return (
+                seq.pop(0),
+                type(
+                    "C",
+                    (),
+                    {
+                        "extract_text_from_response": lambda self, r: "Done."
+                        if r is final_resp
+                        else "",
+                        "has_tool_calls": lambda self, r: r is tool_resp,
+                        "extract_tool_calls": lambda self, r: (
+                            [
+                                {
+                                    "id": "tool_1",
+                                    "name": "visit_webpage",
+                                    "input": {"url": "https://x"},
+                                }
+                            ]
+                            if r is tool_resp
+                            else None
+                        ),
+                        "format_assistant_message": lambda self, r: {
+                            "role": "assistant",
+                            "content": [],
+                        },
+                        "format_tool_results": lambda self, results: {
+                            "role": "user",
+                            "content": [],
+                        },
+                        "cleanup_raw_text": lambda self, t: t,
+                    },
+                )(),
+                ModelSpec("anthropic", "dummy"),
+            )
+
+        actor = AgenticLLMActor(
+            config=test_config,
+            model="openrouter:gpt-4o-mini",
+            system_prompt_generator=lambda: test_config["rooms"]["irc"]["command"]["modes"][
+                "serious"
+            ]["prompt"].format(
+                mynick="testbot",
+                current_time="now",
+                sarcastic_model="s",
+                serious_model="s",
+                unsafe_model="u",
+            ),
+            agent=mock_agent,
+            vision_model="anthropic:claude-sonnet-4-20250514",
+        )
+
+        with patch.object(
+            ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+        ):
+            with patch(
+                "irssi_llmagent.agentic_actor.actor.execute_tool", new_callable=AsyncMock
+            ) as mock_tool:
+                mock_tool.return_value = "IMAGE_DATA:image/jpeg:1234:AAAA"
+                result = await actor.run_agent([{"role": "user", "content": "go"}], arc="arc")
+
+        assert model_calls[0].startswith("openrouter:")
+        assert model_calls[1].startswith("anthropic:")
+        assert result.endswith(" [image fallback to claude-sonnet-4-20250514]")
+
+    @pytest.mark.asyncio
     async def test_agent_multiple_tools_execution(self, agent, api_type):
         """Test agent executes multiple tools in a single response."""
         # Mock response with multiple tool calls

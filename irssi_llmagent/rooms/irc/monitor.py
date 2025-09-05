@@ -422,6 +422,7 @@ class IRCRoomMonitor:
             ),
             prepended_context=prepended_context,
             agent=self.agent,
+            vision_model=mode_config.get("vision_model"),
             **actor_kwargs,
         ) as actor:
             response = await actor.run_agent(context, progress_callback=progress_callback, arc=arc)

@@ -2,6 +2,7 @@
 
 import copy
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -27,6 +28,7 @@ class AgenticLLMActor:
         additional_tool_executors: dict[str, Any] | None = None,
         prepended_context: list[dict[str, str]] | None = None,
         agent: Any,
+        vision_model: str | None = None,
     ):
         self.config = config
         self.model = model
@@ -39,6 +41,7 @@ class AgenticLLMActor:
         self.prepended_context = prepended_context or []
         self.agent = agent
         self.model_router: ModelRouter | None = None
+        self.vision_model = vision_model
 
         # Actor configuration
         actor_cfg = self.config.get("actor", {})
@@ -90,6 +93,9 @@ class AgenticLLMActor:
             progress_start_time = _now()
 
         # Tool execution loop
+        vision_switched = False
+        result_suffix = ""
+
         for iteration in range(self.max_iterations * 2):
             if iteration > 0:
                 logger.info(f"Agent iteration {iteration + 1}/{self.max_iterations}")
@@ -97,7 +103,10 @@ class AgenticLLMActor:
                 logger.warn("Exceeding max iterations...")
 
             # Select model per iteration; last element repeats thereafter for lists
-            if isinstance(self.model, list):
+            if vision_switched:
+                assert self.vision_model
+                model = self.vision_model
+            elif isinstance(self.model, list):
                 model = self.model[iteration] if iteration < len(self.model) else self.model[-1]
             else:
                 model = self.model
@@ -181,7 +190,7 @@ class AgenticLLMActor:
                     logger.error(f"Invalid AI response: {result['message']}")
                     return f"Error: {result['message']}"
                 elif result["type"] == "final_text":
-                    return result["text"]
+                    return f"{result['text']}{result_suffix}"
                 elif result["type"] == "truncated_tool_retry":
                     # Add assistant's truncated tool request to conversation
                     if response and isinstance(response, dict):
@@ -232,7 +241,7 @@ class AgenticLLMActor:
                                 if (
                                     cleaned_result and cleaned_result != "..."
                                 ) or "<thinking>" not in tool_result:
-                                    return cleaned_result
+                                    return f"{cleaned_result}{result_suffix}"
                                 logger.warning(
                                     "Final answer was empty after stripping thinking tags, continuing turn"
                                 )
@@ -243,6 +252,19 @@ class AgenticLLMActor:
                             traceback.print_exc()
                             tool_result = repr(e)
                             logger.warning(f"Tool {tool['name']} failed: {e}")
+
+                        if (
+                            self.vision_model
+                            and not vision_switched
+                            and isinstance(tool_result, str)
+                            and tool_result.startswith("IMAGE_DATA:")
+                        ):
+                            vision_switched = True
+                            fallback_slug = re.sub(
+                                r"(?:[^:]*:)?(?:.*/)?([^#/]+)(?:#.*)?", r"\1", self.vision_model
+                            )
+                            result_suffix += f" [image fallback to {fallback_slug}]"
+
                         tool_results.append(
                             {
                                 "type": "tool_result",
