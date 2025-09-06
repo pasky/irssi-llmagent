@@ -21,7 +21,7 @@ class TestAutoChronicler:
         return history
 
     @pytest.fixture
-    def mock_monitor(self):
+    def mock_monitor(self, mock_history):
         """Create a mock IRC monitor."""
         monitor = MagicMock()
         monitor.agent.model_router.call_raw_with_model = AsyncMock()
@@ -33,6 +33,8 @@ class TestAutoChronicler:
         )
         monitor.agent.chronicle.db_path = ":memory:"  # For chapter functions
         monitor.agent.config = {"chronicler": {"model": "test:model", "paragraphs_per_chapter": 10}}
+        # Mock the history reference that autochronicler now uses
+        monitor.agent.history = mock_history
         # Mock the get_chapter_context_messages method
         monitor.get_chapter_context_messages = AsyncMock(
             return_value=[

@@ -26,7 +26,7 @@ def api_type(request):
 
 
 @pytest.fixture
-def test_config(api_type, temp_chronicler_db_path) -> dict[str, Any]:
+def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict[str, Any]:
     """Test configuration fixture with parametrized API type."""
     base_config = {
         "providers": {
@@ -100,6 +100,9 @@ def test_config(api_type, temp_chronicler_db_path) -> dict[str, Any]:
             "paragraphs_per_chapter": 10,
             "database": {"path": temp_chronicler_db_path},
         },
+        "history": {
+            "database": {"path": temp_history_db_path},
+        },
     }
     return base_config
 
@@ -145,6 +148,23 @@ def temp_chronicler_db_path():
             break
 
     with tempfile.NamedTemporaryFile(suffix="_chronicle.db", delete=False, dir=chosen_dir) as tmp:
+        yield tmp.name
+    Path(tmp.name).unlink(missing_ok=True)
+
+
+@pytest.fixture
+def temp_history_db_path():
+    """Fast temporary history database path fixture (RAM filesystem if available)."""
+    # Try to use RAM filesystem for better performance
+    tmpfs_paths = ["/dev/shm", "/tmp"]
+    chosen_dir = None
+
+    for tmpfs_path in tmpfs_paths:
+        if os.path.exists(tmpfs_path) and os.access(tmpfs_path, os.W_OK):
+            chosen_dir = tmpfs_path
+            break
+
+    with tempfile.NamedTemporaryFile(suffix="_history.db", delete=False, dir=chosen_dir) as tmp:
         yield tmp.name
     Path(tmp.name).unlink(missing_ok=True)
 

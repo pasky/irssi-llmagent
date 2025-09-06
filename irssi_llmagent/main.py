@@ -54,7 +54,7 @@ class IRSSILLMAgent:
         # Get IRC config section
         irc_config = self.config["rooms"]["irc"]
         self.history = ChatHistory(
-            self.config.get("database", {}).get("path", "chat_history.db"),
+            self.config.get("history", {}).get("database", {}).get("path", "chat_history.db"),
             irc_config["command"]["history_size"],
         )
         # Initialize chronicle

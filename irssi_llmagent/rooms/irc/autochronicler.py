@@ -35,7 +35,7 @@ class AutoChronicler:
             history: ChatHistory instance for tracking messages
             monitor: IRCRoomMonitor instance for running chronicling agent
         """
-        self.history = history
+        # Don't store history reference, use monitor.agent.history to allow mocking
         self.monitor = monitor
         self._chronicling_locks = {}  # Per-channel locks to prevent concurrent chronicling
 
@@ -59,7 +59,7 @@ class AutoChronicler:
             self._chronicling_locks[arc] = asyncio.Lock()
 
         async with self._chronicling_locks[arc]:
-            unchronicled_count = await self.history.count_recent_unchronicled(
+            unchronicled_count = await self.monitor.agent.history.count_recent_unchronicled(
                 server, channel, days=self.MAX_LOOKBACK_DAYS
             )
 
@@ -87,7 +87,9 @@ class AutoChronicler:
     ) -> None:
         """Execute auto-chronicling for the given channel."""
         # Get unchronicled messages (limited for safety)
-        messages = await self.history.get_full_history(server, channel, limit=n_messages)
+        messages = await self.monitor.agent.history.get_full_history(
+            server, channel, limit=n_messages
+        )
 
         if not messages:
             logger.error(f"No unchronicled messages found for {arc} ??")
@@ -99,7 +101,7 @@ class AutoChronicler:
 
         if chapter_id:
             # Mark messages as chronicled
-            await self.history.mark_chronicled(message_ids, chapter_id)
+            await self.monitor.agent.history.mark_chronicled(message_ids, chapter_id)
             logger.debug(
                 f"Successfully chronicled {len(messages)} messages to chapter {chapter_id}"
             )
