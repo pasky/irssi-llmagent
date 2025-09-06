@@ -37,6 +37,7 @@
       "_comment": "You may optionally set the api_key key here (for 20rpm->500rpm NC use)"
     },
     "search_provider": "wikipedia,google,bing,brave",
+    "_search_provider_note": "It is VERY RECOMMENDED to get a jina API key (mandatory) and then set search_provider to 'jina'",
     "artifacts": {
       "path": "~/artifacts",
       "url": "https://example.com/artifacts"

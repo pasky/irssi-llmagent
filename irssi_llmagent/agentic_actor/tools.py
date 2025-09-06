@@ -249,6 +249,47 @@ class WebSearchExecutor:
         return "## Search Results\n\n" + "\n\n".join(formatted_results)
 
 
+class JinaSearchExecutor:
+    """Async Jina.ai search executor."""
+
+    def __init__(
+        self, max_results: int = 10, max_calls_per_second: float = 1.0, api_key: str | None = None
+    ):
+        self.max_results = max_results
+        self.rate_limiter = RateLimiter(max_calls_per_second)
+        self.api_key = api_key
+
+    async def execute(self, query: str) -> str:
+        """Execute Jina search and return formatted results."""
+        await self.rate_limiter.wait_if_needed()
+
+        url = "https://s.jina.ai/?q=" + query
+        headers = {"User-Agent": "irssi-llmagent/1.0", "X-Respond-With:": "no-content"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(
+                    url,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
+                    response.raise_for_status()
+                    content = await response.text()
+
+                    logger.info(f"Jina searching '{query}': retrieved search results")
+
+                    if not content.strip():
+                        return "No search results found. Try a different query."
+
+                    return f"## Search Results\n\n{content.strip()}"
+
+            except Exception as e:
+                logger.error(f"Jina search failed: {e}")
+                return f"Search failed: {e}"
+
+
 class WebpageVisitorExecutor:
     """Async webpage visitor and content extractor."""
 
@@ -570,7 +611,9 @@ def create_tool_executors(
     search_provider = tools_config.get("search_provider", "auto")
 
     # Create appropriate search executor based on provider
-    if search_provider == "brave":
+    if search_provider == "jina":
+        search_executor = JinaSearchExecutor(api_key=jina_api_key)
+    elif search_provider == "brave":
         brave_config = tools.get("brave", {})
         brave_api_key = brave_config.get("api_key")
         if not brave_api_key:
@@ -579,6 +622,11 @@ def create_tool_executors(
         else:
             search_executor = BraveSearchExecutor(api_key=brave_api_key)
     else:
+        if "jina" in search_provider:
+            raise ValueError(
+                f"Jina search provider must be exclusive. Found: '{search_provider}'. "
+                "Use exactly 'jina' for jina search (recommended provider, but API key required)."
+            )
         search_executor = WebSearchExecutor(backend=search_provider)
 
     # Progress executor settings
