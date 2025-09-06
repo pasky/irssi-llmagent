@@ -142,3 +142,44 @@ class TestChatHistory:
         )
         assert len(other_followups) == 1
         assert other_followups[0]["message"] == "unrelated"
+
+    @pytest.mark.asyncio
+    async def test_add_message_with_custom_template(self, temp_db_path):
+        """Test adding messages with custom role (for assistant_silent)."""
+        history = ChatHistory(temp_db_path, inference_limit=5)
+        await history.initialize()
+
+        server = "irc.libera.chat"
+        channel = "#test"
+        mynick = "testbot"
+
+        # Add regular messages
+        await history.add_message(server, channel, "Hello", "user1", mynick)
+        await history.add_message(server, channel, "Hi there!", mynick, mynick)
+
+        # Add message with custom role (tool persistence)
+        await history.add_message(
+            server,
+            channel,
+            "Tool summary: Performed web search and code execution",
+            mynick,
+            mynick,
+            content_template="[internal monologue] {message}",
+        )
+
+        # Retrieve context
+        context = await history.get_context(server, channel)
+        assert len(context) == 3
+
+        # Verify the custom role message content (should not be wrapped with <nick>)
+        custom_role_msg = context[-1]
+        assert custom_role_msg["role"] == "assistant"
+        assert custom_role_msg["content"].endswith(
+            "] [internal monologue] Tool summary: Performed web search and code execution"
+        )
+
+        # Verify regular messages still have proper formatting
+        user_msg = context[0]
+        assert "<user1>" in user_msg["content"]
+        assistant_msg = context[1]
+        assert "<testbot>" in assistant_msg["content"]

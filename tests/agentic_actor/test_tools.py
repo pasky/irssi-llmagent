@@ -121,7 +121,7 @@ class TestToolExecutors:
         """Test webpage visitor HTTP 451 backoff retry logic."""
         progress_calls = []
 
-        async def mock_progress_callback(text: str):
+        async def mock_progress_callback(text: str, type: str = "progress"):
             progress_calls.append(text)
 
         executor = WebpageVisitorExecutor(progress_callback=mock_progress_callback)
@@ -438,3 +438,73 @@ class TestToolDefinitions:
         # Verify no description or filename parameters
         assert "description" not in share_artifact_tool["input_schema"]["properties"]
         assert "filename" not in share_artifact_tool["input_schema"]["properties"]
+
+    def test_tools_have_persist_field(self):
+        """Test that all tools have the required persist field."""
+        from irssi_llmagent.agentic_actor.tools import TOOLS
+        from irssi_llmagent.chronicler.tools import chronicle_tools_defs
+
+        # Test main tools
+        for tool in TOOLS:
+            assert "persist" in tool, f"Tool '{tool['name']}' missing persist field"
+            assert tool["persist"] in [
+                "none",
+                "exact",
+                "summary",
+                "artifact",
+            ], f"Tool '{tool['name']}' has invalid persist value: {tool['persist']}"
+
+        # Test chronicle tools
+        for tool in chronicle_tools_defs():
+            assert "persist" in tool, f"Chronicle tool '{tool['name']}' missing persist field"
+            assert tool["persist"] in [
+                "none",
+                "exact",
+                "summary",
+                "artifact",
+            ], f"Chronicle tool '{tool['name']}' has invalid persist value: {tool['persist']}"
+
+    def test_anthropic_filters_custom_tool_fields(self):
+        """Test that Anthropic provider filters out custom fields like 'persist'."""
+        from irssi_llmagent.providers.anthropic import AnthropicClient
+
+        # Create a mock client (just for testing the filter method)
+        config = {"providers": {"anthropic": {"url": "test", "key": "test"}}}
+        client = AnthropicClient(config)
+
+        # Test tools with custom fields
+        tools_with_custom_fields = [
+            {
+                "name": "web_search",
+                "description": "Search the web",
+                "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}},
+                "persist": "summary",  # Custom field that should be filtered out
+                "custom_field": "should_be_removed",  # Another custom field
+            },
+            {
+                "name": "execute_python",
+                "description": "Execute Python code",
+                "input_schema": {"type": "object", "properties": {"code": {"type": "string"}}},
+                "persist": "artifact",  # Custom field that should be filtered out
+            },
+        ]
+
+        # Filter the tools
+        filtered_tools = client._filter_tools(tools_with_custom_fields)
+
+        # Verify filtering worked correctly
+        assert len(filtered_tools) == 2
+
+        for tool in filtered_tools:
+            # Should have only standard Anthropic fields
+            expected_fields = {"name", "description", "input_schema"}
+            assert set(tool.keys()) == expected_fields
+
+            # Should NOT have custom fields
+            assert "persist" not in tool
+            assert "custom_field" not in tool
+
+        # Verify content is preserved
+        assert filtered_tools[0]["name"] == "web_search"
+        assert filtered_tools[0]["description"] == "Search the web"
+        assert filtered_tools[1]["name"] == "execute_python"

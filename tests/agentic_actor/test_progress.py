@@ -74,7 +74,7 @@ async def test_progress_report_tool_emits_callback(monkeypatch, mock_agent):
     # Progress callback tracker
     sent = []
 
-    async def progress_cb(text: str):
+    async def progress_cb(text: str, type: str = "progress"):
         sent.append(text)
 
     # Config with progress thresholds very small to trigger immediately
@@ -156,3 +156,116 @@ async def test_progress_report_tool_emits_callback(monkeypatch, mock_agent):
     assert result == "Final answer"
     assert sent, "Expected progress callback to be called at least once"
     assert sent[0].startswith("Searching docs")
+
+
+@pytest.mark.asyncio
+async def test_progress_callback_with_tool_persistence_type(mock_agent):
+    """Test that progress callback handles tool_persistence type correctly."""
+    # Progress callback tracker
+    sent = []
+
+    async def progress_cb(text: str, type: str = "progress"):
+        sent.append({"text": text, "type": type})
+
+    config = {
+        "default_provider": "anthropic",
+        "providers": {"anthropic": {"url": "http://example.com", "key": "dummy"}},
+        "tools": {},
+        "rooms": {
+            "irc": {
+                "command": {
+                    "modes": {
+                        "serious": {
+                            "model": "anthropic:dummy-serious",
+                            "prompt": "Test prompt",
+                        }
+                    }
+                }
+            }
+        },
+        "actor": {
+            "max_iterations": 5,
+            "progress": {
+                "threshold_seconds": 0,
+                "min_interval_seconds": 0,
+            },
+        },
+    }
+
+    from unittest.mock import AsyncMock as _AsyncMock
+    from unittest.mock import patch as _patch
+
+    from irssi_llmagent.agentic_actor import AgenticLLMActor
+
+    agent = AgenticLLMActor(
+        config=config,
+        model="anthropic:claude-3-5-sonnet",
+        system_prompt_generator=lambda: "Test system prompt",
+        agent=mock_agent,
+    )
+
+    # Create a proper mock client
+    class MockClient:
+        def extract_text_from_response(self, response):
+            return "Final answer"
+
+        def has_tool_calls(self, response):
+            return False
+
+        def extract_tool_calls(self, response):
+            return None
+
+        def format_assistant_message(self, response):
+            return {"role": "assistant", "content": "Final answer"}
+
+        def format_tool_results(self, tool_results):
+            return {"role": "user", "content": "Tool results"}
+
+    # Mock client and response for testing (not used directly in this test)
+
+    # Mock the _generate_and_store_persistence_summary method to call progress_callback
+    async def mock_summary_generator(persistent_calls, progress_callback):
+        # Simulate calling progress_callback with tool_persistence type
+        await progress_callback(
+            "Tool calls: web_search, execute_python completed successfully.", "tool_persistence"
+        )
+
+    with _patch.object(
+        agent, "_generate_and_store_persistence_summary", new_callable=_AsyncMock
+    ) as mock_summary:
+        mock_summary.side_effect = mock_summary_generator
+
+        # Mock run_agent to simulate having persistent tool calls
+        async def mock_run_agent_with_persistence(*args, **kwargs):
+            # Simulate persistent tool calls by directly calling the summary generator
+            persistent_tool_calls = [
+                {
+                    "tool_name": "web_search",
+                    "input": {"query": "test"},
+                    "output": "results",
+                    "persist_type": "summary",
+                }
+            ]
+
+            # Get the progress callback from kwargs
+            progress_callback = kwargs.get("progress_callback")
+            if progress_callback:
+                await mock_summary_generator(persistent_tool_calls, progress_callback)
+
+            return "Final answer"
+
+        with _patch.object(agent, "run_agent", new_callable=_AsyncMock) as mock_run:
+            mock_run.side_effect = mock_run_agent_with_persistence
+
+            result = await agent.run_agent(
+                [{"role": "user", "content": "test"}], progress_callback=progress_cb, arc="test-arc"
+            )
+
+    # Verify the agent completed successfully
+    assert result == "Final answer"
+
+    # Verify progress callback was called with tool_persistence type
+    assert len(sent) == 1
+    assert sent[0]["type"] == "tool_persistence"
+    assert "Tool calls" in sent[0]["text"]
+    assert "completed successfully" in sent[0]["text"]

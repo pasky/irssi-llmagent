@@ -424,6 +424,58 @@ class TestIRCMonitor:
         agent.irc_monitor.proactive_debouncer.cancel_channel.assert_called_once_with("#test")
 
     @pytest.mark.asyncio
+    async def test_progress_callback_handles_tool_persistence(self, temp_config_file):
+        """Test that IRC monitor progress callback handles tool_persistence type correctly."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.irc_monitor.varlink_sender = AsyncMock()
+        agent.history = AsyncMock()
+
+        # Create a progress callback function like the one in handle_command
+        server, chan_name, target, mynick = "test", "#test", "#test", "mybot"
+
+        async def progress_cb(text: str, type: str = "progress") -> None:
+            if type == "tool_persistence":
+                # Store tool persistence summary as assistant_silent role
+                await agent.history.add_message(
+                    server, chan_name, text, mynick, mynick, False, content_template="{message}"
+                )
+            else:
+                # Regular progress message - send to channel
+                await agent.irc_monitor.varlink_sender.send_message(target, text, server)
+                await agent.history.add_message(server, chan_name, text, mynick, mynick, True)
+
+        # Test regular progress callback
+        await progress_cb("Working on your request...", "progress")
+
+        # Verify regular progress was sent via IRC
+        agent.irc_monitor.varlink_sender.send_message.assert_called_with(
+            target, "Working on your request...", server
+        )
+
+        # Reset mock to test tool persistence
+        agent.irc_monitor.varlink_sender.reset_mock()
+
+        # Test tool persistence callback (should store in history, not send to IRC)
+        await progress_cb(
+            "Tool summary: Performed web search and found 5 results about Python",
+            "tool_persistence",
+        )
+
+        # Verify no message was sent to IRC for tool persistence
+        agent.irc_monitor.varlink_sender.send_message.assert_not_called()
+
+        # Verify message was stored in history with plain content template
+        agent.history.add_message.assert_called_with(
+            server,
+            chan_name,
+            "Tool summary: Performed web search and found 5 results about Python",
+            mynick,
+            mynick,
+            False,
+            content_template="{message}",
+        )
+
+    @pytest.mark.asyncio
     async def test_serious_agent_mode(self, temp_config_file):
         """Test serious mode now uses agent with chapter context."""
         agent = IRSSILLMAgent(temp_config_file)

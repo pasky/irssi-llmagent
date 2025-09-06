@@ -71,7 +71,7 @@ class AgenticLLMActor:
         self,
         context: list[dict],
         *,
-        progress_callback: Callable[[str], Awaitable[None]] | None = None,
+        progress_callback: Callable[[str, str], Awaitable[None]] | None = None,
         arc: str,
     ) -> str:
         """Run the agent with tool-calling loop."""
@@ -95,6 +95,9 @@ class AgenticLLMActor:
         # Tool execution loop
         vision_switched = False
         result_suffix = ""
+
+        # Track tool calls that need persistence
+        persistent_tool_calls = []
 
         for iteration in range(self.max_iterations * 2):
             if iteration > 0:
@@ -190,6 +193,11 @@ class AgenticLLMActor:
                     logger.error(f"Invalid AI response: {result['message']}")
                     return f"Error: {result['message']}"
                 elif result["type"] == "final_text":
+                    # Generate persistence summary before returning
+                    if persistent_tool_calls and progress_callback:
+                        await self._generate_and_store_persistence_summary(
+                            persistent_tool_calls, progress_callback
+                        )
                     return f"{result['text']}{result_suffix}"
                 elif result["type"] == "truncated_tool_retry":
                     # Add assistant's truncated tool request to conversation
@@ -230,6 +238,34 @@ class AgenticLLMActor:
                             )
                             logger.info(f"Tool {tool['name']} executed: {tool_result[:100]}...")
 
+                            # Check if this tool should be persisted
+                            tool_def = None
+                            for t in TOOLS + self.additional_tools:
+                                if t["name"] == tool["name"]:
+                                    tool_def = t
+                                    break
+
+                            if tool_def and tool_def.get("persist", "none") != "none":
+                                persist_entry = {
+                                    "tool_name": tool["name"],
+                                    "input": tool["input"],
+                                    "output": tool_result,
+                                    "persist_type": tool_def["persist"],
+                                }
+
+                                # Handle artifact-type tools
+                                if tool_def["persist"] == "artifact":
+                                    artifact_url = await self._create_artifact_for_tool(
+                                        tool["name"], tool["input"], tool_result, tool_executors
+                                    )
+                                    if artifact_url:
+                                        persist_entry["artifact_url"] = artifact_url
+                                elif tool_def["persist"] == "exact":
+                                    # TODO: we should call the progress_callback immediately?
+                                    raise NotImplementedError
+
+                                persistent_tool_calls.append(persist_entry)
+
                             # If this is the final_answer tool, return its result directly
                             if tool["name"] == "final_answer":
                                 if len(result["tools"]) > 1:
@@ -241,6 +277,11 @@ class AgenticLLMActor:
                                 if (
                                     cleaned_result and cleaned_result != "..."
                                 ) or "<thinking>" not in tool_result:
+                                    # Generate persistence summary before returning
+                                    if persistent_tool_calls and progress_callback:
+                                        await self._generate_and_store_persistence_summary(
+                                            persistent_tool_calls, progress_callback
+                                        )
                                     return f"{cleaned_result}{result_suffix}"
                                 logger.warning(
                                     "Final answer was empty after stripping thinking tags, continuing turn"
@@ -286,6 +327,12 @@ class AgenticLLMActor:
                 traceback.print_exc()
                 logger.error(f"Agent iteration {iteration + 1} failed: {str(e)}")
                 break
+
+        # Generate persistence summary before failing
+        if persistent_tool_calls and progress_callback:
+            await self._generate_and_store_persistence_summary(
+                persistent_tool_calls, progress_callback
+            )
 
         raise StopIteration("Agent took too many turns to research")
 
@@ -342,3 +389,89 @@ class AgenticLLMActor:
 
         logger.debug(response)
         return {"type": "error", "message": "No valid text or tool use found in response"}
+
+    async def _create_artifact_for_tool(
+        self, tool_name: str, tool_input: dict, tool_result: str, tool_executors: dict
+    ) -> str | None:
+        """Create an artifact for tool input and result and return its URL."""
+        try:
+            if "share_artifact" in tool_executors:
+                import json
+
+                # Format artifact content with both input and output
+                artifact_content = f"# {tool_name} Tool Call\n\n"
+                artifact_content += (
+                    f"## Input\n```json\n{json.dumps(tool_input, indent=2)}\n```\n\n"
+                )
+                artifact_content += f"## Output\n{tool_result}"
+
+                artifact_executor = tool_executors["share_artifact"]
+                artifact_result = await artifact_executor.execute(artifact_content)
+                if artifact_result.startswith("Artifact shared: "):
+                    return artifact_result.replace("Artifact shared: ", "")
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to create artifact: {e}")
+            return None
+
+    async def _generate_and_store_persistence_summary(
+        self, persistent_tool_calls: list[dict], progress_callback
+    ):
+        """Generate a single summary for all persistent tool calls and store it."""
+        if not persistent_tool_calls:
+            return
+
+        try:
+            # Build summary input
+            summary_input = []
+            summary_input.append("The following tool calls were made during this conversation:")
+
+            for call in persistent_tool_calls:
+                tool_name = call["tool_name"]
+                tool_input = call["input"]
+                tool_output = call["output"]
+                persist_type = call["persist_type"]
+
+                summary_input.append(
+                    f"\n\n# Calling tool **{tool_name}** (persist: {persist_type})"
+                )
+                summary_input.append(f"## **Input:**\n{tool_input}\n")
+                summary_input.append(f"## **Output:**\n{tool_output}\n")
+                if "artifact_url" in call:
+                    summary_input.append(
+                        f"(Tool call I/O stored verbatim as artifact: {call['artifact_url']})\n"
+                    )
+
+            summary_input.append(
+                "\nPlease provide a concise summary of what was accomplished in these tool calls."
+            )
+
+            # Generate summary using the tools model from config
+            summary_model = self.config["tools"]["summary"]["model"]
+
+            if self.model_router:
+                summary_response, _, _ = await self.model_router.call_raw_with_model(
+                    summary_model,
+                    [{"role": "user", "content": "\n".join(summary_input)}],
+                    "As an AI agent, you need to remember in the future what tools you used when generating a response, and what did the tools tell you, as you may get challenged on that. This is your moment to generate that memory. Summarize all the tool uses in a single concise paragraph. In case artifact links are included, you MUST include all these artifact links in your summary, tied to the respective tool calls.",
+                )
+
+                summary_text = ""
+                if isinstance(summary_response, dict) and "content" in summary_response:
+                    for content_block in summary_response["content"]:
+                        if content_block.get("type") == "text":
+                            summary_text += content_block["text"]
+                elif isinstance(summary_response, dict) and "output_text" in summary_response:
+                    summary_text = summary_response["output_text"]
+                elif isinstance(summary_response, str):
+                    summary_text = summary_response
+
+                if summary_text:
+                    # Call progress callback with assistant_silent type
+                    await progress_callback(summary_text.strip(), "tool_persistence")
+
+        except Exception as e:
+            logger.error(f"Failed to generate tool persistence summary: {e}")
+            import traceback
+
+            traceback.print_exc()

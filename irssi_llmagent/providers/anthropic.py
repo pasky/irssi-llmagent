@@ -109,7 +109,7 @@ class BaseAnthropicAPIClient(BaseAPIClient):
         }
 
         if tools:
-            payload["tools"] = tools
+            payload["tools"] = self._filter_tools(tools)
 
         self._handle_thinking_budget(payload, thinking_budget, messages)
 
@@ -168,6 +168,24 @@ class BaseAnthropicAPIClient(BaseAPIClient):
             "high": 16000,
         }
         return budget_map.get(reasoning_effort, 0)
+
+    def _filter_tools(self, tools: list[dict]) -> list[dict]:
+        """Filter tool definitions to only include fields supported by Anthropic API."""
+        if not tools:
+            return []
+
+        filtered_tools = []
+        for tool in tools:
+            # Only include fields that Anthropic API accepts
+            filtered_tool = {
+                "name": tool["name"],
+                "description": tool["description"],
+            }
+            if "input_schema" in tool:
+                filtered_tool["input_schema"] = tool["input_schema"]
+            filtered_tools.append(filtered_tool)
+
+        return filtered_tools
 
     def _handle_thinking_budget(
         self, payload: dict, thinking_budget: int, messages: list[dict]

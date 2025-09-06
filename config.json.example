@@ -40,6 +40,9 @@
     "artifacts": {
       "path": "~/artifacts",
       "url": "https://example.com/artifacts"
+    },
+    "summary": {
+      "model": "anthropic:claude-3-5-haiku-latest"
     }
   },
 

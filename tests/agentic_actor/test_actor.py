@@ -1075,3 +1075,272 @@ class TestAPIAgent:
             # Should have made 2 calls - first truncated, then retry
             assert mock_call.call_count == 2
             assert "final answer" in result
+
+    @pytest.mark.asyncio
+    async def test_create_artifact_for_tool(self, agent):
+        """Test artifact creation with tool input and output."""
+        # Mock artifact executor
+        mock_artifact_executor = AsyncMock()
+        mock_artifact_executor.execute = AsyncMock(
+            return_value="Artifact shared: https://example.com/artifacts/test123.txt"
+        )
+
+        tool_executors = {"share_artifact": mock_artifact_executor}
+
+        tool_name = "web_search"
+        tool_input = {"query": "Python tutorial"}
+        tool_result = "Found 5 results about Python tutorials..."
+
+        result = await agent._create_artifact_for_tool(
+            tool_name, tool_input, tool_result, tool_executors
+        )
+
+        # Verify artifact URL is returned
+        assert result == "https://example.com/artifacts/test123.txt"
+
+        # Verify artifact executor was called with formatted content
+        mock_artifact_executor.execute.assert_called_once()
+        call_args = mock_artifact_executor.execute.call_args[0]
+        artifact_content = call_args[0]  # First positional argument
+
+        # Verify content format
+        assert "# web_search Tool Call" in artifact_content
+        assert "## Input" in artifact_content
+        assert '"query": "Python tutorial"' in artifact_content
+        assert "## Output" in artifact_content
+        assert "Found 5 results about Python tutorials..." in artifact_content
+
+    @pytest.mark.asyncio
+    async def test_create_artifact_for_tool_no_executor(self, agent):
+        """Test artifact creation when share_artifact executor is not available."""
+        tool_executors = {}  # No share_artifact executor
+
+        result = await agent._create_artifact_for_tool("web_search", {}, "output", tool_executors)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_create_artifact_for_tool_executor_error(self, agent):
+        """Test artifact creation when executor fails."""
+        # Mock artifact executor that raises an exception
+        mock_artifact_executor = AsyncMock()
+        mock_artifact_executor.execute = AsyncMock(side_effect=Exception("Network error"))
+
+        tool_executors = {"share_artifact": mock_artifact_executor}
+
+        result = await agent._create_artifact_for_tool("web_search", {}, "output", tool_executors)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_generate_and_store_persistence_summary(self, agent):
+        """Test persistence summary generation and storage."""
+        # Mock progress callback
+        progress_calls = []
+
+        async def mock_progress_callback(text: str, type: str = "progress"):
+            progress_calls.append({"text": text, "type": type})
+
+        # Mock model router response
+        mock_response = {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Summary: Performed web search and code execution successfully.",
+                }
+            ]
+        }
+
+        agent.model_router = AsyncMock()
+        agent.model_router.call_raw_with_model = AsyncMock(return_value=(mock_response, None, None))
+
+        # Test data
+        persistent_tool_calls = [
+            {
+                "tool_name": "web_search",
+                "input": {"query": "Python tutorial"},
+                "output": "Found 5 results...",
+                "persist_type": "summary",
+            },
+            {
+                "tool_name": "execute_python",
+                "input": {"code": "print('hello')"},
+                "output": "hello",
+                "persist_type": "artifact",
+                "artifact_url": "https://example.com/artifacts/test.txt",
+            },
+        ]
+
+        await agent._generate_and_store_persistence_summary(
+            persistent_tool_calls, mock_progress_callback
+        )
+
+        # Verify model router was called
+        agent.model_router.call_raw_with_model.assert_called_once()
+        call_args = agent.model_router.call_raw_with_model.call_args[0]
+
+        # Verify model and system prompt
+        expected_model = agent.config["tools"]["summary"]["model"]
+        assert call_args[0] == expected_model
+        # Verify system prompt contains key elements
+        system_prompt = call_args[2]
+        assert "AI agent" in system_prompt
+        assert "remember" in system_prompt
+        assert "tool" in system_prompt
+        assert "summary" in system_prompt
+
+        # Verify message content includes tool details
+        messages = call_args[1]
+        assert len(messages) == 1
+        message_content = messages[0]["content"]
+        assert "web_search" in message_content
+        assert "execute_python" in message_content
+        assert "https://example.com/artifacts/test.txt" in message_content
+
+        # Verify progress callback was called with tool_persistence type
+        assert len(progress_calls) == 1
+        assert progress_calls[0]["type"] == "tool_persistence"
+        assert (
+            progress_calls[0]["text"]
+            == "Summary: Performed web search and code execution successfully."
+        )
+
+    @pytest.mark.asyncio
+    async def test_generate_and_store_persistence_summary_empty_list(self, agent):
+        """Test persistence summary with empty tool calls list."""
+        progress_calls = []
+
+        async def mock_progress_callback(text: str, type: str = "progress"):
+            progress_calls.append({"text": text, "type": type})
+
+        agent.model_router = AsyncMock()
+
+        await agent._generate_and_store_persistence_summary([], mock_progress_callback)
+
+        # Verify no model calls or progress callbacks were made
+        agent.model_router.call_raw_with_model.assert_not_called()
+        assert len(progress_calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_generate_and_store_persistence_summary_model_error(self, agent):
+        """Test persistence summary when model call fails."""
+        progress_calls = []
+
+        async def mock_progress_callback(text: str, type: str = "progress"):
+            progress_calls.append({"text": text, "type": type})
+
+        agent.model_router = AsyncMock()
+        agent.model_router.call_raw_with_model = AsyncMock(side_effect=Exception("API Error"))
+
+        persistent_tool_calls = [
+            {
+                "tool_name": "web_search",
+                "input": {"query": "test"},
+                "output": "results",
+                "persist_type": "summary",
+            }
+        ]
+
+        # Should not raise exception, just log error
+        await agent._generate_and_store_persistence_summary(
+            persistent_tool_calls, mock_progress_callback
+        )
+
+        # Verify no progress callback was made due to error
+        assert len(progress_calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_tool_persistence_collection_during_execution(self, agent, api_type):
+        """Test that persistent tool calls are collected during agent execution."""
+        # Mock responses for tool use flow
+        tool_use_response = self.create_tool_response(
+            api_type,
+            [
+                {"id": "tool_1", "name": "web_search", "input": {"query": "test"}},
+                {"id": "tool_2", "name": "execute_python", "input": {"code": "print('test')"}},
+            ],
+        )
+
+        final_response = self.create_text_response(
+            api_type, "Based on the search and execution, here's the answer."
+        )
+
+        class FakeClient:
+            def extract_text_from_response(self, r):
+                if r is final_response:
+                    return "Based on the search and execution, here's the answer."
+                return ""
+
+            def has_tool_calls(self, r):
+                return r is tool_use_response
+
+            def extract_tool_calls(self, r):
+                if r is tool_use_response:
+                    return [
+                        {"id": "tool_1", "name": "web_search", "input": {"query": "test"}},
+                        {
+                            "id": "tool_2",
+                            "name": "execute_python",
+                            "input": {"code": "print('test')"},
+                        },
+                    ]
+                return None
+
+            def format_assistant_message(self, r):
+                return {"role": "assistant", "content": []}
+
+            def format_tool_results(self, results):
+                return {"role": "user", "content": []}
+
+        seq = [tool_use_response, final_response]
+
+        async def fake_call_raw_with_model(*args, **kwargs):
+            return seq.pop(0), FakeClient(), None
+
+        # Track progress callback calls
+        progress_calls = []
+
+        async def mock_progress_callback(text: str, type: str = "progress"):
+            progress_calls.append({"text": text, "type": type})
+
+        with patch.object(
+            ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+        ):
+            with patch(
+                "irssi_llmagent.agentic_actor.actor.execute_tool", new_callable=AsyncMock
+            ) as mock_tool:
+                mock_tool.side_effect = ["Search results", "test\n"]
+
+                # Mock _generate_and_store_persistence_summary to verify it's called
+                with patch.object(
+                    agent, "_generate_and_store_persistence_summary", new_callable=AsyncMock
+                ) as mock_summary:
+                    await agent.run_agent(
+                        [{"role": "user", "content": "Search and execute"}],
+                        progress_callback=mock_progress_callback,
+                        arc="test",
+                    )
+
+                    # Verify tool persistence summary was called
+                    mock_summary.assert_called_once()
+                    call_args = mock_summary.call_args[0]
+                    persistent_calls = call_args[0]  # First argument is persistent_tool_calls list
+
+                    # Verify both tools were tracked for persistence
+                    assert len(persistent_calls) == 2
+
+                    # Verify web_search tool details (persist: summary)
+                    web_search_call = next(
+                        call for call in persistent_calls if call["tool_name"] == "web_search"
+                    )
+                    assert web_search_call["input"] == {"query": "test"}
+                    assert web_search_call["output"] == "Search results"
+                    assert web_search_call["persist_type"] == "summary"
+
+                    # Verify execute_python tool details (persist: artifact)
+                    python_call = next(
+                        call for call in persistent_calls if call["tool_name"] == "execute_python"
+                    )
+                    assert python_call["input"] == {"code": "print('test')"}
+                    assert python_call["output"] == "test\n"
+                    assert python_call["persist_type"] == "artifact"

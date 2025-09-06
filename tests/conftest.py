@@ -41,7 +41,9 @@ def test_config(api_type) -> dict[str, Any]:
                 "model": "sonar-pro",
             },
         },
-        "tools": {},
+        "tools": {
+            "summary": {"model": f"{api_type}:dummy-summary"},
+        },
         "actor": {
             "max_iterations": 5,
             "progress": {"threshold_seconds": 10, "min_interval_seconds": 8},

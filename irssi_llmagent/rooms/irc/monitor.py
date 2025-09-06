@@ -655,9 +655,22 @@ class IRCRoomMonitor:
                 logger.debug(f"Auto-classified message as {mode} mode")
 
         # Create progress callback for command mode
-        async def progress_cb(text: str) -> None:
-            await self.varlink_sender.send_message(target, text, server)
-            await self.agent.history.add_message(server, chan_name, text, mynick, mynick, True)
+        async def progress_cb(text: str, type: str = "progress") -> None:
+            if type == "tool_persistence":
+                # Store tool persistence summary as assistant_silent role
+                await self.agent.history.add_message(
+                    server,
+                    chan_name,
+                    text,
+                    mynick,
+                    mynick,
+                    False,
+                    content_template="[internal monologue] {message}",
+                )
+            else:
+                # Regular progress message - send to channel
+                await self.varlink_sender.send_message(target, text, server)
+                await self.agent.history.add_message(server, chan_name, text, mynick, mynick, True)
 
         if mode == "SARCASTIC":
             sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(

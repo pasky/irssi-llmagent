@@ -58,10 +58,12 @@ class ChatHistory:
         nick: str,
         mynick: str,
         is_response: bool = False,
+        content_template: str = "<{nick}> {message}",
     ) -> None:
         """Add a message to the chat history."""
         role = "assistant" if nick.lower() == mynick.lower() else "user"
-        content = f"<{nick}> {message}"
+        content = content_template.format(nick=nick, message=message)
+        print(role, content)
 
         async with self._lock, aiosqlite.connect(self.db_path) as db:
             await db.execute(

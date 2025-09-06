@@ -23,6 +23,7 @@ class Tool(TypedDict):
     name: str
     description: str
     input_schema: dict
+    persist: str  # "none", "exact", "summary", or "artifact"
 
 
 # Available tools for AI agent
@@ -40,6 +41,7 @@ TOOLS: list[Tool] = [
             },
             "required": ["query"],
         },
+        "persist": "summary",
     },
     {
         "name": "visit_webpage",
@@ -55,6 +57,7 @@ TOOLS: list[Tool] = [
             },
             "required": ["url"],
         },
+        "persist": "summary",
     },
     {
         "name": "execute_python",
@@ -69,6 +72,7 @@ TOOLS: list[Tool] = [
             },
             "required": ["code"],
         },
+        "persist": "artifact",
     },
     {
         "name": "progress_report",
@@ -83,6 +87,7 @@ TOOLS: list[Tool] = [
             },
             "required": ["text"],
         },
+        "persist": "none",
     },
     {
         "name": "final_answer",
@@ -97,6 +102,7 @@ TOOLS: list[Tool] = [
             },
             "required": ["answer"],
         },
+        "persist": "none",
     },
     {
         "name": "make_plan",
@@ -111,6 +117,7 @@ TOOLS: list[Tool] = [
             },
             "required": ["plan"],
         },
+        "persist": "none",
     },
     {
         "name": "share_artifact",
@@ -125,6 +132,7 @@ TOOLS: list[Tool] = [
             },
             "required": ["content"],
         },
+        "persist": "none",
     },
 ]
 
@@ -351,7 +359,7 @@ class WebpageVisitorExecutor:
                     # Only send error info on second failure (attempt 1) to reduce spam
                     if self.progress_callback and attempt == 1:
                         await self.progress_callback(
-                            f"r.jina.ai HTTP {e.status}, retrying in a bit..."
+                            f"r.jina.ai HTTP {e.status}, retrying in a bit...", "progress"
                         )
                     continue
                 raise
@@ -472,7 +480,7 @@ class ProgressReportExecutor:
 
         # Send update
         try:
-            await self.send_callback(clean)
+            await self.send_callback(clean, "progress")
             self._last_sent = now
         except Exception as e:
             logger.warning(f"progress_report send failed: {e}")
