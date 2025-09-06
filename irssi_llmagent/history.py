@@ -14,7 +14,11 @@ class ChatHistory:
     """Persistent chat history using SQLite with configurable limits for inference."""
 
     def __init__(self, db_path: str = "chat_history.db", inference_limit: int = 5):
-        self.db_path = Path(db_path).expanduser()
+        # Handle in-memory database path specially
+        if db_path == ":memory:":
+            self.db_path = ":memory:"
+        else:
+            self.db_path = Path(db_path).expanduser()
         self.inference_limit = inference_limit
         self._lock = asyncio.Lock()
 

@@ -114,6 +114,7 @@ async def cli_message(message: str, config_path: str | None = None) -> None:
 
         # Initialize shared resources for CLI mode
         await agent.history.initialize()
+        await agent.chronicle.initialize()
 
         # Mock the varlink sender
         class MockSender:

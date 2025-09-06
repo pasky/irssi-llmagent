@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -25,7 +26,7 @@ def api_type(request):
 
 
 @pytest.fixture
-def test_config(api_type) -> dict[str, Any]:
+def test_config(api_type, temp_chronicler_db_path) -> dict[str, Any]:
     """Test configuration fixture with parametrized API type."""
     base_config = {
         "providers": {
@@ -97,7 +98,7 @@ def test_config(api_type) -> dict[str, Any]:
         "chronicler": {
             "model": f"{api_type}:dummy-chronicler",
             "paragraphs_per_chapter": 10,
-            "database": {"path": f"/tmp/test_chronicle_{api_type}_{hash(api_type)}.db"},
+            "database": {"path": temp_chronicler_db_path},
         },
     }
     return base_config
@@ -105,8 +106,45 @@ def test_config(api_type) -> dict[str, Any]:
 
 @pytest.fixture
 def temp_db_path():
-    """Temporary database path fixture."""
+    """Fast temporary database path fixture (RAM filesystem if available)."""
+    import os
+    import tempfile
+
+    # Try to use RAM filesystem for better performance
+    tmpfs_paths = ["/dev/shm", "/tmp"]
+    chosen_dir = None
+
+    for tmpfs_path in tmpfs_paths:
+        if os.path.exists(tmpfs_path) and os.access(tmpfs_path, os.W_OK):
+            chosen_dir = tmpfs_path
+            break
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False, dir=chosen_dir) as tmp:
+        yield tmp.name
+    Path(tmp.name).unlink(missing_ok=True)
+
+
+@pytest.fixture
+def temp_file_db_path():
+    """File-based database path fixture (for tests that specifically need file persistence)."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        yield tmp.name
+    Path(tmp.name).unlink(missing_ok=True)
+
+
+@pytest.fixture
+def temp_chronicler_db_path():
+    """Fast temporary chronicler database path fixture (RAM filesystem if available)."""
+    # Try to use RAM filesystem for better performance
+    tmpfs_paths = ["/dev/shm", "/tmp"]
+    chosen_dir = None
+
+    for tmpfs_path in tmpfs_paths:
+        if os.path.exists(tmpfs_path) and os.access(tmpfs_path, os.W_OK):
+            chosen_dir = tmpfs_path
+            break
+
+    with tempfile.NamedTemporaryFile(suffix="_chronicle.db", delete=False, dir=chosen_dir) as tmp:
         yield tmp.name
     Path(tmp.name).unlink(missing_ok=True)
 
@@ -163,3 +201,51 @@ def mock_model_call():
         return fake_call_raw_with_model
 
     return _mock_model_call
+
+
+@pytest.fixture(scope="function")
+async def shared_agent(temp_config_file):
+    """Shared agent fixture that can be reused across tests."""
+    from unittest.mock import AsyncMock
+
+    from irssi_llmagent.main import IRSSILLMAgent
+
+    agent = IRSSILLMAgent(temp_config_file)
+    agent.irc_monitor.varlink_sender = AsyncMock()
+
+    # Initialize databases if needed
+    if hasattr(agent, "history"):
+        await agent.history.initialize()
+    if hasattr(agent, "chronicle"):
+        await agent.chronicle.initialize()
+
+    yield agent
+
+    # Cleanup
+    if hasattr(agent, "history") and agent.history:
+        await agent.history.close()
+
+
+@pytest.fixture(scope="function")
+async def shared_agent_with_db(temp_config_file, temp_db_path):
+    """Shared agent fixture with isolated database."""
+    from unittest.mock import AsyncMock
+
+    from irssi_llmagent.history import ChatHistory
+    from irssi_llmagent.main import IRSSILLMAgent
+
+    agent = IRSSILLMAgent(temp_config_file)
+    agent.irc_monitor.varlink_sender = AsyncMock()
+
+    # Use isolated database
+    agent.history = ChatHistory(temp_db_path)
+    await agent.history.initialize()
+
+    # Initialize chronicle database
+    if hasattr(agent, "chronicle"):
+        await agent.chronicle.initialize()
+
+    yield agent
+
+    # Cleanup
+    await agent.history.close()

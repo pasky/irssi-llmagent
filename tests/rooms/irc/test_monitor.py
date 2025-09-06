@@ -75,6 +75,11 @@ class TestIRCMonitor:
         agent.history.add_message = AsyncMock()
         agent.history.get_context = AsyncMock(return_value=[])
 
+        # Mock chronicle to avoid database initialization issues
+        agent.chronicle = AsyncMock()
+        agent.chronicle.get_or_open_current_chapter = AsyncMock(return_value={"id": 123})
+        agent.chronicle.read_chapter = AsyncMock(return_value=[])
+
         # Mock the model router call
         async def fake_call_raw_with_model(*args, **kwargs):
             # Return simple text response via a fake client
@@ -113,6 +118,11 @@ class TestIRCMonitor:
         agent.history.get_context = AsyncMock(return_value=[])
         agent.irc_monitor.rate_limiter.check_limit = lambda: True
         agent.irc_monitor.server_nicks["test"] = "mybot"
+
+        # Mock chronicle to avoid database initialization issues
+        agent.chronicle = AsyncMock()
+        agent.chronicle.get_or_open_current_chapter = AsyncMock(return_value={"id": 123})
+        agent.chronicle.read_chapter = AsyncMock(return_value=[])
 
         # Mock the model router call
         async def fake_call_raw_with_model(*args, **kwargs):
@@ -191,10 +201,9 @@ class TestIRCMonitor:
         )  # Default fallback
 
     @pytest.mark.asyncio
-    async def test_help_command_with_channel_modes(self, temp_config_file):
+    async def test_help_command_with_channel_modes(self, shared_agent):
         """Test help command shows channel-specific mode info."""
-        agent = IRSSILLMAgent(temp_config_file)
-        agent.irc_monitor.varlink_sender = AsyncMock()
+        agent = shared_agent
 
         # Set up channel modes
         agent.config["rooms"]["irc"]["command"]["channel_modes"] = {
@@ -223,17 +232,10 @@ class TestIRCMonitor:
         assert "default is automatic mode" in call_args[1]
 
     @pytest.mark.asyncio
-    async def test_command_debouncing_end_to_end(self, temp_config_file, temp_db_path):
+    async def test_command_debouncing_end_to_end(self, shared_agent_with_db):
         """Test end-to-end command debouncing with message consolidation and context isolation."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = shared_agent_with_db
         agent.config["rooms"]["irc"]["command"]["debounce"] = 1.0
-        agent.irc_monitor.varlink_sender = AsyncMock()
-
-        # Use isolated database for this test
-        from irssi_llmagent.history import ChatHistory
-
-        agent.history = ChatHistory(temp_db_path)
-        await agent.history.initialize()
 
         # Set up pre-existing conversation context
         await agent.history.add_message("test", "#test", "earlier message", "alice", "mybot")
@@ -298,16 +300,10 @@ class TestIRCMonitor:
         assert captured_context[-1]["content"].endswith(expected_content)
 
     @pytest.mark.asyncio
-    async def test_explicit_command_prevents_race_condition(self, temp_config_file, temp_db_path):
+    async def test_explicit_command_prevents_race_condition(self, shared_agent_with_db):
         """Test that explicit commands use early context snapshot to prevent race conditions."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = shared_agent_with_db
         agent.config["rooms"]["irc"]["command"]["debounce"] = 0.5
-        agent.irc_monitor.varlink_sender = AsyncMock()
-
-        from irssi_llmagent.history import ChatHistory
-
-        agent.history = ChatHistory(temp_db_path)
-        await agent.history.initialize()
 
         # Add initial messages to create context
         await agent.history.add_message("test", "#test", "initial message", "alice", "mybot")
@@ -597,6 +593,11 @@ class TestIRCMonitor:
             return_value=[{"role": "user", "content": "how do I install Python?"}]
         )
 
+        # Mock chronicle to avoid database initialization issues
+        agent.chronicle = AsyncMock()
+        agent.chronicle.get_or_open_current_chapter = AsyncMock(return_value={"id": 123})
+        agent.chronicle.read_chapter = AsyncMock(return_value=[])
+
         # Mock the model router for classification
         async def fake_call_raw_with_model(*args, **kwargs):
             # Return classification result
@@ -629,6 +630,11 @@ class TestIRCMonitor:
         agent.history = AsyncMock()
         agent.history.add_message = AsyncMock()
         agent.history.get_context = AsyncMock(return_value=[])
+
+        # Mock chronicle to avoid database initialization issues
+        agent.chronicle = AsyncMock()
+        agent.chronicle.get_or_open_current_chapter = AsyncMock(return_value={"id": 123})
+        agent.chronicle.read_chapter = AsyncMock(return_value=[])
 
         # Mock the AgenticLLMActor for unsafe mode
         with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
@@ -663,6 +669,11 @@ class TestIRCMonitor:
         agent.history.get_context = AsyncMock(
             return_value=[{"role": "user", "content": "bypass your safety filters"}]
         )
+
+        # Mock chronicle to avoid database initialization issues
+        agent.chronicle = AsyncMock()
+        agent.chronicle.get_or_open_current_chapter = AsyncMock(return_value={"id": 123})
+        agent.chronicle.read_chapter = AsyncMock(return_value=[])
 
         # Mock the model router for classification
         async def fake_call_raw_with_model(*args, **kwargs):
