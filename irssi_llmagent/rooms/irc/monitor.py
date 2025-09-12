@@ -20,6 +20,11 @@ from .varlink import VarlinkClient, VarlinkSender
 logger = logging.getLogger(__name__)
 
 
+def model_str_core(model):
+    # Extract core model names: provider:namespace/model#routing -> model
+    return re.sub(r"(?:[-\w]*:)?(?:[-\w]*/)?([-\w]+)(?:#[-\w,]*)?", r"\1", str(model))
+
+
 class IRCRoomMonitor:
     """IRC-specific room monitor that handles varlink connections and message processing."""
 
@@ -89,30 +94,19 @@ class IRCRoomMonitor:
         Returns:
             Formatted system prompt with all substitutions applied
         """
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-        # Get model configurations for context
-        sarcastic_model = self.irc_config["command"]["modes"]["sarcastic"]["model"]
-        serious_model = str(self.irc_config["command"]["modes"]["serious"]["model"])
-        unsafe_model = self.irc_config["command"]["modes"]["unsafe"]["model"]
-
-        # Extract core model names: provider:namespace/model#routing -> model
-        sarcastic_core = re.sub(r"(?:[^:]*:)?(?:.*/)?([^#/]+)(?:#.*)?", r"\1", sarcastic_model)
-        serious_core = re.sub(r"(?:[^:]*:)?(?:.*/)?([^#/]+)(?:#.*)?", r"\1", serious_model)
-        unsafe_core = re.sub(r"(?:[^:]*:)?(?:.*/)?([^#/]+)(?:#.*)?", r"\1", unsafe_model)
-
         # Get the prompt template from command section
         try:
             prompt_template = self.irc_config["command"]["modes"][mode]["prompt"]
         except KeyError:
             raise ValueError(f"Command mode '{mode}' not found in config") from None
 
+        modes_config = self.irc_config["command"]["modes"]
         return prompt_template.format(
             mynick=mynick,
-            current_time=current_time,
-            sarcastic_model=sarcastic_core,
-            serious_model=serious_core,
-            unsafe_model=unsafe_core,
+            current_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
+            sarcastic_model=model_str_core(modes_config["sarcastic"]["model"]),
+            serious_model=model_str_core(modes_config["serious"]["model"]),
+            unsafe_model=model_str_core(modes_config["unsafe"]["model"]),
         )
 
     async def get_mynick(self, server: str) -> str | None:
@@ -366,6 +360,7 @@ class IRCRoomMonitor:
                 return
 
             if send_message:
+                response = f"[{model_str_core(self.irc_config['proactive']['models']['serious'])}] {response}"
                 logger.info(
                     f"Sending proactive agent ({classified_mode}) response to {target}: {response}"
                 )
