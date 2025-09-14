@@ -35,8 +35,8 @@ class TestAutoChronicler:
         monitor.agent.config = {"chronicler": {"model": "test:model", "paragraphs_per_chapter": 10}}
         # Mock the history reference that autochronicler now uses
         monitor.agent.history = mock_history
-        # Mock the get_chapter_context_messages method
-        monitor.get_chapter_context_messages = AsyncMock(
+        # Mock the chronicle's get_chapter_context_messages method
+        monitor.agent.chronicle.get_chapter_context_messages = AsyncMock(
             return_value=[
                 {"role": "user", "content": "<context_summary>Previous context</context_summary>"},
                 {"role": "user", "content": "<context_summary>More context</context_summary>"},

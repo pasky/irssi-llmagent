@@ -236,6 +236,26 @@ class Chronicle:
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
 
+    async def get_chapter_context_messages(self, arc: str) -> list[dict[str, str]]:
+        """Get chapter context as user messages for prepending to conversation.
+
+        Args:
+            arc: Arc name in format "server#channel"
+
+        Returns:
+            List of context messages to prepend, each wrapped in <context_summary> tags
+        """
+        current_chapter = await self.get_or_open_current_chapter(arc)
+        chapter_id = current_chapter["id"]
+        paragraphs = await self.read_chapter(int(chapter_id))
+        context_messages = []
+        for paragraph in paragraphs:
+            context_messages.append(
+                {"role": "user", "content": f"<context_summary>{paragraph}</context_summary>"}
+            )
+
+        return context_messages
+
     async def render_chapter(
         self, arc: str, chapter_id: int | None = None, last_n: int | None = None
     ) -> str:

@@ -4,10 +4,12 @@ import argparse
 import asyncio
 import json
 import logging
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
+from .agentic_actor import AgenticLLMActor
 from .chronicler.chronicle import Chronicle
 from .history import ChatHistory
 from .providers import ModelRouter
@@ -62,6 +64,42 @@ class IRSSILLMAgent:
         chronicle_db_path = chronicler_config.get("database", {}).get("path", "chronicle.db")
         self.chronicle = Chronicle(chronicle_db_path)
         self.irc_monitor = IRCRoomMonitor(self)
+
+    async def run_actor(
+        self,
+        context: list[dict[str, str]],
+        *,
+        mode_cfg: dict[str, Any],
+        system_prompt: str,
+        arc: str = "",
+        progress_callback=None,
+        **actor_kwargs,
+    ) -> str | None:
+        prepended_context: list[dict[str, str]] = []
+        if mode_cfg.get("include_chapter_summary", True) and arc:
+            prepended_context = await self.chronicle.get_chapter_context_messages(arc)
+
+        async with AgenticLLMActor(
+            config=self.config,
+            model=mode_cfg["model"],
+            system_prompt_generator=lambda: system_prompt,
+            prompt_reminder_generator=lambda: mode_cfg.get("prompt_reminder"),
+            prepended_context=prepended_context,
+            agent=self,
+            vision_model=mode_cfg.get("vision_model"),
+            **actor_kwargs,
+        ) as actor:
+            response = await actor.run_agent(
+                context,
+                progress_callback=progress_callback,
+                arc=arc,
+            )
+
+        if not response or response.strip().upper() == "NULL":
+            return None
+        cleaned = response.strip()
+        cleaned = re.sub(r"^(\s*(\[?\d{1,2}:\d{2}\]?\s*)?<[^>]+>)*\s*", "", cleaned)
+        return cleaned
 
     def load_config(self, config_path: str) -> dict[str, Any]:
         """Load configuration from JSON file."""

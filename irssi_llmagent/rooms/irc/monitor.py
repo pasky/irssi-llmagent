@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ...main import IRSSILLMAgent
 
-from ...agentic_actor import AgenticLLMActor
 from ...providers.perplexity import PerplexityClient
 from ...rate_limiter import RateLimiter
 from .. import ProactiveDebouncer
@@ -63,26 +62,6 @@ class IRCRoomMonitor:
         """Check if user should be ignored."""
         ignore_list = self.irc_config["command"]["ignore_users"]
         return any(nick.lower() == ignored.lower() for ignored in ignore_list)
-
-    async def get_chapter_context_messages(self, arc: str) -> list[dict[str, str]]:
-        """Get chapter context as user messages for prepending to conversation.
-
-        Args:
-            arc: Arc name in format "server#channel"
-
-        Returns:
-            List of context messages to prepend, each wrapped in <context_summary> tags
-        """
-        current_chapter = await self.agent.chronicle.get_or_open_current_chapter(arc)
-        chapter_id = current_chapter["id"]
-        paragraphs = await self.agent.chronicle.read_chapter(int(chapter_id))
-        context_messages = []
-        for paragraph in paragraphs:
-            context_messages.append(
-                {"role": "user", "content": f"<context_summary>{paragraph}</context_summary>"}
-            )
-
-        return context_messages
 
     def build_system_prompt(self, mode: str, mynick: str) -> str:
         """Build a command system prompt with standard substitutions.
@@ -341,8 +320,6 @@ class IRCRoomMonitor:
                 )
                 send_message = True
 
-            target = chan_name  # For proactive interjections, target is the channel
-            arc = f"{server}#{chan_name}"
             response = await self._run_actor(
                 context,
                 mynick,
@@ -350,21 +327,21 @@ class IRCRoomMonitor:
                 reasoning_effort="low" if classified_mode == "EASY_SERIOUS" else "medium",
                 model=self.irc_config["proactive"]["models"]["serious"],
                 extra_prompt=" " + self.irc_config["proactive"]["prompts"]["serious_extra"],
-                arc=arc,
+                arc=f"{server}#{chan_name}",
             )
 
             # Check for NULL response (proactive interjections can decide not to respond)
             # Also filter out "Error - " responses which are proactive-specific
             if not response or response.startswith("Error - "):
-                logger.info(f"Agent decided not to interject proactively for {target}")
+                logger.info(f"Agent decided not to interject proactively for {chan_name}")
                 return
 
             if send_message:
                 response = f"[{model_str_core(self.irc_config['proactive']['models']['serious'])}] {response}"
                 logger.info(
-                    f"Sending proactive agent ({classified_mode}) response to {target}: {response}"
+                    f"Sending proactive agent ({classified_mode}) response to {chan_name}: {response}"
                 )
-                await self.varlink_sender.send_message(target, response, server)
+                await self.varlink_sender.send_message(chan_name, response, server)
                 await self.agent.history.add_message(
                     server, chan_name, response, mynick, mynick, True
                 )
@@ -372,7 +349,7 @@ class IRCRoomMonitor:
                     mynick, server, chan_name, self.irc_config["command"]["history_size"]
                 )
             else:
-                logger.info(f"[TEST MODE] Generated proactive response for {target}: {response}")
+                logger.info(f"[TEST MODE] Generated proactive response for {chan_name}: {response}")
         except Exception as e:
             logger.error(f"Error in debounced proactive check for {chan_name}: {e}")
 
@@ -383,54 +360,20 @@ class IRCRoomMonitor:
         *,
         mode: str,
         extra_prompt: str = "",
-        progress_callback=None,
+        model: str | list[str] | None = None,
         **actor_kwargs,
     ) -> str | None:
-        """Unified actor runner that returns cleaned IRC response."""
-
-        # Determine model to use if not provided
-        model = actor_kwargs.pop("model", None)
-        if model is None:
-            model = self.irc_config["command"]["modes"][mode]["model"]
-
-        # Extract arc for run_agent call
-        arc = actor_kwargs.pop("arc", "")
-
-        # Check if chapter summary should be included for this mode
-        mode_config = self.irc_config["command"]["modes"][mode]
-        include_chapter = mode_config.get("include_chapter_summary", True)
-
-        # Get chapter context messages if enabled for this mode
-        prepended_context = []
-        if include_chapter and arc:
-            prepended_context = await self.get_chapter_context_messages(arc)
-
-        # Generate system prompt (no longer async)
+        mode_cfg = self.irc_config["command"]["modes"][mode]
         system_prompt = self.build_system_prompt(mode, mynick) + extra_prompt
 
-        async with AgenticLLMActor(
-            config=self.agent.config,
-            model=model,
-            system_prompt_generator=lambda: system_prompt,
-            prompt_reminder_generator=lambda: self.irc_config["command"]["modes"][mode].get(
-                "prompt_reminder"
-            ),
-            prepended_context=prepended_context,
-            agent=self.agent,
-            vision_model=mode_config.get("vision_model"),
+        response = await self.agent.run_actor(
+            context,
+            mode_cfg=mode_cfg,
+            system_prompt=system_prompt,
             **actor_kwargs,
-        ) as actor:
-            response = await actor.run_agent(context, progress_callback=progress_callback, arc=arc)
+        )
 
-        if not response or response.strip().upper() == "NULL":
-            return None
-
-        # IRC-specific response cleaning: remove timestamp/nick prefixes that LLM might include
-        response = response.strip()
-        response = re.sub(r"^(\s*(\[?\d{1,2}:\d{2}\]?\s*)?<[^>]+>)*\s*", "", response)
-
-        # Check if response is too long and create artifact if needed
-        if len(response) > 800:
+        if response and len(response) > 800:
             logger.info(f"Response too long ({len(response)} chars), creating artifact")
             response = await self._create_artifact_for_long_response(response)
 
@@ -597,13 +540,13 @@ class IRCRoomMonitor:
         default_size: int,
     ) -> None:
         """Route commands based on message content with prepared context."""
+        modes_config = self.irc_config["command"]["modes"]
+
         if cleaned_msg.startswith("!h") or cleaned_msg == "!h":
             logger.debug(f"Sending help message to {nick}")
-            sarcastic_model = self.irc_config["command"]["modes"]["sarcastic"]["model"]
-            serious_model = self.irc_config["command"]["modes"]["serious"]["model"]
-            unsafe_model = (
-                self.irc_config["command"]["modes"].get("unsafe", {}).get("model", "not-configured")
-            )
+            sarcastic_model = modes_config["sarcastic"]["model"]
+            serious_model = modes_config["serious"]["model"]
+            unsafe_model = modes_config["unsafe"]["model"]
             classifier_model = self.irc_config["command"]["mode_classifier"]["model"]
 
             channel_mode = self.get_channel_mode(chan_name)
@@ -708,50 +651,35 @@ class IRCRoomMonitor:
                 await self.agent.history.add_message(server, chan_name, text, mynick, mynick, True)
 
         if mode == "SARCASTIC":
-            sarcastic_size = self.irc_config["command"]["modes"]["sarcastic"].get(
-                "history_size", default_size
-            )
-            # Pass arc to actor for chapter context
-            arc = f"{server}#{chan_name}"
             response = await self._run_actor(
-                context[-sarcastic_size:],
+                context[-modes_config["sarcastic"].get("history_size", default_size) :],
                 mynick,
                 mode="sarcastic",
                 reasoning_effort=reasoning_effort,
                 allowed_tools=[],
                 progress_callback=progress_cb,
-                arc=arc,
+                arc=f"{server}#{chan_name}",
             )
         elif mode and mode.endswith("SERIOUS"):
-            serious_size = self.irc_config["command"]["modes"]["serious"].get(
-                "history_size", default_size
-            )
             assert (
                 reasoning_effort == "minimal"
             )  # test we didn't override it earlier since we ignore it here
-            # Pass arc to actor for chronicler context
-            arc = f"{server}#{chan_name}"
             response = await self._run_actor(
-                context[-serious_size:],
+                context[-modes_config["serious"].get("history_size", default_size) :],
                 mynick,
                 mode="serious",
                 reasoning_effort="low" if mode == "EASY_SERIOUS" else "medium",
                 progress_callback=progress_cb,
-                arc=arc,
+                arc=f"{server}#{chan_name}",
             )
         elif mode == "UNSAFE":
-            unsafe_size = self.irc_config["command"]["modes"]["unsafe"].get(
-                "history_size", default_size
-            )
-            # Pass arc to actor for chronicler context
-            arc = f"{server}#{chan_name}"
             response = await self._run_actor(
-                context[-unsafe_size:],
+                context[-modes_config["unsafe"].get("history_size", default_size) :],
                 mynick,
                 mode="unsafe",
                 reasoning_effort=reasoning_effort,
                 progress_callback=progress_cb,
-                arc=arc,
+                arc=f"{server}#{chan_name}",
             )
         else:
             raise ValueError(f"Unknown mode {mode}")

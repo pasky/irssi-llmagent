@@ -143,7 +143,7 @@ class TestCLIMode:
     async def test_cli_message_agent_message(self, temp_config_file):
         """Test CLI mode with agent message."""
         with patch("builtins.print") as mock_print:
-            with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+            with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
                 with patch("irssi_llmagent.main.ChatHistory") as mock_history_class:
                     # Mock history to return only the current message
                     mock_history = AsyncMock()
@@ -191,7 +191,7 @@ class TestCLIMode:
     async def test_cli_message_message_content_validation(self, temp_config_file):
         """Test that CLI mode passes actual message content, not placeholder text."""
         with patch("builtins.print"):
-            with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+            with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
                 with patch("irssi_llmagent.main.ChatHistory") as mock_history_class:
                     # Mock history to return only the current message
                     mock_history = AsyncMock()

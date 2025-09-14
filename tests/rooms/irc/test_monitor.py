@@ -488,7 +488,7 @@ class TestIRCMonitor:
         await agent.chronicle.append_paragraph(arc, "Previous discussion about Python")
         await agent.chronicle.append_paragraph(arc, "User asked about imports")
 
-        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+        with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Agent response")
             mock_agent_class.return_value.__aenter__.return_value = mock_agent
@@ -547,7 +547,7 @@ class TestIRCMonitor:
 
             return resp, MockAPIClient("Sarcastic response"), None
 
-        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+        with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Sarcastic response")
             mock_agent_class.return_value.__aenter__.return_value = mock_agent
@@ -591,7 +591,7 @@ class TestIRCMonitor:
         # Set up the model_router mock
         agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model)
 
-        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+        with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Agent response")
             mock_agent_class.return_value.__aenter__.return_value = mock_agent
@@ -616,7 +616,7 @@ class TestIRCMonitor:
         await agent.chronicle.initialize()
 
         # Mock the AgenticLLMActor for unsafe mode
-        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+        with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Unsafe response")
             mock_agent_class.return_value.__aenter__.return_value = mock_agent
@@ -662,7 +662,7 @@ class TestIRCMonitor:
         # Set up the model_router mock
         agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model)
 
-        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+        with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Unsafe agent response")
             mock_agent_class.return_value.__aenter__.return_value = mock_agent
@@ -719,7 +719,7 @@ class TestIRCMonitor:
         # Set up the model_router mock
         agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model)
 
-        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+        with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Test response")
             mock_agent_class.return_value.__aenter__.return_value = mock_agent
@@ -832,7 +832,7 @@ class TestIRCMonitor:
         # Create a very long response (over 800 chars)
         long_response = "This is a very long response. " * 50  # ~1500 chars
 
-        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+        with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value=long_response)
             mock_agent_class.return_value.__aenter__.return_value = mock_agent
@@ -883,7 +883,7 @@ class TestIRCMonitor:
         # Create a short response (under 800 chars)
         short_response = "This is a short response."
 
-        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+        with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value=short_response)
             mock_agent_class.return_value.__aenter__.return_value = mock_agent

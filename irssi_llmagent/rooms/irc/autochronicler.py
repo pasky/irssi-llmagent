@@ -132,7 +132,7 @@ class AutoChronicler:
         assert chronicle_tools[0]["name"] == "chronicle_append"
         system_prompt = chronicle_tools[0]["description"]  # chronicle_append is first tool
 
-        context_messages = await self.monitor.get_chapter_context_messages(arc)
+        context_messages = await self.monitor.agent.chronicle.get_chapter_context_messages(arc)
         user_prompt = f"Review the following {len(messages)} recent IRC messages (your nick is {mynick}) and create a single paragraph with chronicle entry that captures what you should remember about it in the future:\n\n{messages_text}\n\nRespond only with the paragraph, no preamble."
         context_messages.append({"role": "user", "content": user_prompt})
 
