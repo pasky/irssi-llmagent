@@ -813,3 +813,87 @@ class TestIRCMonitor:
         assert should_interject is False  # Should not trigger at all
         assert "Score: 7" in reason
         assert test_mode is False
+
+    @pytest.mark.asyncio
+    async def test_automatic_artifact_creation_for_long_responses(self, temp_config_file):
+        """Test that responses over 800 chars automatically create artifacts."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.irc_monitor.varlink_sender = AsyncMock()
+
+        # Initialize the real databases
+        await agent.history.initialize()
+        await agent.chronicle.initialize()
+
+        # Configure artifacts
+        agent.config["tools"] = {
+            "artifacts": {"path": "/tmp/test_artifacts", "url": "https://example.com/artifacts"}
+        }
+
+        # Create a very long response (over 800 chars)
+        long_response = "This is a very long response. " * 50  # ~1500 chars
+
+        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+            mock_agent = AsyncMock()
+            mock_agent.run_agent = AsyncMock(return_value=long_response)
+            mock_agent_class.return_value.__aenter__.return_value = mock_agent
+
+            # Mock the ShareArtifactExecutor
+            with patch(
+                "irssi_llmagent.agentic_actor.tools.ShareArtifactExecutor"
+            ) as mock_artifact_class:
+                mock_executor = AsyncMock()
+                mock_executor.execute = AsyncMock(
+                    return_value="Artifact shared: https://example.com/artifacts/abc123.txt"
+                )
+                mock_artifact_class.from_config.return_value = mock_executor
+
+                # Test command that generates long response
+                await agent.irc_monitor.handle_command(
+                    "test", "#test", "#test", "user", "!s tell me everything", "mybot"
+                )
+
+                # Should have created artifact
+                mock_artifact_class.from_config.assert_called_once_with(agent.config)
+                mock_executor.execute.assert_called_once()
+                # Verify that the full response was passed to the artifact executor
+                call_args = mock_executor.execute.call_args[0][0]
+                assert (
+                    call_args.strip() == long_response.strip()
+                )  # Allow for whitespace differences
+
+                # Should have sent trimmed response with artifact URL
+                agent.irc_monitor.varlink_sender.send_message.assert_called_once()
+                sent_message = agent.irc_monitor.varlink_sender.send_message.call_args[0][1]
+
+                # Message should be trimmed and contain artifact URL
+                assert len(sent_message) < len(long_response)
+                assert "https://example.com/artifacts/abc123.txt" in sent_message
+                assert "..." in sent_message
+
+    @pytest.mark.asyncio
+    async def test_short_responses_no_artifact(self, temp_config_file):
+        """Test that responses under 800 chars don't create artifacts."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.irc_monitor.varlink_sender = AsyncMock()
+
+        # Initialize the real databases
+        await agent.history.initialize()
+        await agent.chronicle.initialize()
+
+        # Create a short response (under 800 chars)
+        short_response = "This is a short response."
+
+        with patch("irssi_llmagent.rooms.irc.monitor.AgenticLLMActor") as mock_agent_class:
+            mock_agent = AsyncMock()
+            mock_agent.run_agent = AsyncMock(return_value=short_response)
+            mock_agent_class.return_value.__aenter__.return_value = mock_agent
+
+            # Test command that generates short response
+            await agent.irc_monitor.handle_command(
+                "test", "#test", "#test", "user", "!s simple question", "mybot"
+            )
+
+            # Should have sent original response unchanged (no artifact needed)
+            agent.irc_monitor.varlink_sender.send_message.assert_called_once()
+            sent_message = agent.irc_monitor.varlink_sender.send_message.call_args[0][1]
+            assert sent_message == short_response

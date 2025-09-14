@@ -553,6 +553,15 @@ class ShareArtifactExecutor:
         self.artifacts_path = artifacts_path
         self.artifacts_url = artifacts_url
 
+    @classmethod
+    def from_config(cls, config: dict) -> "ShareArtifactExecutor":
+        """Create executor from configuration."""
+        artifacts_config = config.get("tools", {}).get("artifacts", {})
+        return cls(
+            artifacts_path=artifacts_config.get("path"),
+            artifacts_url=artifacts_config.get("url"),
+        )
+
     async def execute(self, content: str) -> str:
         """Share an artifact by creating a file and providing a link."""
         if not self.artifacts_path or not self.artifacts_url:
@@ -634,12 +643,6 @@ def create_tool_executors(
     progress_cfg = behavior.get("progress", {}) if behavior else {}
     min_interval = int(progress_cfg.get("min_interval_seconds", 15))
 
-    # Artifacts configuration
-    tools_config = config.get("tools", {}) if config else {}
-    artifacts_config = tools_config.get("artifacts", {})
-    artifacts_path = artifacts_config.get("path")
-    artifacts_url = artifacts_config.get("url")
-
     return {
         "web_search": search_executor,
         "visit_webpage": WebpageVisitorExecutor(
@@ -651,9 +654,7 @@ def create_tool_executors(
         ),
         "final_answer": FinalAnswerExecutor(),
         "make_plan": MakePlanExecutor(),
-        "share_artifact": ShareArtifactExecutor(
-            artifacts_path=artifacts_path, artifacts_url=artifacts_url
-        ),
+        "share_artifact": ShareArtifactExecutor.from_config(config or {}),
         "chronicle_append": ChapterAppendExecutor(agent=agent, arc=arc),
         "chronicle_read": ChapterRenderExecutor(chronicle=agent.chronicle, arc=arc),
     }

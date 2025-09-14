@@ -429,7 +429,47 @@ class IRCRoomMonitor:
         response = response.strip()
         response = re.sub(r"^(\s*(\[?\d{1,2}:\d{2}\]?\s*)?<[^>]+>)*\s*", "", response)
 
+        # Check if response is too long and create artifact if needed
+        if len(response) > 800:
+            logger.info(f"Response too long ({len(response)} chars), creating artifact")
+            response = await self._create_artifact_for_long_response(response)
+
         return response
+
+    async def _create_artifact_for_long_response(self, full_response: str) -> str:
+        """Create an artifact for a long response and return a trimmed response with artifact URL.
+
+        Args:
+            full_response: The full response text to store in artifact
+
+        Returns:
+            Trimmed response with artifact URL
+        """
+        # Import ShareArtifactExecutor at runtime to avoid circular imports
+        from ...agentic_actor.tools import ShareArtifactExecutor
+
+        # Create artifact executor and store the full response
+        executor = ShareArtifactExecutor.from_config(self.agent.config)
+        artifact_result = await executor.execute(full_response)
+
+        # Extract artifact URL from result
+        artifact_url = artifact_result.split("Artifact shared: ")[1].strip()
+
+        # Create trimmed response (find a good break point around 400 chars)
+        trimmed = full_response[:400]
+        if len(full_response) > 400:
+            # Try to break at end of sentence or word
+            last_sentence = trimmed.rfind(".")
+            last_word = trimmed.rfind(" ")
+            if last_sentence > 300:  # Good sentence break
+                trimmed = trimmed[: last_sentence + 1]
+            elif last_word > 300:  # Good word break
+                trimmed = trimmed[:last_word]
+
+            # Add ellipsis and artifact link
+            trimmed += f"... (full response: {artifact_url})"
+
+        return trimmed
 
     def _input_match(self, mynick, message):
         pattern = rf"^\s*(<?.*?>\s*)?{re.escape(mynick)}[,:]\s*(.*?)$"
