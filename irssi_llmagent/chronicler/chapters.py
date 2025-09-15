@@ -126,7 +126,32 @@ async def chapter_append_paragraph(arc: str, paragraph_text: str, agent: Any) ->
 
             logger.debug(f"Created new chapter {new_chapter_id} with recap for arc '{arc}'")
 
+            # Copy unresolved <quest> paragraphs from previous chapter into new chapter without triggering
+            latest_by_id: dict[str, tuple[str, bool]] = {}
+            import re
+
+            quest_re = re.compile(r"<\s*quest\s+id=\"([^\"]+)\"\s*>", re.IGNORECASE)
+            finished_re = re.compile(r"<\s*quest_finished\s+id=\"([^\"]+)\"\s*>", re.IGNORECASE)
+
+            for p in chapter_paragraphs:
+                mfin = finished_re.search(p)
+                if mfin:
+                    latest_by_id[mfin.group(1)] = (p, True)
+                    continue
+                m = quest_re.search(p)
+                if m:
+                    qid = m.group(1)
+                    latest_by_id[qid] = (p, False)
+
+            for qid, (p, is_finished) in latest_by_id.items():
+                if not is_finished:
+                    await agent.chronicle.append_paragraph(arc, p)  # no operator trigger
+                    logger.debug(f"Copied unresolved quest {qid} into new chapter {new_chapter_id}")
+
         # Append the original paragraph (either to current chapter or new chapter)
         result = await agent.chronicle.append_paragraph(arc, paragraph_text)
+
+        # Trigger quests operator if available
+        await agent.quests.on_chronicle_append(arc, paragraph_text)
 
         return result

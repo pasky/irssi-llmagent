@@ -11,6 +11,7 @@ from typing import Any
 
 from .agentic_actor import AgenticLLMActor
 from .chronicler.chronicle import Chronicle
+from .chronicler.quests import QuestOperator
 from .history import ChatHistory
 from .providers import ModelRouter
 from .rooms.irc import IRCRoomMonitor
@@ -64,6 +65,7 @@ class IRSSILLMAgent:
         chronicle_db_path = chronicler_config.get("database", {}).get("path", "chronicle.db")
         self.chronicle = Chronicle(chronicle_db_path)
         self.irc_monitor = IRCRoomMonitor(self)
+        self.quests = QuestOperator(self)
 
     async def run_actor(
         self,
@@ -98,7 +100,14 @@ class IRSSILLMAgent:
         if not response or response.strip().upper() == "NULL":
             return None
         cleaned = response.strip()
-        cleaned = re.sub(r"^(\s*(\[?\d{1,2}:\d{2}\]?\s*)?<[^>]+>)*\s*", "", cleaned)
+        # Strip IRC-style leading prefixes from context-echoed outputs: timestamps and non-quest tags like <nick>.
+        # Never strip <quest> or <quest_finished> because those carry semantics for the chronicler.
+        cleaned = re.sub(
+            r"^(?:\s*(?:\[?\d{1,2}:\d{2}\]?\s*)?(?:<(?!/?quest(?:_finished)?\b)[^>]+>))*\s*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
         return cleaned
 
     def load_config(self, config_path: str) -> dict[str, Any]:
@@ -123,6 +132,8 @@ class IRSSILLMAgent:
         # Initialize shared resources
         await self.history.initialize()
         await self.chronicle.initialize()
+        # Scan and resume any open quests for whitelisted arcs
+        await self.quests.scan_and_trigger_open_quests()
 
         try:
             await self.irc_monitor.run()

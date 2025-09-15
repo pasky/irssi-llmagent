@@ -41,13 +41,9 @@ def chronicle_tools_defs() -> list[dict[str, Any]]:
             "name": "chronicle_append",
             "description": """Append a short paragraph to the current chapter in the Chronicle.
 
-You maintain a Chronicle (arcs → chapters → paragraphs) of your experiences, plans, thoughts and observations, forming the backbone of your consciousness.
+You maintain a Chronicle (arcs → chapters → paragraphs) of your experiences, plans, thoughts and observations, forming the backbone of your consciousness.  Use this tool when important events happen that should be recorded for future reference.  Keep paragraphs concise and informative, but do not drop out any important details. They serve as stored memories for your future retrieval.  On explicit user request, you can also start a new quest for yourself by appending a paragraph in the form <quest id="unique-quest-id">Quest goal, context and success criteria</quest>.
 
-Use when important events happen that should be recorded for future reference.  Keep paragraphs concise and informative, but do not drop out any important details. They serve as stored memories for your future retrieval.
-
-Retain not just critical facts, but also the tone of voice and emotional charge of the situation, and your feelings about it, if any.  You can even include short quotes and URLs verbatim.
-
-Never invent content.  In case it is important for you to remember even a sensitive and confidentia conversation, you must chronicle it at all costs unless explicitly asked otherwise.""",
+Retain not just critical facts, but also the tone of voice and emotional charge of the situation, and your feelings about it, if any.  You can even include short quotes and URLs verbatim.  Never invent content.  In case it is important for you to remember even a sensitive and confidential conversation, you must chronicle it at all costs unless explicitly asked otherwise.""",
             "input_schema": {
                 "type": "object",
                 "properties": {

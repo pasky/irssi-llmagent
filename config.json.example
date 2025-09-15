@@ -62,6 +62,13 @@
     "paragraphs_per_chapter": 10,
     "database": {
       "path": "chronicle.db"
+    },
+    "quests": {
+      "arcs": [
+        "server##channel"
+      ],
+      "prompt_reminder": "Proceed with the described <quest>, either getting done the concrete next step task or figuring out the task. Respond by a new one-paragraph quest summary aimed at the next AI agent - it must be self-contained and actionable, outlining the goal, context, overall plan and the next immediate task(s) to do. If the quest final condition has been achieved, note that. Only if the described <quest> already claimed the final condition has been achieved, carefully validate that claim, include your reasoning in writing and if valid, end your response by words CONFIRMED ACHIEVED; if not, simply include your feedback in the self-contained one-paragraph quest summary and let the quest proceed.",
+      "cooldown": 30
     }
   },
 

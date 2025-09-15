@@ -99,6 +99,10 @@ def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict
             "model": f"{api_type}:dummy-chronicler",
             "paragraphs_per_chapter": 10,
             "database": {"path": temp_chronicler_db_path},
+            "quests": {
+                "arcs": [],
+                "model": f"{api_type}:dummy-quest-model",
+            },
         },
         "history": {
             "database": {"path": temp_history_db_path},
