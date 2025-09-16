@@ -264,7 +264,11 @@ class JinaSearchExecutor:
         await self.rate_limiter.wait_if_needed()
 
         url = "https://s.jina.ai/?q=" + query
-        headers = {"User-Agent": "irssi-llmagent/1.0", "X-Respond-With:": "no-content"}
+        headers = {
+            "User-Agent": "irssi-llmagent/1.0",
+            "X-Respond-With": "no-content",
+            "Accept": "text/plain",
+        }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
