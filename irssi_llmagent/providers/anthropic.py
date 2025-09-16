@@ -119,8 +119,8 @@ class BaseAnthropicAPIClient(BaseAPIClient):
         self.logger.debug(f"Calling {self.provider_name} API with model: {model}")
         self.logger.debug(f"{self.provider_name} request payload: {json.dumps(payload, indent=2)}")
 
-        # Exponential backoff retry for 5xx (overloaded) errors
-        backoff_delays = [0, 2, 5, 10, 20]  # No delay, then 2s, 5s, 10s, 20s
+        # Simple retry policy: retry everything with exponential backoff
+        backoff_delays = [0, 2, 5, 10, 20]
 
         for attempt, delay in enumerate(backoff_delays):
             if delay > 0:
@@ -131,33 +131,21 @@ class BaseAnthropicAPIClient(BaseAPIClient):
 
             try:
                 async with self.session.post(self.config["url"], json=payload) as response:
+                    response.raise_for_status()
                     data = await response.json()
-
-                    if not response.ok:
-                        # Check for 5xx overloaded error and retry if not last attempt
-                        if response.status >= 500 and attempt < len(backoff_delays) - 1:
-                            error_body = json.dumps(data) if data else f"HTTP {response.status}"
-                            self.logger.warning(
-                                f"{self.provider_name} overloaded (HTTP {response.status}), retrying in {backoff_delays[attempt + 1]}s..."
-                            )
-                            continue
-
-                        error_body = json.dumps(data) if data else f"HTTP {response.status}"
-                        raise aiohttp.ClientError(
-                            f"{self.provider_name} HTTP status {response.status}: {error_body}"
-                        )
 
                 self.logger.debug(f"{self.provider_name} response: {json.dumps(data, indent=2)}")
                 return data
 
-            except aiohttp.ClientError as e:
-                # Only retry 5xx errors, fail fast on other errors
-                if "HTTP status 5" in str(e) and attempt < len(backoff_delays) - 1:
+            except Exception as e:
+                if attempt < len(backoff_delays) - 1:
+                    self.logger.warning(
+                        f"{self.provider_name} error: {e}. Retrying in {backoff_delays[attempt + 1]}s..."
+                    )
                     continue
-                self.logger.error(f"{self.provider_name} API error: {e}")
+                self.logger.error(f"{self.provider_name} error after all retries: {e}")
                 return {"error": f"API error: {e}"}
 
-        # This should never be reached, but added for type safety
         return {"error": "All retry attempts exhausted"}
 
     def _get_thinking_budget(self, reasoning_effort: str) -> int:

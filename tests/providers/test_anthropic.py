@@ -34,6 +34,12 @@ class TestAnthropicSpecificBehavior:
                 self.ok = True
                 self.status = 200
 
+            def raise_for_status(self):
+                if not self.ok:
+                    import aiohttp
+
+                    raise aiohttp.ClientError(f"HTTP status {self.status}")
+
             async def json(self):
                 return {
                     "content": [{"type": "text", "text": "Final answer"}],
@@ -109,6 +115,12 @@ class TestAnthropicRetryLogic:
                 self.ok = status == 200
                 self._data = data
 
+            def raise_for_status(self):
+                if not self.ok:
+                    import aiohttp
+
+                    raise aiohttp.ClientError(f"HTTP status {self.status}")
+
             async def json(self):
                 return self._data
 
@@ -180,6 +192,12 @@ class TestAnthropicRetryLogic:
                 self.status = status
                 self.ok = status == 200
                 self._data = data
+
+            def raise_for_status(self):
+                if not self.ok:
+                    import aiohttp
+
+                    raise aiohttp.ClientError(f"HTTP status {self.status}")
 
             async def json(self):
                 return self._data
