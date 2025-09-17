@@ -24,6 +24,8 @@ services:
       - ./irssi-data:/home/irssi/.irssi
       - ./config.json:/app/config.json
       - ./chat_history.db:/app/chat_history.db
+      - ./chronicle.db:/app/chronicle.db
+      - ./artifacts:/app/artifacts
       - .:/app/src  # For development - mount source code
     networks:
       - irssi-net

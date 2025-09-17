@@ -39,7 +39,7 @@
     "search_provider": "wikipedia,google,bing,brave",
     "_search_provider_note": "It is VERY RECOMMENDED to get a jina API key (mandatory) and then set search_provider to 'jina'",
     "artifacts": {
-      "path": "~/artifacts",
+      "path": "/app/artifacts",
       "url": "https://example.com/artifacts"
     },
     "summary": {
