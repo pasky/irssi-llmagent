@@ -268,24 +268,24 @@ class AgenticLLMActor:
 
                             # If this is the final_answer tool, return its result directly
                             if tool["name"] == "final_answer":
+                                cleaned_result = client.cleanup_raw_text(tool_result)
                                 if len(result["tools"]) > 1:
                                     logger.warning(
                                         "Rejecting final answer {tool_result}, since multiple tool calls were seen."
                                     )
-                                    continue
-                                cleaned_result = client.cleanup_raw_text(tool_result)
-                                if (
-                                    cleaned_result and cleaned_result != "..."
-                                ) or "<thinking>" not in tool_result:
+                                elif "<thinking>" in tool_result and (
+                                    not cleaned_result or cleaned_result == "..."
+                                ):
+                                    logger.warning(
+                                        "Final answer was empty after stripping thinking tags, continuing turn"
+                                    )
+                                else:
                                     # Generate persistence summary before returning
                                     if persistent_tool_calls and progress_callback:
                                         await self._generate_and_store_persistence_summary(
                                             persistent_tool_calls, progress_callback
                                         )
                                     return f"{cleaned_result}{result_suffix}"
-                                logger.warning(
-                                    "Final answer was empty after stripping thinking tags, continuing turn"
-                                )
 
                         except Exception as e:
                             import traceback
