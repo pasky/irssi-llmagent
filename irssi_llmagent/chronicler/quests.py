@@ -159,6 +159,7 @@ class QuestOperator:
             return f'<quest{suffix} id="{quest_id}">'
 
         response = re.sub(r'<quest(_finished)?(\s*id=".*?")?\s*>', _ensure_id, response)
+        response = response.replace("\n", "; ").strip()
 
         # Mirror to IRC and ChatHistory
         logger.debug(f"Quest step run_actor for {arc} {quest_id} output: {response}")

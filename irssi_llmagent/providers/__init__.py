@@ -61,7 +61,6 @@ class BaseAPIClient(ABC):
 
         text = text.strip()
         text = re.sub(r"<thinking>.*?</thinking>\s*", "", text, flags=re.DOTALL)
-        text = text.replace("\n", "; ").strip()
 
         return text
 

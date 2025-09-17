@@ -376,6 +376,8 @@ class IRCRoomMonitor:
         if response and len(response) > 800:
             logger.info(f"Response too long ({len(response)} chars), creating artifact")
             response = await self._create_artifact_for_long_response(response)
+        if response:
+            response = response.replace("\n", "; ").strip()
 
         return response
 
@@ -398,15 +400,15 @@ class IRCRoomMonitor:
         # Extract artifact URL from result
         artifact_url = artifact_result.split("Artifact shared: ")[1].strip()
 
-        # Create trimmed response (find a good break point around 400 chars)
-        trimmed = full_response[:400]
-        if len(full_response) > 400:
+        # Create trimmed response (find a good break point)
+        trimmed = full_response[:600]
+        if len(full_response) > 600:
             # Try to break at end of sentence or word
             last_sentence = trimmed.rfind(".")
             last_word = trimmed.rfind(" ")
-            if last_sentence > 300:  # Good sentence break
+            if last_sentence > 500:  # Good sentence break
                 trimmed = trimmed[: last_sentence + 1]
-            elif last_word > 300:  # Good word break
+            elif last_word > 500:  # Good word break
                 trimmed = trimmed[:last_word]
 
             # Add ellipsis and artifact link
