@@ -273,6 +273,7 @@ class AgenticLLMActor:
                                     logger.warning(
                                         "Rejecting final answer {tool_result}, since multiple tool calls were seen."
                                     )
+                                    tool_result += " | REJECTED: Other tool calls are in progress."
                                 elif "<thinking>" in tool_result and (
                                     not cleaned_result or cleaned_result == "..."
                                 ):

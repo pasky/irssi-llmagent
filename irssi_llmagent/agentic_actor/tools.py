@@ -91,7 +91,7 @@ TOOLS: list[Tool] = [
     },
     {
         "name": "final_answer",
-        "description": "Provide the final answer to the user's question. This tool MUST be used when the agent is ready to give its final response, and MUST be called alone w/o other tools.",
+        "description": "Provide the final answer to the user's question. This tool MUST be used when the agent is ready to give its final response.",
         "input_schema": {
             "type": "object",
             "properties": {
