@@ -6,3 +6,4 @@ config.json
 *_analysis.csv
 debug.log
 irssi-data
+artifacts
