@@ -433,11 +433,24 @@ class AgenticLLMActor:
                 tool_output = call["output"]
                 persist_type = call["persist_type"]
 
+                # Replace image data with placeholder in both input and output
+                def replace_image_data(text):
+                    if isinstance(text, str) and text.startswith("IMAGE_DATA:"):
+                        parts = text.split(":", 3)
+                        if len(parts) >= 4:
+                            content_type = parts[1]
+                            size = parts[2]
+                            return f"[image: {content_type}, {size} bytes]"
+                    return text
+
+                tool_input_display = replace_image_data(tool_input)
+                tool_output_display = replace_image_data(tool_output)
+
                 summary_input.append(
                     f"\n\n# Calling tool **{tool_name}** (persist: {persist_type})"
                 )
-                summary_input.append(f"## **Input:**\n{tool_input}\n")
-                summary_input.append(f"## **Output:**\n{tool_output}\n")
+                summary_input.append(f"## **Input:**\n{tool_input_display}\n")
+                summary_input.append(f"## **Output:**\n{tool_output_display}\n")
                 if "artifact_url" in call:
                     summary_input.append(
                         f"(Tool call I/O stored verbatim as artifact: {call['artifact_url']})\n"

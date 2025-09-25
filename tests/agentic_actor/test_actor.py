@@ -1344,3 +1344,65 @@ class TestAPIAgent:
                     assert python_call["input"] == {"code": "print('test')"}
                     assert python_call["output"] == "test\n"
                     assert python_call["persist_type"] == "artifact"
+
+    @pytest.mark.asyncio
+    async def test_generate_persistence_summary_with_image_data(self, agent):
+        """Test that image data is replaced with placeholders in persistence summaries."""
+        # Mock progress callback
+        progress_calls = []
+
+        async def mock_progress_callback(text: str, type: str = "progress"):
+            progress_calls.append({"text": text, "type": type})
+
+        # Mock model router response
+        mock_response = {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Summary: Successfully visited image and web page.",
+                }
+            ]
+        }
+
+        agent.model_router = AsyncMock()
+        agent.model_router.call_raw_with_model = AsyncMock(return_value=(mock_response, None, None))
+
+        # Test data with image data
+        persistent_tool_calls = [
+            {
+                "tool_name": "visit_webpage",
+                "input": {"url": "https://example.com/image.jpg"},
+                "output": "IMAGE_DATA:image/jpeg:1234567:iVBORw0KGgoAAAANSUhEUgAABAAAAAAAAAElEQVR4nO3B...",  # Long base64 data
+                "persist_type": "summary",
+            },
+            {
+                "tool_name": "visit_webpage",
+                "input": "IMAGE_DATA:image/png:987654:iVBORw0KGgoAAAANSUhEUgAABAAAAAAAAAElEQVR4nO3B...",  # Image as input
+                "output": "Regular text output",
+                "persist_type": "summary",
+            },
+        ]
+
+        # Execute the method
+        await agent._generate_and_store_persistence_summary(
+            persistent_tool_calls, mock_progress_callback
+        )
+
+        # Verify model was called
+        assert agent.model_router.call_raw_with_model.called
+        call_args = agent.model_router.call_raw_with_model.call_args
+
+        # Get the messages sent to the model
+        messages = call_args[0][1]  # Second argument is messages
+        user_message_content = messages[0]["content"]
+
+        # Verify that image data was replaced with placeholders
+        assert "IMAGE_DATA:" not in user_message_content
+        assert "[image: image/jpeg, 1234567 bytes]" in user_message_content
+        assert "[image: image/png, 987654 bytes]" in user_message_content
+        assert "Regular text output" in user_message_content  # Regular text should remain
+
+        # Verify progress callback was called with the summary
+        assert len(progress_calls) == 1
+        assert progress_calls[0]["type"] == "tool_persistence"
+        assert progress_calls[0]["text"] == "Summary: Successfully visited image and web page."
