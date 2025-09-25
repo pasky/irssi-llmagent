@@ -30,15 +30,15 @@ def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict
     """Test configuration fixture with parametrized API type."""
     base_config = {
         "providers": {
-            "anthropic": {"url": "https://api.anthropic.com/v1/messages", "key": "test-key"},
+            "anthropic": {"url": "http://localhost:1/mock", "key": "mock-key"},
             "openai": {
-                "base_url": "https://api.openai.com/v1",
-                "key": "test-key",
+                "base_url": "http://localhost:1/mock",
+                "key": "mock-key",
                 "max_tokens": 2048,
             },
             "perplexity": {
-                "url": "https://api.perplexity.ai/chat/completions",
-                "key": "test-key",
+                "url": "http://localhost:1/mock",
+                "key": "mock-key",
                 "model": "sonar-pro",
             },
         },

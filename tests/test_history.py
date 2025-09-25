@@ -121,8 +121,8 @@ class TestChatHistory:
         await history.add_message(server, channel, "initial command", "user1", mynick)
         original_time = time.time()
 
-        # Add followup messages after delay
-        await asyncio.sleep(1.1)
+        # Small delay to ensure timestamp difference (needs to be >1s due to integer conversion)
+        await asyncio.sleep(1.01)
         await history.add_message(server, channel, "oops typo", "user1", mynick)
         await history.add_message(server, channel, "one more thing", "user1", mynick)
 

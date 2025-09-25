@@ -1,7 +1,7 @@
 """Tests for IRC monitor functionality."""
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -231,7 +231,7 @@ class TestIRCMonitor:
     async def test_command_debouncing_end_to_end(self, shared_agent_with_db):
         """Test end-to-end command debouncing with message consolidation and context isolation."""
         agent = shared_agent_with_db
-        agent.config["rooms"]["irc"]["command"]["debounce"] = 1.0
+        agent.config["rooms"]["irc"]["command"]["debounce"] = 0.1
 
         # Set up pre-existing conversation context
         await agent.history.add_message("test", "#test", "earlier message", "alice", "mybot")
@@ -282,7 +282,15 @@ class TestIRCMonitor:
             )
             await agent.history.add_message("test", "#test", "final interfering", "dave", "mybot")
 
-        with patch("time.time", side_effect=mock_time):
+        with patch("irssi_llmagent.rooms.irc.monitor.time", spec=True) as mock_time_module, patch(
+            "irssi_llmagent.providers.ModelRouter.call_raw_with_model"
+        ) as mock_router:
+            # Mock time and API calls to prevent delays
+            mock_time_module.time = mock_time
+            mock_client = MagicMock()
+            mock_client.extract_text_from_response.return_value = "Mock response"
+            mock_router.return_value = ({"output_text": "Mock response"}, mock_client, None)
+
             # Run both tasks concurrently
             await asyncio.gather(
                 agent.irc_monitor.handle_command(
@@ -299,7 +307,7 @@ class TestIRCMonitor:
     async def test_explicit_command_prevents_race_condition(self, shared_agent_with_db):
         """Test that explicit commands use early context snapshot to prevent race conditions."""
         agent = shared_agent_with_db
-        agent.config["rooms"]["irc"]["command"]["debounce"] = 0.5
+        agent.config["rooms"]["irc"]["command"]["debounce"] = 0.05
 
         # Add initial messages to create context
         await agent.history.add_message("test", "#test", "initial message", "alice", "mybot")
