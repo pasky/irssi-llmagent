@@ -799,6 +799,39 @@ class ImageGenExecutor:
             url = self.store.write_bytes(img_bytes, suffix)
             if url.startswith("Error:"):
                 return url
+
+            # Add slop watermark using ImageMagick
+            if self.store.artifacts_path:
+                file_id = url.split("/")[-1].rsplit(".", 1)[0]
+                filepath = self.store.artifacts_path / f"{file_id}{suffix}"
+                try:
+                    import subprocess
+
+                    subprocess.run(
+                        [
+                            "convert",
+                            str(filepath),
+                            "-gravity",
+                            "SouthEast",
+                            "-pointsize",
+                            "20",
+                            "-fill",
+                            "rgba(255,255,255,0.6)",
+                            "-stroke",
+                            "rgba(0,0,0,0.8)",
+                            "-strokewidth",
+                            "1",
+                            "-annotate",
+                            "+10+10",
+                            "🍌slop",
+                            str(filepath),
+                        ],
+                        check=True,
+                        capture_output=True,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to add watermark to {filepath}: {e}")
+
             artifact_urls.append(url)
 
         if not artifact_urls:
