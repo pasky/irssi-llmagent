@@ -144,6 +144,7 @@ class ModelRouter:
         tools: list | None = None,
         tool_choice: list | None = None,
         reasoning_effort: str = "minimal",
+        modalities: list[str] | None = None,
     ) -> tuple[dict, Any, ModelSpec]:
         spec = parse_model_spec(model_str)
         client = self.client_for(spec.provider)
@@ -154,5 +155,6 @@ class ModelRouter:
             tools=tools,
             tool_choice=tool_choice,
             reasoning_effort=reasoning_effort,
+            modalities=modalities,
         )
         return resp, client, spec

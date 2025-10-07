@@ -85,6 +85,7 @@ class BaseOpenAIClient(BaseAPIClient):
         tools: list | None = None,
         tool_choice: list | None = None,
         reasoning_effort: str = "minimal",
+        modalities: list[str] | None = None,
     ) -> dict:
         """Call the OpenAI Chat Completion API and return native response dict."""
         # O1 and GPT-5 models use max_completion_tokens instead of max_tokens
@@ -122,6 +123,9 @@ class BaseOpenAIClient(BaseAPIClient):
             "model": model,
             "messages": messages,
         }
+
+        if modalities:
+            kwargs["modalities"] = modalities
 
         if is_reasoning_model:
             kwargs["max_completion_tokens"] = max_tokens

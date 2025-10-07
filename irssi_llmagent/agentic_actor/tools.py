@@ -17,6 +17,50 @@ from ..chronicler.tools import ChapterAppendExecutor, ChapterRenderExecutor, chr
 logger = logging.getLogger(__name__)
 
 
+async def fetch_image_b64(
+    session: aiohttp.ClientSession, url: str, max_size: int, timeout: int = 30
+) -> tuple[str, str]:
+    """
+    Fetch an image from URL and return (content_type, base64_string).
+    Raises ValueError if not an image, too large, or fetch fails.
+    """
+    async with session.head(
+        url,
+        timeout=aiohttp.ClientTimeout(total=timeout),
+        headers={"User-Agent": "irssi-llmagent/1.0"},
+    ) as head_response:
+        content_type = head_response.headers.get("content-type", "").lower()
+        if not content_type.startswith("image/"):
+            raise ValueError(f"URL is not an image (content-type: {content_type})")
+
+    async with session.get(
+        url,
+        timeout=aiohttp.ClientTimeout(total=timeout),
+        headers={"User-Agent": "irssi-llmagent/1.0"},
+        max_line_size=8190 * 2,
+        max_field_size=8190 * 2,
+    ) as response:
+        response.raise_for_status()
+
+        content_length = response.headers.get("content-length")
+        if content_length and int(content_length) > max_size:
+            raise ValueError(
+                f"Image too large ({content_length} bytes). Maximum allowed: {max_size} bytes"
+            )
+
+        image_data = await response.read()
+        if len(image_data) > max_size:
+            raise ValueError(
+                f"Image too large ({len(image_data)} bytes). Maximum allowed: {max_size} bytes"
+            )
+
+        image_b64 = base64.b64encode(image_data).decode()
+        logger.info(
+            f"Downloaded image from {url}, content-type: {content_type}, size: {len(image_data)} bytes"
+        )
+        return (content_type, image_b64)
+
+
 class Tool(TypedDict):
     """Tool definition schema."""
 
@@ -121,7 +165,7 @@ TOOLS: list[Tool] = [
     },
     {
         "name": "share_artifact",
-        "description": "Share an artifact (additional command output - created script, detailed report, supporting data) with the user. The content is made available on a public link that is returned by the tool. Use this only for additional content that doesn't fit into your standard IRC message response (unless explicitly requested).",
+        "description": "Share an artifact (additional command output - created script, detailed report, supporting data) with the user. The content is made available on a public link that is returned by the tool. Use this only for additional content that doesn't fit into your standard IRC message response (or when explicitly requested).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -133,6 +177,26 @@ TOOLS: list[Tool] = [
             "required": ["content"],
         },
         "persist": "none",
+    },
+    {
+        "name": "generate_image",
+        "description": "Generate image(s) using {tools.image_gen.model} on OpenRouter. Optionally provide reference image URLs for editing/variations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Text description of the image to generate.",
+                },
+                "image_urls": {
+                    "type": "array",
+                    "items": {"type": "string", "format": "uri"},
+                    "description": "Optional list of reference image URLs to include as input for editing or creating variations.",
+                },
+            },
+            "required": ["prompt"],
+        },
+        "persist": "artifact",
     },
 ]
 
@@ -329,34 +393,13 @@ class WebpageVisitorExecutor:
                 content_type = head_response.headers.get("content-type", "").lower()
 
                 if content_type.startswith("image/"):
-                    # Handle image content - fetch the actual image
-                    async with session.get(
-                        url,
-                        timeout=aiohttp.ClientTimeout(total=self.timeout),
-                        headers={"User-Agent": "irssi-llmagent/1.0"},
-                        max_line_size=8190 * 2,
-                        max_field_size=8190 * 2,
-                    ) as response:
-                        response.raise_for_status()
-
-                        # Check content length to avoid huge token costs
-                        content_length = response.headers.get("content-length")
-                        if content_length and int(content_length) > self.max_image_size:
-                            return f"Error: Image too large ({content_length} bytes). Maximum allowed: {self.max_image_size} bytes"
-
-                        # Handle image content
-                        image_data = await response.read()
-
-                        # Double-check actual size after download
-                        if len(image_data) > self.max_image_size:
-                            return f"Error: Image too large ({len(image_data)} bytes). Maximum allowed: {self.max_image_size} bytes"
-
-                        # Convert to base64 directly
-                        image_b64 = base64.b64encode(image_data).decode()
-                        logger.info(
-                            f"Downloaded image from {url}, content-type: {content_type}, size: {len(image_data)} bytes"
+                    try:
+                        content_type, image_b64 = await fetch_image_b64(
+                            session, url, self.max_image_size, self.timeout
                         )
-                        return f"IMAGE_DATA:{content_type}:{len(image_data)}:{image_b64}"
+                        return f"IMAGE_DATA:{content_type}:{len(base64.b64decode(image_b64))}:{image_b64}"
+                    except ValueError as e:
+                        return f"Error: {e}"
 
             # Handle text/HTML content - use jina.ai reader service
             jina_url = f"https://r.jina.ai/{url}"
@@ -550,42 +593,45 @@ class MakePlanExecutor:
         return "OK, follow this plan"
 
 
-class ShareArtifactExecutor:
-    """Executor for sharing artifacts via files and links."""
+class ArtifactStore:
+    """Shared artifact storage for files and URLs."""
 
     def __init__(self, artifacts_path: str | None = None, artifacts_url: str | None = None):
-        self.artifacts_path = artifacts_path
-        self.artifacts_url = artifacts_url
+        self.artifacts_path = Path(artifacts_path).expanduser() if artifacts_path else None
+        self.artifacts_url = artifacts_url.rstrip("/") if artifacts_url else None
 
     @classmethod
-    def from_config(cls, config: dict) -> "ShareArtifactExecutor":
-        """Create executor from configuration."""
+    def from_config(cls, config: dict) -> "ArtifactStore":
+        """Create store from configuration."""
         artifacts_config = config.get("tools", {}).get("artifacts", {})
         return cls(
             artifacts_path=artifacts_config.get("path"),
             artifacts_url=artifacts_config.get("url"),
         )
 
-    async def execute(self, content: str) -> str:
-        """Share an artifact by creating a file and providing a link."""
+    def _ensure_configured(self) -> str | None:
+        """Check if store is configured, return error message if not."""
         if not self.artifacts_path or not self.artifacts_url:
-            return "Error: artifacts.path and artifacts.url must be configured to share artifacts"
+            return "Error: artifacts.path and artifacts.url must be configured"
+        return None
 
-        # Expand home directory if needed
-        path = Path(self.artifacts_path).expanduser()
+    def write_text(self, content: str, suffix: str = ".txt") -> str:
+        """Write text content to artifact file, return URL."""
+        if err := self._ensure_configured():
+            return err
 
-        # Create directory if it doesn't exist
+        assert self.artifacts_path is not None
+        assert self.artifacts_url is not None
+
         try:
-            path.mkdir(parents=True, exist_ok=True)
+            self.artifacts_path.mkdir(parents=True, exist_ok=True)
         except Exception as e:
             logger.error(f"Failed to create artifacts directory: {e}")
             return f"Error: Failed to create artifacts directory: {e}"
 
-        # Generate UUID-based filename
         file_id = uuid.uuid4().hex
-        filepath = path / f"{file_id}.txt"
+        filepath = self.artifacts_path / f"{file_id}{suffix}"
 
-        # Write content to file
         try:
             filepath.write_text(content, encoding="utf-8")
             logger.info(f"Created artifact file: {filepath}")
@@ -593,11 +639,172 @@ class ShareArtifactExecutor:
             logger.error(f"Failed to write artifact file: {e}")
             return f"Error: Failed to create artifact file: {e}"
 
-        # Generate URL
-        base_url = self.artifacts_url.rstrip("/")
-        file_url = f"{base_url}/{file_id}.txt"
+        return f"{self.artifacts_url}/{file_id}{suffix}"
 
-        return f"Artifact shared: {file_url}"
+    def write_bytes(self, data: bytes, suffix: str) -> str:
+        """Write binary data to artifact file, return URL."""
+        if err := self._ensure_configured():
+            return err
+
+        assert self.artifacts_path is not None
+        assert self.artifacts_url is not None
+
+        try:
+            self.artifacts_path.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.error(f"Failed to create artifacts directory: {e}")
+            return f"Error: Failed to create artifacts directory: {e}"
+
+        file_id = uuid.uuid4().hex
+        filepath = self.artifacts_path / f"{file_id}{suffix}"
+
+        try:
+            filepath.write_bytes(data)
+            logger.info(f"Created artifact file: {filepath}")
+        except Exception as e:
+            logger.error(f"Failed to write artifact file: {e}")
+            return f"Error: Failed to create artifact file: {e}"
+
+        return f"{self.artifacts_url}/{file_id}{suffix}"
+
+
+class ShareArtifactExecutor:
+    """Executor for sharing artifacts via files and links."""
+
+    def __init__(self, store: ArtifactStore):
+        self.store = store
+
+    @classmethod
+    def from_config(cls, config: dict) -> "ShareArtifactExecutor":
+        """Create executor from configuration."""
+        return cls(ArtifactStore.from_config(config))
+
+    async def execute(self, content: str) -> str:
+        """Share an artifact by creating a file and providing a link."""
+        url = self.store.write_text(content, ".txt")
+        if url.startswith("Error:"):
+            return url
+        return f"Artifact shared: {url}"
+
+
+class ImageGenExecutor:
+    """Executor for generating images via OpenRouter."""
+
+    def __init__(
+        self,
+        router: Any,
+        config: dict,
+        max_image_size: int = 5 * 1024 * 1024,
+        timeout: int = 30,
+    ):
+        from ..providers import parse_model_spec
+
+        self.router = router
+        self.config = config
+        self.max_image_size = max_image_size
+        self.timeout = timeout
+        self.store = ArtifactStore.from_config(config)
+
+        tools_config = config.get("tools", {}).get("image_gen", {})
+        self.model = tools_config.get("model", "openrouter:google/gemini-2.5-flash-preview-image")
+
+        spec = parse_model_spec(self.model)
+        if spec.provider != "openrouter":
+            raise ValueError(f"image_gen.model must use openrouter provider, got: {spec.provider}")
+
+    @classmethod
+    def from_config(cls, config: dict, router: Any) -> "ImageGenExecutor":
+        """Create executor from configuration."""
+        return cls(router=router, config=config)
+
+    async def execute(self, prompt: str, image_urls: list[str] | None = None) -> str:
+        """Generate image(s) using OpenRouter and store as artifacts."""
+
+        # Build message content with text and optional images
+        content: str | list[dict]
+        if image_urls:
+            content_blocks: list[dict] = [{"type": "text", "text": prompt}]
+            async with aiohttp.ClientSession() as session:
+                for url in image_urls:
+                    try:
+                        ct, b64 = await fetch_image_b64(
+                            session, url, self.max_image_size, self.timeout
+                        )
+                        content_blocks.append(
+                            {"type": "image_url", "image_url": {"url": f"data:{ct};base64,{b64}"}}
+                        )
+                    except ValueError as e:
+                        logger.warning(f"Failed to fetch reference image {url}: {e}")
+                        return f"Error: Failed to fetch reference image {url}: {e}"
+            content = content_blocks
+        else:
+            content = prompt
+
+        context = [{"role": "user", "content": content}]
+
+        try:
+            response, _, _ = await self.router.call_raw_with_model(
+                model_str=self.model,
+                context=context,
+                system_prompt="",
+                modalities=["image", "text"],
+            )
+        except Exception as e:
+            logger.error(f"OpenRouter image generation failed: {e}")
+            return f"Error: Image generation failed: {e}"
+
+        if "error" in response:
+            return f"Error: {response['error']}"
+
+        # Extract images from response
+        choices = response.get("choices", [])
+        if not choices:
+            logger.warning(f"No choices in response: {response}")
+            return "Error: Model returned no output"
+
+        message = choices[0].get("message", {})
+        images = message.get("images", [])
+
+        if not images:
+            logger.warning(f"No images in message: {message}")
+            return "Error: No images generated by model"
+
+        artifact_urls = []
+        for img in images:
+            img_url = None
+            if isinstance(img, dict):
+                img_url = img.get("image_url", {}).get("url") or img.get("url")
+            elif isinstance(img, str):
+                img_url = img
+
+            if not img_url or not img_url.startswith("data:"):
+                logger.warning(f"Invalid image data: {img}")
+                continue
+
+            # Parse data URL: data:image/png;base64,<data>
+            try:
+                parts = img_url.split(",", 1)
+                if len(parts) != 2:
+                    continue
+                header, b64_data = parts
+                mime_type = header.split(";")[0].replace("data:", "")
+                img_bytes = base64.b64decode(b64_data)
+            except Exception as e:
+                logger.error(f"Failed to parse image data URL: {e}")
+                continue
+
+            ext_map = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+            suffix = ext_map.get(mime_type, ".png")
+
+            url = self.store.write_bytes(img_bytes, suffix)
+            if url.startswith("Error:"):
+                return url
+            artifact_urls.append(url)
+
+        if not artifact_urls:
+            return "Error: No images could be extracted from response"
+
+        return "\n".join(f"Generated image: {url}" for url in artifact_urls)
 
 
 def create_tool_executors(
@@ -606,6 +813,7 @@ def create_tool_executors(
     progress_callback: Any | None = None,
     agent: Any,
     arc: str,
+    router: Any = None,
 ) -> dict[str, Any]:
     """Create tool executors with configuration."""
     # Tool configs
@@ -647,7 +855,7 @@ def create_tool_executors(
     progress_cfg = behavior.get("progress", {}) if behavior else {}
     min_interval = int(progress_cfg.get("min_interval_seconds", 15))
 
-    return {
+    executors = {
         "web_search": search_executor,
         "visit_webpage": WebpageVisitorExecutor(
             progress_callback=progress_callback, api_key=jina_api_key
@@ -662,6 +870,12 @@ def create_tool_executors(
         "chronicle_append": ChapterAppendExecutor(agent=agent, arc=arc),
         "chronicle_read": ChapterRenderExecutor(chronicle=agent.chronicle, arc=arc),
     }
+
+    # Add generate_image only if router is available
+    if router:
+        executors["generate_image"] = ImageGenExecutor.from_config(config or {}, router)
+
+    return executors
 
 
 async def execute_tool(tool_name: str, tool_executors: dict[str, Any], **kwargs) -> str:

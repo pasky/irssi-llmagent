@@ -2,7 +2,6 @@
 
 import copy
 import logging
-import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -68,7 +67,11 @@ class AgenticLLMActor:
 
         # Create tool executors with the provided arc
         base_executors = create_tool_executors(
-            self.config, progress_callback=progress_callback, agent=self.agent, arc=arc
+            self.config,
+            progress_callback=progress_callback,
+            agent=self.agent,
+            arc=arc,
+            router=self.model_router,
         )
         tool_executors = {**base_executors, **self.additional_tool_executors}
 
@@ -135,7 +138,25 @@ class AgenticLLMActor:
                     ]
 
             try:
-                available_tools = TOOLS + self.additional_tools
+                # Fill in {config.path} placeholders in tool descriptions
+                import re
+
+                available_tools = []
+                for tool in TOOLS + self.additional_tools:
+                    tool_copy = copy.deepcopy(tool)
+                    desc = tool_copy.get("description", "")
+
+                    def replace_config(match):
+                        path = match.group(1)
+                        keys = path.split(".")
+                        val = self.config
+                        for key in keys:
+                            val = val.get(key, {}) if isinstance(val, dict) else {}
+                        return val if isinstance(val, str) else match.group(0)
+
+                    tool_copy["description"] = re.sub(r"\{([^}]+)\}", replace_config, desc)
+                    available_tools.append(tool_copy)
+
                 tool_choice = None
 
                 if iteration == 0:

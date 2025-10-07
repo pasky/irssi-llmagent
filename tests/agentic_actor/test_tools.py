@@ -256,9 +256,10 @@ class TestToolExecutors:
             artifacts_path = str(Path(temp_dir) / "artifacts")
             artifacts_url = "https://example.com/artifacts"
 
-            executor = ShareArtifactExecutor(
-                artifacts_path=artifacts_path, artifacts_url=artifacts_url
-            )
+            from irssi_llmagent.agentic_actor.tools import ArtifactStore
+
+            store = ArtifactStore(artifacts_path=artifacts_path, artifacts_url=artifacts_url)
+            executor = ShareArtifactExecutor(store=store)
 
             content = "#!/bin/bash\necho 'Hello, World!'"
 
@@ -289,22 +290,25 @@ class TestToolExecutors:
     @pytest.mark.asyncio
     async def test_share_artifact_executor_missing_config(self):
         """Test artifact sharing with missing configuration."""
-        executor = ShareArtifactExecutor()
+        from irssi_llmagent.agentic_actor.tools import ArtifactStore
+
+        store = ArtifactStore(artifacts_path=None, artifacts_url=None)
+        executor = ShareArtifactExecutor(store=store)
 
         result = await executor.execute("test content")
 
-        assert (
-            result
-            == "Error: artifacts.path and artifacts.url must be configured to share artifacts"
-        )
+        assert result == "Error: artifacts.path and artifacts.url must be configured"
 
     @pytest.mark.asyncio
     async def test_share_artifact_executor_write_error(self):
         """Test artifact sharing with write error."""
-        executor = ShareArtifactExecutor(
+        from irssi_llmagent.agentic_actor.tools import ArtifactStore
+
+        store = ArtifactStore(
             artifacts_path="/nonexistent/readonly/path",
             artifacts_url="https://example.com/artifacts",
         )
+        executor = ShareArtifactExecutor(store=store)
 
         result = await executor.execute("test content")
 
