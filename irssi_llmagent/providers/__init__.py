@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
-from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,17 +13,6 @@ class BaseAPIClient(ABC):
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
-        self.session = None
-
-    @abstractmethod
-    async def __aenter__(self):
-        """Async context manager entry."""
-        pass
-
-    @abstractmethod
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        pass
 
     @abstractmethod
     async def call_raw(
@@ -120,16 +108,6 @@ class ModelRouter:
         self._clients: dict[str, Any] = {}
         # No default provider; models must be fully-qualified
 
-    async def __aenter__(self):
-        # Lazy init of clients
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        for client in self._clients.values():
-            with suppress(Exception):
-                await client.__aexit__(exc_type, exc, tb)
-        self._clients.clear()
-
     def _ensure_client(self, provider: str) -> Any:
         if provider in self._clients:
             return self._clients[provider]
@@ -154,14 +132,8 @@ class ModelRouter:
         self._clients[provider] = client
         return client
 
-    async def client_for(self, provider: str):
-        client = self._ensure_client(provider)
-        # Enter async context once per client
-        # Use a marker attribute to avoid re-entering
-        if not getattr(client, "_entered", False):
-            await client.__aenter__()
-            client._entered = True
-        return client
+    def client_for(self, provider: str):
+        return self._ensure_client(provider)
 
     async def call_raw_with_model(
         self,
@@ -174,7 +146,7 @@ class ModelRouter:
         reasoning_effort: str = "minimal",
     ) -> tuple[dict, Any, ModelSpec]:
         spec = parse_model_spec(model_str)
-        client = await self.client_for(spec.provider)
+        client = self.client_for(spec.provider)
         resp = await client.call_raw(
             context,
             system_prompt,

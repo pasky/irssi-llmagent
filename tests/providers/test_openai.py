@@ -62,17 +62,15 @@ class TestOpenAISpecificBehavior:
         messages = [{"role": "user", "content": "Test query"}]
 
         with patch("irssi_llmagent.providers.openai._AsyncOpenAI", MockAsyncOpenAI):
-            async with openai_client:
-                await openai_client.call_raw(
-                    messages,
-                    "Test system prompt",
-                    "gpt-5",
-                    tools=[
-                        {"name": "final_answer", "description": "test tool", "input_schema": {}}
-                    ],
-                    tool_choice=["final_answer"],  # Non-auto tool choice
-                    reasoning_effort="medium",  # Sets reasoning effort
-                )
+            openai_client = OpenAIClient(test_config)
+            await openai_client.call_raw(
+                messages,
+                "Test system prompt",
+                "gpt-5",
+                tools=[{"name": "final_answer", "description": "test tool", "input_schema": {}}],
+                tool_choice=["final_answer"],  # Non-auto tool choice
+                reasoning_effort="medium",  # Sets reasoning effort
+            )
 
         # Assert exact literal value of messages (reasoning models use developer role)
         expected_messages = [
@@ -127,29 +125,28 @@ class TestOpenAISpecificBehavior:
 
         # Test legacy model (gpt-4o)
         captured_kwargs.clear()
-        client = OpenAIClient(config)
 
         with patch("irssi_llmagent.providers.openai._AsyncOpenAI", MockAsyncOpenAI):
-            async with client:
-                await client.call_raw(
-                    [{"role": "user", "content": "Test message"}],
-                    "Test system prompt",
-                    "gpt-4o",  # Legacy model
-                    tools=[
-                        {
-                            "name": "tool_a",
-                            "description": "Tool A",
-                            "input_schema": {"type": "object"},
-                        },
-                        {
-                            "name": "tool_b",
-                            "description": "Tool B",
-                            "input_schema": {"type": "object"},
-                        },
-                    ],
-                    tool_choice=["tool_a", "tool_b"],
-                    reasoning_effort="high",
-                )
+            client = OpenAIClient(config)
+            await client.call_raw(
+                [{"role": "user", "content": "Test message"}],
+                "Test system prompt",
+                "gpt-4o",  # Legacy model
+                tools=[
+                    {
+                        "name": "tool_a",
+                        "description": "Tool A",
+                        "input_schema": {"type": "object"},
+                    },
+                    {
+                        "name": "tool_b",
+                        "description": "Tool B",
+                        "input_schema": {"type": "object"},
+                    },
+                ],
+                tool_choice=["tool_a", "tool_b"],
+                reasoning_effort="high",
+            )
 
         # Legacy model should use system role and max_tokens
         assert captured_kwargs["messages"][0]["role"] == "system"
@@ -167,21 +164,21 @@ class TestOpenAISpecificBehavior:
         captured_kwargs.clear()
 
         with patch("irssi_llmagent.providers.openai._AsyncOpenAI", MockAsyncOpenAI):
-            async with client:
-                await client.call_raw(
-                    [{"role": "user", "content": "Test message"}],
-                    "Test system prompt",
-                    "gpt-5",  # Reasoning model
-                    tools=[
-                        {
-                            "name": "tool_c",
-                            "description": "Tool C",
-                            "input_schema": {"type": "object"},
-                        }
-                    ],
-                    tool_choice=["tool_c"],
-                    reasoning_effort="medium",
-                )
+            client = OpenAIClient(config)
+            await client.call_raw(
+                [{"role": "user", "content": "Test message"}],
+                "Test system prompt",
+                "gpt-5",  # Reasoning model
+                tools=[
+                    {
+                        "name": "tool_c",
+                        "description": "Tool C",
+                        "input_schema": {"type": "object"},
+                    }
+                ],
+                tool_choice=["tool_c"],
+                reasoning_effort="medium",
+            )
 
         # Reasoning model should use developer role and max_completion_tokens
         assert captured_kwargs["messages"][0]["role"] == "developer"
@@ -248,13 +245,12 @@ class TestOpenRouterClient:
         mock_client.chat.completions.create.side_effect = capture_kwargs
 
         # Test with provider routing
-        async with client:
-            client._client = mock_client
-            await client.call_raw(
-                context=[],
-                system_prompt="Test prompt",
-                model="moonshot/kimi-k2#groq,moonshotai",
-            )
+        client._client = mock_client
+        await client.call_raw(
+            context=[],
+            system_prompt="Test prompt",
+            model="moonshot/kimi-k2#groq,moonshotai",
+        )
 
         # Should have called with extra_body containing provider config
         assert "extra_body" in captured_kwargs

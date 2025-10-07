@@ -81,7 +81,7 @@ class IRSSILLMAgent:
         if mode_cfg.get("include_chapter_summary", True) and arc:
             prepended_context = await self.chronicle.get_chapter_context_messages(arc)
 
-        async with AgenticLLMActor(
+        actor = AgenticLLMActor(
             config=self.config,
             model=mode_cfg["model"],
             system_prompt_generator=lambda: system_prompt,
@@ -90,12 +90,12 @@ class IRSSILLMAgent:
             agent=self,
             vision_model=mode_cfg.get("vision_model"),
             **actor_kwargs,
-        ) as actor:
-            response = await actor.run_agent(
-                context,
-                progress_callback=progress_callback,
-                arc=arc,
-            )
+        )
+        response = await actor.run_agent(
+            context,
+            progress_callback=progress_callback,
+            arc=arc,
+        )
 
         if not response or response.strip().upper() == "NULL":
             return None
@@ -141,7 +141,6 @@ class IRSSILLMAgent:
             # Clean up shared resources
             await self.history.close()
             # Chronicle doesn't need explicit cleanup
-            await self.model_router.__aexit__(None, None, None)
 
 
 async def cli_message(message: str, config_path: str | None = None) -> None:
@@ -193,8 +192,6 @@ async def cli_message(message: str, config_path: str | None = None) -> None:
         try:
             if hasattr(agent, "history"):
                 await agent.history.close()
-            if hasattr(agent, "model_router"):
-                await agent.model_router.__aexit__(None, None, None)
         except Exception:
             pass
 

@@ -100,19 +100,9 @@ class TestAPIAgent:
         assert (
             "sarcastic=" in system_prompt and "claude-3-5-haiku" in system_prompt
         )  # sarcastic model is substituted
-
-    @pytest.mark.asyncio
-    async def test_agent_context_manager(self, agent):
-        """Test agent as async context manager."""
-        with patch.object(ModelRouter, "__aenter__", new_callable=AsyncMock) as mock_enter:
-            with patch.object(ModelRouter, "__aexit__", new_callable=AsyncMock) as mock_exit:
-                mock_enter.return_value = ModelRouter(agent.config)
-
-                async with agent:
-                    pass
-
-                mock_enter.assert_called_once()
-                mock_exit.assert_called_once()
+        # Verify router is created
+        assert agent.model_router is not None
+        assert isinstance(agent.model_router, ModelRouter)
 
     @pytest.mark.asyncio
     async def test_agent_simple_response(self, agent, api_type):

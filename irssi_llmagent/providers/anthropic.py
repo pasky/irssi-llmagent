@@ -21,22 +21,6 @@ class BaseAnthropicAPIClient(BaseAPIClient):
         super().__init__(cfg)
         self.provider_name = provider_name
         self.logger = logging.getLogger(f"{__name__}.{provider_name}")
-        self.session: aiohttp.ClientSession | None = None
-
-    async def __aenter__(self):
-        self.session = aiohttp.ClientSession(
-            headers={
-                "x-api-key": self.config["key"],
-                "anthropic-version": "2023-06-01",
-                "Content-Type": "application/json",
-                "User-Agent": "irssi-llmagent/1.0",
-            }
-        )
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            await self.session.close()
 
     async def call_raw(
         self,
@@ -46,12 +30,9 @@ class BaseAnthropicAPIClient(BaseAPIClient):
         tools: list | None = None,
         tool_choice: list | None = None,
         reasoning_effort: str = "minimal",
+        modalities: list[str] | None = None,
     ) -> dict:
         """Call Anthropic API with context and system prompt."""
-        if not self.session:
-            raise RuntimeError(
-                f"{self.provider_name}Client not initialized as async context manager"
-            )
 
         messages = []
         for m in context:
@@ -130,7 +111,17 @@ class BaseAnthropicAPIClient(BaseAPIClient):
                 await asyncio.sleep(delay)
 
             try:
-                async with self.session.post(self.config["url"], json=payload) as response:
+                async with (
+                    aiohttp.ClientSession(
+                        headers={
+                            "x-api-key": self.config["key"],
+                            "anthropic-version": "2023-06-01",
+                            "Content-Type": "application/json",
+                            "User-Agent": "irssi-llmagent/1.0",
+                        }
+                    ) as session,
+                    session.post(self.config["url"], json=payload) as response,
+                ):
                     response.raise_for_status()
                     data = await response.json()
 

@@ -110,7 +110,7 @@ class TestCLIMode:
 
                     mock_perplexity = AsyncMock()
                     mock_perplexity.call_perplexity = AsyncMock(return_value="Weather is sunny")
-                    mock_perplexity_class.return_value.__aenter__.return_value = mock_perplexity
+                    mock_perplexity_class.return_value = mock_perplexity
 
                     # Create a real agent
                     from irssi_llmagent.main import IRSSILLMAgent
@@ -159,7 +159,7 @@ class TestCLIMode:
 
                     mock_agent = AsyncMock()
                     mock_agent.run_agent = AsyncMock(return_value="Agent response")
-                    mock_agent_class.return_value.__aenter__.return_value = mock_agent
+                    mock_agent_class.return_value = mock_agent
 
                     # Create a real agent
                     from irssi_llmagent.main import IRSSILLMAgent
@@ -207,7 +207,7 @@ class TestCLIMode:
 
                     mock_agent = AsyncMock()
                     mock_agent.run_agent = AsyncMock(return_value="Agent response")
-                    mock_agent_class.return_value.__aenter__.return_value = mock_agent
+                    mock_agent_class.return_value = mock_agent
 
                     # Create a real agent
                     from irssi_llmagent.main import IRSSILLMAgent

@@ -33,12 +33,6 @@ class BaseOpenAIClient(BaseAPIClient):
             if key not in self.config:
                 raise ValueError(f"{provider_name} config missing required key: {key}")
 
-        self._client: Any | None = None
-
-    def get_base_url(self) -> str | None:
-        return self.config.get("base_url")
-
-    async def __aenter__(self):
         if _AsyncOpenAI is None:
             raise RuntimeError(
                 "The 'openai' package is not installed. Run 'uv sync' to install dependencies."
@@ -50,11 +44,9 @@ class BaseOpenAIClient(BaseAPIClient):
         else:
             # Use default API base
             self._client = _AsyncOpenAI(api_key=self.config["key"])
-        return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        # AsyncOpenAI does not require explicit close
-        self._client = None
+    def get_base_url(self) -> str | None:
+        return self.config.get("base_url")
 
     def _convert_tools(self, tools: list[dict]) -> list[dict]:
         """Convert internal tool schema to OpenAI Chat Completion function tools."""
@@ -95,11 +87,6 @@ class BaseOpenAIClient(BaseAPIClient):
         reasoning_effort: str = "minimal",
     ) -> dict:
         """Call the OpenAI Chat Completion API and return native response dict."""
-        if not self._client:
-            raise RuntimeError(
-                f"{self.provider_name}Client not initialized as async context manager"
-            )
-
         # O1 and GPT-5 models use max_completion_tokens instead of max_tokens
         is_reasoning_model = self._is_reasoning_model(model)
 

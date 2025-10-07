@@ -63,19 +63,24 @@ class TestAnthropicSpecificBehavior:
             async def close(self):
                 pass
 
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                await self.close()
+
         # Test the scenario: thinking budget + non-auto tool_choice
         messages = [{"role": "user", "content": "Test query"}]
 
         with patch("aiohttp.ClientSession", MockSession):
-            async with claude_client:
-                await claude_client.call_raw(
-                    messages,
-                    "Test system prompt",
-                    "claude-3-5-sonnet-20241022",
-                    tools=[{"name": "final_answer", "description": "test tool"}],
-                    tool_choice=["final_answer"],  # Non-auto tool choice
-                    reasoning_effort="medium",  # Sets thinking budget
-                )
+            await claude_client.call_raw(
+                messages,
+                "Test system prompt",
+                "claude-3-5-sonnet-20241022",
+                tools=[{"name": "final_answer", "description": "test tool"}],
+                tool_choice=["final_answer"],  # Non-auto tool choice
+                reasoning_effort="medium",  # Sets thinking budget
+            )
 
         # Verify the special case was handled correctly
         assert "thinking" in captured_payload  # Thinking budget was set
@@ -158,23 +163,35 @@ class TestAnthropicRetryLogic:
 
             return MockContextManager(response)
 
-        client = AnthropicClient(config)
-        async with client:
-            with patch.object(client.session, "post", side_effect=mock_post):
-                with patch("asyncio.sleep") as mock_sleep:
-                    result = await client.call_raw(
-                        context=[{"role": "user", "content": "test"}],
-                        system_prompt="test",
-                        model="claude-3-sonnet-20240229",
-                    )
+        class MockSession:
+            def __init__(self, *args, **kwargs):
+                pass
 
-                    # Should have made 3 attempts total
-                    assert call_count == 3
-                    # Should have called sleep twice (for retries)
-                    assert mock_sleep.call_count == 2
-                    # Should have succeeded eventually
-                    assert "content" in result
-                    assert result["content"][0]["text"] == "Success!"
+            def post(self, *args, **kwargs):
+                return mock_post(*args, **kwargs)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        client = AnthropicClient(config)
+        with patch("aiohttp.ClientSession", MockSession):
+            with patch("asyncio.sleep") as mock_sleep:
+                result = await client.call_raw(
+                    context=[{"role": "user", "content": "test"}],
+                    system_prompt="test",
+                    model="claude-3-sonnet-20240229",
+                )
+
+                # Should have made 3 attempts total
+                assert call_count == 3
+                # Should have called sleep twice (for retries)
+                assert mock_sleep.call_count == 2
+                # Should have succeeded eventually
+                assert "content" in result
+                assert result["content"][0]["text"] == "Success!"
 
     @pytest.mark.asyncio
     async def test_529_retry_exhausted(self):
@@ -229,23 +246,35 @@ class TestAnthropicRetryLogic:
             )
             return MockContextManager(response)
 
-        client = AnthropicClient(config)
-        async with client:
-            with patch.object(client.session, "post", side_effect=mock_post):
-                with patch("asyncio.sleep") as mock_sleep:
-                    result = await client.call_raw(
-                        context=[{"role": "user", "content": "test"}],
-                        system_prompt="test",
-                        model="claude-3-sonnet-20240229",
-                    )
+        class MockSession:
+            def __init__(self, *args, **kwargs):
+                pass
 
-                    # Should have made 5 attempts total (all backoff_delays)
-                    assert call_count == 5
-                    # Should have called sleep 4 times (for retries)
-                    assert mock_sleep.call_count == 4
-                    # Should have failed with error
-                    assert "error" in result
-                    assert "529" in result["error"]
+            def post(self, *args, **kwargs):
+                return mock_post(*args, **kwargs)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        client = AnthropicClient(config)
+        with patch("aiohttp.ClientSession", MockSession):
+            with patch("asyncio.sleep") as mock_sleep:
+                result = await client.call_raw(
+                    context=[{"role": "user", "content": "test"}],
+                    system_prompt="test",
+                    model="claude-3-sonnet-20240229",
+                )
+
+                # Should have made 5 attempts total (all backoff_delays)
+                assert call_count == 5
+                # Should have called sleep 4 times (for retries)
+                assert mock_sleep.call_count == 4
+                # Should have failed with error
+                assert "error" in result
+                assert "529" in result["error"]
 
 
 class TestAnthropicImageHandling:

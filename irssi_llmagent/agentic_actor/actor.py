@@ -40,7 +40,7 @@ class AgenticLLMActor:
         self.additional_tool_executors = additional_tool_executors or {}
         self.prepended_context = prepended_context or []
         self.agent = agent
-        self.model_router: ModelRouter | None = None
+        self.model_router = ModelRouter(self.config)
         self.vision_model = vision_model
 
         # Actor configuration
@@ -53,19 +53,6 @@ class AgenticLLMActor:
         self.progress_min_interval_seconds = int(prog_cfg.get("min_interval_seconds", 15))
 
         # Tool executors will be created in run_agent with arc parameter
-
-    async def __aenter__(self):
-        """Async context manager entry."""
-        # Lazy-init router when entering
-        self.model_router = await ModelRouter(self.config).__aenter__()
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        # Close model router (which closes its clients)
-        if self.model_router is not None:
-            await self.model_router.__aexit__(exc_type, exc_val, exc_tb)
-            self.model_router = None
 
     async def run_agent(
         self,
@@ -148,8 +135,6 @@ class AgenticLLMActor:
                     ]
 
             try:
-                if self.model_router is None:
-                    self.model_router = await ModelRouter(self.config).__aenter__()
                 available_tools = TOOLS + self.additional_tools
                 tool_choice = None
 

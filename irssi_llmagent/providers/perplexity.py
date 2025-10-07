@@ -14,27 +14,10 @@ class PerplexityClient:
     """Perplexity AI API client with async support."""
 
     def __init__(self, config: dict[str, Any]):
-        self.config = config["perplexity"]
-        self.session: aiohttp.ClientSession | None = None
-
-    async def __aenter__(self):
-        self.session = aiohttp.ClientSession(
-            headers={
-                "Authorization": f"Bearer {self.config['key']}",
-                "Content-Type": "application/json",
-                "User-Agent": "irssi-llmagent/1.0",
-            }
-        )
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            await self.session.close()
+        self.config = config.get("providers", {}).get("perplexity", {})
 
     async def call_perplexity(self, context: list[dict[str, str]]) -> str | None:
         """Call Perplexity API with context."""
-        if not self.session:
-            raise RuntimeError("PerplexityClient not initialized as async context manager")
 
         if not context:
             return None
@@ -56,7 +39,16 @@ class PerplexityClient:
         logger.debug(f"Perplexity request payload: {json.dumps(payload, indent=2)}")
 
         try:
-            async with self.session.post(self.config["url"], json=payload) as response:
+            async with (
+                aiohttp.ClientSession(
+                    headers={
+                        "Authorization": f"Bearer {self.config['key']}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "irssi-llmagent/1.0",
+                    }
+                ) as session,
+                session.post(self.config["url"], json=payload) as response,
+            ):
                 response.raise_for_status()
                 data = await response.json()
 

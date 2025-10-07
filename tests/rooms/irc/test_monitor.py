@@ -499,7 +499,7 @@ class TestIRCMonitor:
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Agent response")
-            mock_agent_class.return_value.__aenter__.return_value = mock_agent
+            mock_agent_class.return_value = mock_agent
 
             # Test serious mode (should use agent)
             await agent.irc_monitor.handle_command(
@@ -558,7 +558,7 @@ class TestIRCMonitor:
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Sarcastic response")
-            mock_agent_class.return_value.__aenter__.return_value = mock_agent
+            mock_agent_class.return_value = mock_agent
 
             # Test sarcastic mode
             await agent.irc_monitor.handle_command(
@@ -602,7 +602,7 @@ class TestIRCMonitor:
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Agent response")
-            mock_agent_class.return_value.__aenter__.return_value = mock_agent
+            mock_agent_class.return_value = mock_agent
 
             # Test automatic mode message that should be classified as serious
             await agent.irc_monitor.handle_command(
@@ -627,7 +627,7 @@ class TestIRCMonitor:
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Unsafe response")
-            mock_agent_class.return_value.__aenter__.return_value = mock_agent
+            mock_agent_class.return_value = mock_agent
 
             # Test explicit unsafe mode command
             await agent.irc_monitor.handle_command(
@@ -673,7 +673,7 @@ class TestIRCMonitor:
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Unsafe agent response")
-            mock_agent_class.return_value.__aenter__.return_value = mock_agent
+            mock_agent_class.return_value = mock_agent
 
             # Test automatic mode message that should be classified as unsafe
             await agent.irc_monitor.handle_command(
@@ -730,7 +730,7 @@ class TestIRCMonitor:
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value="Test response")
-            mock_agent_class.return_value.__aenter__.return_value = mock_agent
+            mock_agent_class.return_value = mock_agent
 
             # Test message NOT addressing bot in whitelisted test channel
             event = {
@@ -843,7 +843,7 @@ class TestIRCMonitor:
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value=long_response)
-            mock_agent_class.return_value.__aenter__.return_value = mock_agent
+            mock_agent_class.return_value = mock_agent
 
             # Mock the ShareArtifactExecutor
             with patch(
@@ -894,7 +894,7 @@ class TestIRCMonitor:
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
             mock_agent.run_agent = AsyncMock(return_value=short_response)
-            mock_agent_class.return_value.__aenter__.return_value = mock_agent
+            mock_agent_class.return_value = mock_agent
 
             # Test command that generates short response
             await agent.irc_monitor.handle_command(

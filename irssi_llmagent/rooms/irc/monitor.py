@@ -567,8 +567,8 @@ class IRCRoomMonitor:
             # Perplexity call
             logger.debug(f"Processing Perplexity request from {nick}: {cleaned_msg}")
             # Use default history size for Perplexity
-            async with PerplexityClient(self.agent.config) as perplexity:
-                response = await perplexity.call_perplexity(context[-default_size:])
+            perplexity = PerplexityClient(self.agent.config)
+            response = await perplexity.call_perplexity(context[-default_size:])
             if response:
                 # Handle multi-line responses (citations)
                 lines = response.split("\n")
