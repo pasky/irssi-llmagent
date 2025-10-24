@@ -722,6 +722,7 @@ class ImageGenExecutor:
 
         # Build message content with text and optional images
         content: str | list[dict]
+        logger.info(f"Generating image with prompt: {prompt}")
         if image_urls:
             content_blocks: list[dict] = [{"type": "text", "text": prompt}]
             async with aiohttp.ClientSession() as session:
@@ -733,6 +734,7 @@ class ImageGenExecutor:
                         content_blocks.append(
                             {"type": "image_url", "image_url": {"url": f"data:{ct};base64,{b64}"}}
                         )
+                        logger.info(f"Including additional image as input: {url}")
                     except ValueError as e:
                         logger.warning(f"Failed to fetch reference image {url}: {e}")
                         return f"Error: Failed to fetch reference image {url}: {e}"
