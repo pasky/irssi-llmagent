@@ -275,11 +275,17 @@ class AgenticLLMActor:
                             # If this is the final_answer tool, return its result directly
                             if tool["name"] == "final_answer":
                                 cleaned_result = client.cleanup_raw_text(tool_result)
-                                if len(result["tools"]) > 1:
+                                # Check if there are other tool calls besides progress_report
+                                other_tools = [
+                                    t
+                                    for t in result["tools"]
+                                    if t["name"] not in ["final_answer", "progress_report"]
+                                ]
+                                if other_tools:
                                     logger.warning(
-                                        "Rejecting final answer {tool_result}, since multiple tool calls were seen."
+                                        "Rejecting final answer, since non-progress_report tool calls were seen."
                                     )
-                                    tool_result += " | REJECTED: Other tool calls are in progress."
+                                    tool_result = "REJECTED: final_answer must be called separately from other tools (progress_report is allowed)."
                                 elif "<thinking>" in tool_result and (
                                     not cleaned_result or cleaned_result == "..."
                                 ):
