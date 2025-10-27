@@ -269,11 +269,21 @@ class TestOpenAIImageHandling:
         png_data = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
         image_b64 = base64.b64encode(png_data).decode()
 
+        # Use Anthropic content blocks format
         tool_results = [
             {
                 "type": "tool_result",
                 "tool_use_id": "test-123",
-                "content": f"IMAGE_DATA:image/png:{len(png_data)}:{image_b64}",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": image_b64,
+                        },
+                    }
+                ],
             }
         ]
 
@@ -286,7 +296,7 @@ class TestOpenAIImageHandling:
         tool_result = result[0]
         assert tool_result["role"] == "tool"
         assert tool_result["tool_call_id"] == "test-123"
-        assert "Downloaded image (image/png" in tool_result["content"]
+        assert "Images returned by tool" in tool_result["content"]
 
         # Check image message
         image_msg = result[1]
@@ -295,3 +305,26 @@ class TestOpenAIImageHandling:
         assert image_msg["content"][0]["type"] == "text"
         assert image_msg["content"][1]["type"] == "image_url"
         assert f"data:image/png;base64,{image_b64}" in image_msg["content"][1]["image_url"]["url"]
+
+    def test_openai_plain_text_formatting(self):
+        """Test OpenAI client formats plain text tool results correctly."""
+        client = OpenAIClient({"openai": {"key": "test-key", "model": "gpt-4"}})
+
+        tool_results = [
+            {
+                "type": "tool_result",
+                "tool_use_id": "test-123",
+                "content": "This is plain text result from a tool",
+            }
+        ]
+
+        result = client.format_tool_results(tool_results)
+
+        assert isinstance(result, list)
+        assert len(result) == 1  # Only tool message, no image message
+
+        # Check tool result
+        tool_result = result[0]
+        assert tool_result["role"] == "tool"
+        assert tool_result["tool_call_id"] == "test-123"
+        assert tool_result["content"] == "This is plain text result from a tool"

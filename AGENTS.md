@@ -3,7 +3,7 @@
 ## Build/Test Commands
 - Install dependencies: `uv sync --dev`
 - Run service: `uv run irssi-llmagent` or `uv run python -m irssi_llmagent.main`
-- Run tests: `uv run pytest`
+- Run tests: `uv run pytest` - all tests must always succeed! You must assume any test failure is related to your changes, even if it doesn't appear to be at first.
 - Full e2e test in CLI mode: `uv run irssi-llmagent --message "your message here"`
 - Test automatic mode: `uv run irssi-llmagent --message "tell me a joke"`
 - Test explicit sarcastic: `uv run irssi-llmagent --message "!S tell me a joke"`

@@ -242,7 +242,25 @@ class AgenticLLMActor:
                             tool_result = await execute_tool(
                                 tool["name"], tool_executors, **tool["input"]
                             )
-                            logger.info(f"Tool {tool['name']} executed: {tool_result[:100]}...")
+
+                            # Log result, truncating image data in content blocks
+                            if isinstance(tool_result, list):
+                                # tool_result is list[dict] - Anthropic content blocks
+                                log_blocks = []
+                                for block in tool_result:
+                                    if block.get("type") == "image":
+                                        source = block.get("source", {})
+                                        data = source.get("data", "")
+                                        truncated = data[:64] + "..." if len(data) > 64 else data
+                                        log_blocks.append(
+                                            f"[image: {source.get('media_type')}, {truncated}]"
+                                        )
+                                    elif block.get("type") == "text":
+                                        log_blocks.append(block.get("text", "")[:100])
+                                log_result = ", ".join(log_blocks)
+                            else:
+                                log_result = str(tool_result)[:100]
+                            logger.info(f"Tool {tool['name']} executed: {log_result}...")
 
                             # Check if this tool should be persisted
                             tool_def = None
@@ -274,7 +292,13 @@ class AgenticLLMActor:
 
                             # If this is the final_answer tool, return its result directly
                             if tool["name"] == "final_answer":
-                                cleaned_result = client.cleanup_raw_text(tool_result)
+                                # final_answer always returns str, not list[dict]
+                                tool_result_str = (
+                                    tool_result
+                                    if isinstance(tool_result, str)
+                                    else str(tool_result)
+                                )
+                                cleaned_result = client.cleanup_raw_text(tool_result_str)
                                 # Check if there are other tool calls besides progress_report
                                 other_tools = [
                                     t
@@ -286,7 +310,7 @@ class AgenticLLMActor:
                                         "Rejecting final answer, since non-progress_report tool calls were seen."
                                     )
                                     tool_result = "REJECTED: final_answer must be called separately from other tools (progress_report is allowed)."
-                                elif "<thinking>" in tool_result and (
+                                elif "<thinking>" in tool_result_str and (
                                     not cleaned_result or cleaned_result == "..."
                                 ):
                                     logger.warning(
@@ -307,17 +331,17 @@ class AgenticLLMActor:
                             tool_result = repr(e)
                             logger.warning(f"Tool {tool['name']} failed: {e}")
 
-                        if (
-                            self.vision_model
-                            and not vision_switched
-                            and isinstance(tool_result, str)
-                            and tool_result.startswith("IMAGE_DATA:")
-                        ):
-                            vision_switched = True
-                            fallback_slug = re.sub(
-                                r"(?:[^:]*:)?(?:.*/)?([^#/]+)(?:#.*)?", r"\1", self.vision_model
+                        if self.vision_model and not vision_switched:
+                            # Check if tool result contains images (Anthropic blocks)
+                            has_images = isinstance(tool_result, list) and any(
+                                block.get("type") == "image" for block in tool_result
                             )
-                            result_suffix += f" [image fallback to {fallback_slug}]"
+                            if has_images:
+                                vision_switched = True
+                                fallback_slug = re.sub(
+                                    r"(?:[^:]*:)?(?:.*/)?([^#/]+)(?:#.*)?", r"\1", self.vision_model
+                                )
+                                result_suffix += f" [image fallback to {fallback_slug}]"
 
                         tool_results.append(
                             {
@@ -404,7 +428,7 @@ class AgenticLLMActor:
         return {"type": "error", "message": "No valid text or tool use found in response"}
 
     async def _create_artifact_for_tool(
-        self, tool_name: str, tool_input: dict, tool_result: str, tool_executors: dict
+        self, tool_name: str, tool_input: dict, tool_result: str | list[dict], tool_executors: dict
     ) -> str | None:
         """Create an artifact for tool input and result and return its URL."""
         try:
@@ -416,7 +440,13 @@ class AgenticLLMActor:
                 artifact_content += (
                     f"## Input\n```json\n{json.dumps(tool_input, indent=2)}\n```\n\n"
                 )
-                artifact_content += f"## Output\n{tool_result}"
+                # Convert list[dict] to JSON string if needed
+                output_str = (
+                    json.dumps(tool_result, indent=2)
+                    if isinstance(tool_result, list)
+                    else tool_result
+                )
+                artifact_content += f"## Output\n{output_str}"
 
                 artifact_executor = tool_executors["share_artifact"]
                 artifact_result = await artifact_executor.execute(artifact_content)
@@ -446,14 +476,21 @@ class AgenticLLMActor:
                 persist_type = call["persist_type"]
 
                 # Replace image data with placeholder in both input and output
-                def replace_image_data(text):
-                    if isinstance(text, str) and text.startswith("IMAGE_DATA:"):
-                        parts = text.split(":", 3)
-                        if len(parts) >= 4:
-                            content_type = parts[1]
-                            size = parts[2]
-                            return f"[image: {content_type}, {size} bytes]"
-                    return text
+                def replace_image_data(content):
+                    if isinstance(content, str):
+                        return content
+                    elif isinstance(content, list):
+                        # Anthropic content blocks - extract text and represent images
+                        parts = []
+                        for block in content:
+                            if block.get("type") == "text":
+                                parts.append(block.get("text", ""))
+                            elif block.get("type") == "image":
+                                source = block.get("source", {})
+                                media_type = source.get("media_type", "image")
+                                parts.append(f"[image: {media_type}]")
+                        return "\n".join(parts)
+                    return str(content)
 
                 tool_input_display = replace_image_data(tool_input)
                 tool_output_display = replace_image_data(tool_output)

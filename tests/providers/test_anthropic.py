@@ -290,11 +290,21 @@ class TestAnthropicImageHandling:
         png_data = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
         image_b64 = base64.b64encode(png_data).decode()
 
+        # Use Anthropic content blocks format
         tool_results = [
             {
                 "type": "tool_result",
                 "tool_use_id": "test-123",
-                "content": f"IMAGE_DATA:image/png:{len(png_data)}:{image_b64}",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": image_b64,
+                        },
+                    }
+                ],
             }
         ]
 

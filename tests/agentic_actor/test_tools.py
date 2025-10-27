@@ -109,12 +109,21 @@ class TestToolExecutors:
         with patch("aiohttp.ClientSession", return_value=mock_session):
             result = await executor.execute("https://example.com/image.png")
 
-            assert result.startswith("IMAGE_DATA:image/png:")
+            # Result should be Anthropic content blocks with image
+            assert isinstance(result, list)
+            assert len(result) == 1
+            first_block = result[0]
+            assert isinstance(first_block, dict)
+            assert first_block["type"] == "image"
+            source = first_block["source"]
+            assert isinstance(source, dict)
+            assert source["type"] == "base64"
+            assert source["media_type"] == "image/png"
             # Check for base64-encoded PNG header
             import base64
 
             expected_b64 = base64.b64encode(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR").decode()
-            assert expected_b64 in result
+            assert expected_b64 in source["data"]
 
     @pytest.mark.asyncio
     async def test_webpage_visitor_http_451_backoff(self):
@@ -363,6 +372,7 @@ class TestToolRegistry:
         result = await execute_tool(
             "make_plan", tool_executors, plan="Test plan for searching news"
         )
+        assert isinstance(result, str)
         assert result.startswith("OK")
 
     @pytest.mark.asyncio

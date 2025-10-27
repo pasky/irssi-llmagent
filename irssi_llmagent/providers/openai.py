@@ -260,46 +260,68 @@ class BaseOpenAIClient(BaseAPIClient):
             "tool_calls": message.get("tool_calls"),
         }
 
+    def _split_blocks_to_openai(self, blocks: list[dict]) -> tuple[str, list[dict]]:
+        """Convert Anthropic content blocks to OpenAI format.
+
+        Returns:
+            (text_content, image_parts) where:
+            - text_content: concatenated text from all text blocks
+            - image_parts: list of image_url dicts for OpenAI format
+        """
+        texts = []
+        image_parts = []
+
+        for block in blocks:
+            if block.get("type") == "text":
+                texts.append(block.get("text", ""))
+            elif block.get("type") == "image":
+                source = block.get("source") or {}
+                if source.get("type") == "base64":
+                    mime = source.get("media_type") or "image/png"
+                    data = source.get("data") or ""
+                    image_parts.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime};base64,{data}"},
+                        }
+                    )
+
+        text_content = "\n\n".join(t for t in texts if t)
+        return text_content, image_parts
+
     def format_tool_results(self, tool_results: list[dict]) -> list[dict]:
         """Format tool results for Chat Completion API as tool messages."""
         processed_results = []
-        image_contents = []
+        accumulated_images = []
 
         for result in tool_results:
             content = result["content"]
-            # Check if content is image data
-            if isinstance(content, str) and content.startswith("IMAGE_DATA:"):
-                try:
-                    _, content_type, size, base64_data = content.split(":", 3)
-                    media_type = content_type.split("/")[-1]
-                    if media_type in ["jpeg", "png", "gif", "webp"]:
-                        # Store image for separate message
-                        image_contents.append(
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:{content_type};base64,{base64_data}"},
-                            }
-                        )
-                        content = f"Downloaded image ({content_type}, {size} bytes) - Image provided separately"
-                    else:
-                        content = (
-                            f"Downloaded image ({content_type}, {size} bytes) - Unsupported format"
-                        )
-                except ValueError:
-                    # Malformed image data, use as-is
-                    pass
 
+            # Handle plain strings vs Anthropic content blocks
+            if isinstance(content, str):
+                text = content
+                images = []
+            else:
+                # Content is Anthropic blocks, convert to OpenAI format
+                text, images = self._split_blocks_to_openai(content)
+
+            # Tool message must have text content
+            tool_content = text or ("Images returned by tool." if images else "")
             processed_results.append(
-                {"role": "tool", "tool_call_id": result["tool_use_id"], "content": str(content)}
+                {"role": "tool", "tool_call_id": result["tool_use_id"], "content": tool_content}
             )
 
+            accumulated_images.extend(images)
+
         # Add image message if there are images
-        if image_contents:
+        if accumulated_images:
             processed_results.append(
                 {
                     "role": "user",
-                    "content": [{"type": "text", "text": "Here are the images from the website:"}]
-                    + image_contents,
+                    "content": [
+                        {"type": "text", "text": "Here are the images from the tool results:"}
+                    ]
+                    + accumulated_images,
                 }
             )
 

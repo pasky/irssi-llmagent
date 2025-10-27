@@ -632,7 +632,17 @@ class TestAPIAgent:
             with patch(
                 "irssi_llmagent.agentic_actor.actor.execute_tool", new_callable=AsyncMock
             ) as mock_tool:
-                mock_tool.return_value = "IMAGE_DATA:image/jpeg:1234:AAAA"
+                # Return Anthropic content blocks with image
+                mock_tool.return_value = [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": "AAAA",
+                        },
+                    }
+                ]
                 result = await actor.run_agent([{"role": "user", "content": "go"}], arc="arc")
 
         assert model_calls[0].startswith("openrouter:")
@@ -1357,17 +1367,35 @@ class TestAPIAgent:
         agent.model_router = AsyncMock()
         agent.model_router.call_raw_with_model = AsyncMock(return_value=(mock_response, None, None))
 
-        # Test data with image data
+        # Test data with Anthropic content blocks
         persistent_tool_calls = [
             {
                 "tool_name": "visit_webpage",
                 "input": {"url": "https://example.com/image.jpg"},
-                "output": "IMAGE_DATA:image/jpeg:1234567:iVBORw0KGgoAAAANSUhEUgAABAAAAAAAAAElEQVR4nO3B...",  # Long base64 data
+                "output": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": "iVBORw0KGgoAAAANSUhEUgAABAAAAAAAAAElEQVR4nO3B...",
+                        },
+                    }
+                ],
                 "persist_type": "summary",
             },
             {
                 "tool_name": "visit_webpage",
-                "input": "IMAGE_DATA:image/png:987654:iVBORw0KGgoAAAANSUhEUgAABAAAAAAAAAElEQVR4nO3B...",  # Image as input
+                "input": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": "iVBORw0KGgoAAAANSUhEUgAABAAAAAAAAAElEQVR4nO3B...",
+                        },
+                    }
+                ],
                 "output": "Regular text output",
                 "persist_type": "summary",
             },
@@ -1386,10 +1414,9 @@ class TestAPIAgent:
         messages = call_args[0][1]  # Second argument is messages
         user_message_content = messages[0]["content"]
 
-        # Verify that image data was replaced with placeholders
-        assert "IMAGE_DATA:" not in user_message_content
-        assert "[image: image/jpeg, 1234567 bytes]" in user_message_content
-        assert "[image: image/png, 987654 bytes]" in user_message_content
+        # Verify that image blocks were replaced with placeholders
+        assert "[image: image/jpeg]" in user_message_content
+        assert "[image: image/png]" in user_message_content
         assert "Regular text output" in user_message_content  # Regular text should remain
 
         # Verify progress callback was called with the summary
