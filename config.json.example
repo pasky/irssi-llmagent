@@ -46,7 +46,7 @@
       "model": "openrouter:google/gemini-2.5-flash-preview-image"
     },
     "summary": {
-      "model": "anthropic:claude-4-5-haiku"
+      "model": "anthropic:claude-haiku-4-5-20251001"
     }
   },
 
@@ -59,7 +59,7 @@
   },
 
   "chronicler": {
-    "model": "anthropic:claude-4-5-haiku",
+    "model": "anthropic:claude-haiku-4-5-20251001",
     "arc_models": {
     },
     "paragraphs_per_chapter": 10,
