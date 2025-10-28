@@ -2,21 +2,12 @@
 
 ## Build/Test Commands
 - Install dependencies: `uv sync --dev`
-- Run service: `uv run irssi-llmagent` or `uv run python -m irssi_llmagent.main`
 - Run tests: `uv run pytest` - all tests must always succeed! You must assume any test failure is related to your changes, even if it doesn't appear to be at first.
 - Full e2e test in CLI mode: `uv run irssi-llmagent --message "your message here"`
-- Test automatic mode: `uv run irssi-llmagent --message "tell me a joke"`
-- Test explicit sarcastic: `uv run irssi-llmagent --message "!S tell me a joke"`
-- Test explicit serious: `uv run irssi-llmagent --message "!s search for Python news"`
-- Test Python code execution: `uv run irssi-llmagent --message "execute python: print('hello world')"`
-- Analyze classifier: `uv run python analyze_classifier.py --db chat_history.db`
-- Analyze proactive interjecting: `uv run python analyze_proactive.py --limit 20`
-- Analyze proactive with logs: `uv run python analyze_proactive.py --logs ~/.irssi/logs/ --limit 50 --exclude-news`
 - Run linting: `uv run ruff check .`
 - Run formatting: `uv run ruff format .`
 - Run type checking: `uv run pyright`
-- Install pre-commit hooks: `uv run pre-commit install`
-- NEVER use `git add -A` blindly, there may be untracked files that must not be committed
+- NEVER use `git add -A` blindly, there may be untracked files that must not be committed; use `git add -u` instead
 
 ## Architecture
 - **Main Service**: `irssi_llmagent/main.py` - Core application coordinator managing shared resources (config, history, model router)
@@ -47,9 +38,7 @@
 - **Imports**: Standard library first, then third-party (`aiohttp`, `aiosqlite`), local modules
 - **Naming**: snake_case for functions/variables, PascalCase for classes
 - **Docstrings**: Brief docstrings for classes and key methods
-- **Error Handling**: Try/catch with logging, graceful degradation
-- **Type Safety**: Type hints and pyright type checking enabled
-- **Linting**: Ruff for code quality and formatting
+- **Error Handling**: Write code that fails fast. No defensive try-except blocks. Only catch exceptions when there's a clear recovery strategy.
 - **Testing**: Pytest with async support for behavioral tests
 
 ## Notes for contributors
