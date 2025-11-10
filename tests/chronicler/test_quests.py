@@ -114,8 +114,8 @@ async def test_scan_and_trigger_open_quests(shared_agent):
 async def test_chapter_rollover_copies_unresolved_quests(shared_agent):
     agent = shared_agent
     arc = "serv#room"
-    # Configure low paragraphs_per_chapter to trigger rollover quickly but allow room after rollover
-    agent.config.setdefault("chronicler", {})["paragraphs_per_chapter"] = 4
+    # Configure low paragraphs_per_chapter to trigger rollover deterministically
+    agent.config.setdefault("chronicler", {})["paragraphs_per_chapter"] = 3
     agent.config.setdefault("chronicler", {}).setdefault("quests", {})["arcs"] = [arc]
     agent.config["chronicler"]["quests"]["prompt_reminder"] = "Quest instructions here"
     agent.config.setdefault("chronicler", {}).setdefault("quests", {})["cooldown"] = 0.01
@@ -142,19 +142,28 @@ async def test_chapter_rollover_copies_unresolved_quests(shared_agent):
             "Error - API error: Mock connection refused"
         )
         mock_router.return_value = ({"error": "Mock connection refused"}, mock_client, None)
-        # Fill chapter to just below limit with a quest and normal paragraphs
+        # Fill chapter to exactly the limit with a quest and normal paragraphs
         await chapter_append_paragraph(arc, '<quest id="carry">Carry over me</quest>', agent)
         await chapter_append_paragraph(arc, "Some other text", agent)
         await chapter_append_paragraph(arc, "Another paragraph", agent)
 
-        # This append should trigger rollover (4th paragraph) and copy unresolved quest
+        # At this point we have 3 paragraphs (at the limit). Now check chapter state before rollover
+        current_chapter_before = await agent.chronicle.get_or_open_current_chapter(arc)
+        chapter_id_before = current_chapter_before["id"]
+
+        # This append should trigger rollover (4th paragraph exceeds limit of 3)
         await chapter_append_paragraph(arc, "Trigger rollover now", agent)
+
+        # Verify rollover happened by checking that current chapter changed
+        current_chapter_after = await agent.chronicle.get_or_open_current_chapter(arc)
+        chapter_id_after = current_chapter_after["id"]
+        assert chapter_id_after != chapter_id_before, "Rollover should have created a new chapter"
 
         # Allow time for background quest tasks to complete
         await asyncio.sleep(0.15)
 
-        # Current chapter should contain recap and copied unresolved quest
-        content = await agent.chronicle.render_chapter(arc)
+        # Read the new chapter that was created during rollover (chapter_id_after)
+        content = await agent.chronicle.render_chapter(arc, chapter_id=chapter_id_after)
         assert "Previous chapter recap:" in content
         assert "Carry over me" in content
 
