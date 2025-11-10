@@ -141,7 +141,7 @@ TOOLS: list[Tool] = [
             "properties": {
                 "answer": {
                     "type": "string",
-                    "description": "The final answer or response to the user's question. Start with final deliberation in <thinking>...</thinking>.",
+                    "description": "The final answer or response to the user's question. Start with final deliberation in <thinking>...</thinking>. Never say 'you are doing something' or 'you will do something' - at this point, you are *done*.",
                 }
             },
             "required": ["answer"],
