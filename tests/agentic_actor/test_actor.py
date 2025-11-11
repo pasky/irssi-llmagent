@@ -281,6 +281,29 @@ class TestAPIAgent:
                 await agent.run_agent([{"role": "user", "content": "Test query"}], arc="test")
 
     @pytest.mark.asyncio
+    async def test_agent_refusal_error_handling(self, agent):
+        """Test agent handles Anthropic refusal responses with proper error message."""
+
+        # Mock call_raw_with_model to return refusal (converted to error by provider)
+        async def fake_call_raw_with_model(*args, **kwargs):
+            from irssi_llmagent.providers.anthropic import AnthropicClient
+
+            client = AnthropicClient({"anthropic": {"key": "test", "url": "http://test"}})
+            # Simulate what call_raw does - convert refusal to error
+            return (
+                {"error": "The AI refused to respond to this request"},
+                client,
+                "anthropic:claude-3-5-sonnet",
+            )
+
+        with patch.object(
+            ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+        ):
+            result = await agent.run_agent([{"role": "user", "content": "Test query"}], arc="test")
+            assert "Error - " in result
+            assert "refused" in result.lower()
+
+    @pytest.mark.asyncio
     async def test_agent_tool_execution_error(self, agent, api_type):
         """Test agent handles tool execution errors."""
         tool_use_response = self.create_tool_response(

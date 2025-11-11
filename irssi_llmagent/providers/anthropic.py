@@ -126,6 +126,12 @@ class BaseAnthropicAPIClient(BaseAPIClient):
                     data = await response.json()
 
                 self.logger.debug(f"{self.provider_name} response: {json.dumps(data, indent=2)}")
+
+                # Check for refusal and convert to error
+                if data.get("stop_reason") == "refusal":
+                    self.logger.warning(f"{self.provider_name} refusal detected")
+                    return {"error": "The AI refused to respond to this request (consider !u)"}
+
                 return data
 
             except Exception as e:
@@ -196,11 +202,6 @@ class BaseAnthropicAPIClient(BaseAPIClient):
 
     def _extract_raw_text(self, response: dict) -> str:
         """Extract raw text content from Anthropic API response format."""
-        # Check for refusal
-        if response.get("stop_reason") == "refusal":
-            self.logger.warning(f"{self.provider_name} refusal detected")
-            return ""
-
         if "content" in response and response["content"]:
             # Find text content
             for content_block in response["content"]:
