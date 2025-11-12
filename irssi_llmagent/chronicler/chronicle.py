@@ -72,21 +72,21 @@ class Chronicle:
 
     async def _get_or_create_arc(self, arc: str) -> tuple[int, bool]:
         async with self._lock, aiosqlite.connect(self.db_path) as db:
-            cur = await db.execute("SELECT id FROM arcs WHERE name = ?", (arc,))
-            row = await cur.fetchone()
-            if row:
-                return int(row[0]), False
-            cur = await db.execute("INSERT INTO arcs(name) VALUES (?)", (arc,))
-            await db.commit()
-            return int(cur.lastrowid or 0), True
+            async with db.execute("SELECT id FROM arcs WHERE name = ?", (arc,)) as cur:
+                row = await cur.fetchone()
+                if row:
+                    return int(row[0]), False
+            async with db.execute("INSERT INTO arcs(name) VALUES (?)", (arc,)) as cur:
+                await db.commit()
+                last_id = int(cur.lastrowid or 0)
+            return last_id, True
 
     async def _get_open_chapter_row(self, arc_id: int) -> Chapter | None:
-        async with aiosqlite.connect(self.db_path) as db:
-            cur = await db.execute(
-                "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters"
-                " WHERE arc_id = ? AND closed_at IS NULL",
-                (arc_id,),
-            )
+        async with aiosqlite.connect(self.db_path) as db, db.execute(
+            "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters"
+            " WHERE arc_id = ? AND closed_at IS NULL",
+            (arc_id,),
+        ) as cur:
             row = await cur.fetchone()
             if not row:
                 return None
@@ -94,19 +94,19 @@ class Chronicle:
 
     async def _open_new_chapter(self, arc_id: int) -> Chapter:
         async with aiosqlite.connect(self.db_path) as db:
-            cur = await db.execute(
+            async with db.execute(
                 "INSERT INTO chapters(arc_id) VALUES (?)",
                 (arc_id,),
-            )
-            await db.commit()
-            chapter_id = int(cur.lastrowid or 0)
-            cur = await db.execute(
+            ) as cur:
+                await db.commit()
+                chapter_id = int(cur.lastrowid or 0)
+            async with db.execute(
                 "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters WHERE id = ?",
                 (chapter_id,),
-            )
-            row = await cur.fetchone()
-            assert row is not None
-            return Chapter(int(row[0]), int(row[1]), str(row[2]), row[3], row[4])
+            ) as cur:
+                row = await cur.fetchone()
+                assert row is not None
+                return Chapter(int(row[0]), int(row[1]), str(row[2]), row[3], row[4])
 
     async def get_or_open_current_chapter(self, arc: str) -> dict[str, Any]:
         arc_id, new_arc = await self._get_or_create_arc(arc)
@@ -132,18 +132,18 @@ class Chronicle:
         chapter = await self.get_or_open_current_chapter(arc)
         chapter_id = int(chapter["id"])
         async with self._lock, aiosqlite.connect(self.db_path) as db:
-            cur = await db.execute(
+            async with db.execute(
                 "INSERT INTO paragraphs(chapter_id, content) VALUES (?, ?)",
                 (chapter_id, content),
-            )
-            await db.commit()
-            para_id = int(cur.lastrowid or 0)
-            cur = await db.execute(
+            ) as cur:
+                await db.commit()
+                para_id = int(cur.lastrowid or 0)
+            async with db.execute(
                 "SELECT id, chapter_id, ts, content FROM paragraphs WHERE id = ?",
                 (para_id,),
-            )
-            row = await cur.fetchone()
-            assert row is not None
+            ) as cur:
+                row = await cur.fetchone()
+                assert row is not None
         return {
             "id": int(row[0]),
             "chapter_id": int(row[1]),
@@ -156,11 +156,13 @@ class Chronicle:
     ) -> tuple[int | None, Chapter | None]:
         arc_id, _ = await self._get_or_create_arc(arc)
         if chapter_id is not None:
-            async with aiosqlite.connect(self.db_path) as db:
-                cur = await db.execute(
+            async with (
+                aiosqlite.connect(self.db_path) as db,
+                db.execute(
                     "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters WHERE id = ? AND arc_id = ?",
                     (chapter_id, arc_id),
-                )
+                ) as cur,
+            ):
                 row = await cur.fetchone()
                 if not row:
                     return None, None
@@ -170,12 +172,11 @@ class Chronicle:
         if open_ch:
             return open_ch.id, open_ch
         # fallback to latest closed
-        async with aiosqlite.connect(self.db_path) as db:
-            cur = await db.execute(
-                "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters"
-                " WHERE arc_id = ? ORDER BY opened_at DESC LIMIT 1",
-                (arc_id,),
-            )
+        async with aiosqlite.connect(self.db_path) as db, db.execute(
+            "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters"
+            " WHERE arc_id = ? ORDER BY opened_at DESC LIMIT 1",
+            (arc_id,),
+        ) as cur:
             row = await cur.fetchone()
             if not row:
                 return None, None
@@ -188,12 +189,11 @@ class Chronicle:
         arc_id, _ = await self._get_or_create_arc(arc)
 
         # Get all chapters for this arc, ordered by opened_at (oldest first)
-        async with aiosqlite.connect(self.db_path) as db:
-            cur = await db.execute(
-                "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters"
-                " WHERE arc_id = ? ORDER BY opened_at ASC",
-                (arc_id,),
-            )
+        async with aiosqlite.connect(self.db_path) as db, db.execute(
+            "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters"
+            " WHERE arc_id = ? ORDER BY opened_at ASC",
+            (arc_id,),
+        ) as cur:
             rows = await cur.fetchall()
 
         if not rows:
@@ -229,10 +229,9 @@ class Chronicle:
 
     async def read_chapter(self, chapter_id: int) -> list[str]:
         """Read all paragraphs from a chapter."""
-        async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                "SELECT content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC", (chapter_id,)
-            )
+        async with aiosqlite.connect(self.db_path) as db, db.execute(
+            "SELECT content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC", (chapter_id,)
+        ) as cursor:
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
 
@@ -263,11 +262,10 @@ class Chronicle:
         if chap_id is None or chap is None:
             return f"# Arc: {arc} — No chapters yet\n\n(Empty)"
 
-        async with aiosqlite.connect(self.db_path) as db:
-            cur = await db.execute(
-                "SELECT ts, content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC",
-                (chap_id,),
-            )
+        async with aiosqlite.connect(self.db_path) as db, db.execute(
+            "SELECT ts, content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC",
+            (chap_id,),
+        ) as cur:
             rows = await cur.fetchall()
 
         rows_list = list(rows)
@@ -294,11 +292,10 @@ class Chronicle:
         if chap_id is None or chap is None:
             return f"# Arc: {arc} — No chapters at relative offset {relative_chapter_id}\n\n(Empty)"
 
-        async with aiosqlite.connect(self.db_path) as db:
-            cur = await db.execute(
-                "SELECT ts, content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC",
-                (chap_id,),
-            )
+        async with aiosqlite.connect(self.db_path) as db, db.execute(
+            "SELECT ts, content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC",
+            (chap_id,),
+        ) as cur:
             rows = await cur.fetchall()
 
         rows_list = list(rows)
