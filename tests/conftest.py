@@ -107,6 +107,9 @@ def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict
         "history": {
             "database": {"path": temp_history_db_path},
         },
+        "router": {
+            "refusal_fallback_model": f"{api_type}:dummy-unsafe-fallback",
+        },
     }
     return base_config
 

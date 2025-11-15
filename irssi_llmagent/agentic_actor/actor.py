@@ -387,6 +387,10 @@ class AgenticLLMActor:
         if not isinstance(response, dict):
             return {"type": "error", "message": f"Unexpected response type: {type(response)}"}
 
+        # Handle error responses from router (including refusals)
+        if "error" in response:
+            return {"type": "error", "message": response["error"]}
+
         # Check if API wants to use tools
         if client.has_tool_calls(response):
             tool_uses = client.extract_tool_calls(response)

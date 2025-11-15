@@ -109,6 +109,9 @@ async def test_progress_report_tool_emits_callback(monkeypatch, mock_agent):
                 "min_interval_seconds": 0,
             },
         },
+        "router": {
+            "refusal_fallback_model": "anthropic:dummy-unsafe-fallback",
+        },
     }
 
     def build_test_prompt():
@@ -189,6 +192,9 @@ async def test_progress_callback_with_tool_persistence_type(mock_agent):
                 "threshold_seconds": 0,
                 "min_interval_seconds": 0,
             },
+        },
+        "router": {
+            "refusal_fallback_model": "anthropic:dummy-unsafe-fallback",
         },
     }
 

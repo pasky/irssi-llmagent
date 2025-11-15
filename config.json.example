@@ -26,6 +26,10 @@
     }
   },
 
+  "router": {
+    "refusal_fallback_model": "openrouter:moonshotai/kimi-k2-thinking#atlas-cloud/int4,gmicloud/int4"
+  },
+
   "tools": {
     "e2b": {
       "api_key": "your-e2b-api-key-here"

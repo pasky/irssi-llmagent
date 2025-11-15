@@ -3,6 +3,7 @@
 import base64
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 from irssi_llmagent.providers.openai import OpenAIClient
@@ -328,3 +329,108 @@ class TestOpenAIImageHandling:
         assert tool_result["role"] == "tool"
         assert tool_result["tool_call_id"] == "test-123"
         assert tool_result["content"] == "This is plain text result from a tool"
+
+
+class TestOpenAIContentSafetyRefusal:
+    """Test OpenAI content safety error handling."""
+
+    @pytest.mark.asyncio
+    async def test_openai_content_safety_refusal(self):
+        """Test that OpenAI content safety errors are converted to refusal format."""
+        from openai import BadRequestError
+
+        from irssi_llmagent.providers.openai import OpenAIClient
+
+        test_config = {"providers": {"openai": {"key": "test-key"}}}
+        client = OpenAIClient(test_config)
+
+        # Create a mock BadRequestError with the actual safety error structure
+        mock_response = httpx.Response(
+            status_code=400,
+            json={
+                "error": {
+                    "message": "Invalid prompt: we've limited access to this content for safety reasons.",
+                    "type": "invalid_request_error",
+                    "param": None,
+                    "code": "invalid_prompt",
+                }
+            },
+            request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+        )
+
+        # Note: OpenAI SDK does body.get("error", body) so the exception body is the inner dict
+        error = BadRequestError(
+            "Error code: 400",
+            response=mock_response,
+            body={
+                "message": "Invalid prompt: we've limited access to this content for safety reasons.",
+                "type": "invalid_request_error",
+                "param": None,
+                "code": "invalid_prompt",
+            },
+        )
+
+        # Mock the OpenAI client to raise the error
+        with patch.object(client._client.chat.completions, "create", side_effect=error):
+            response = await client.call_raw(
+                context=[{"role": "user", "content": "test message"}],
+                system_prompt="Test",
+                model="gpt-4",
+            )
+
+        # Should return refusal error with the actual message from OpenAI
+        assert "error" in response
+        assert (
+            "Invalid prompt: we've limited access to this content for safety reasons."
+            in response["error"]
+        )
+        assert "(consider !u)" in response["error"]
+
+    @pytest.mark.asyncio
+    async def test_openai_other_errors_not_converted(self):
+        """Test that non-safety OpenAI errors are not converted to refusal format."""
+        from openai import BadRequestError
+
+        from irssi_llmagent.providers.openai import OpenAIClient
+
+        test_config = {"providers": {"openai": {"key": "test-key"}}}
+        client = OpenAIClient(test_config)
+
+        # Create a mock BadRequestError with a different error code
+        mock_response = httpx.Response(
+            status_code=400,
+            json={
+                "error": {
+                    "message": "Invalid request: missing required parameter",
+                    "type": "invalid_request_error",
+                    "param": "messages",
+                    "code": "missing_parameter",
+                }
+            },
+            request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+        )
+
+        # Note: OpenAI SDK does body.get("error", body) so the exception body is the inner dict
+        error = BadRequestError(
+            "Error code: 400",
+            response=mock_response,
+            body={
+                "message": "Invalid request: missing required parameter",
+                "type": "invalid_request_error",
+                "param": "messages",
+                "code": "missing_parameter",
+            },
+        )
+
+        # Mock the OpenAI client to raise the error
+        with patch.object(client._client.chat.completions, "create", side_effect=error):
+            response = await client.call_raw(
+                context=[{"role": "user", "content": "test message"}],
+                system_prompt="Test",
+                model="gpt-4",
+            )
+
+        # Should return generic API error, not refusal
+        assert "error" in response
+        assert "API error:" in response["error"]
+        assert "The AI refused to respond" not in response["error"]

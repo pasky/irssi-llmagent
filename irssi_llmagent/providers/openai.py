@@ -189,6 +189,17 @@ class BaseOpenAIClient(BaseAPIClient):
             )
             return data
         except Exception as e:
+            # Check for OpenAI content safety errors and convert to refusal format
+            # Note: OpenAI SDK extracts body.get("error", body) so .body is the error dict directly
+            error_body = getattr(e, "body", None)
+            if isinstance(error_body, dict):
+                error_code = error_body.get("code")
+                error_message = error_body.get("message", "")
+                if error_code == "invalid_prompt" and "safety reasons" in error_message:
+                    self.logger.warning(
+                        f"{self.provider_name} content safety refusal: {error_message}"
+                    )
+                    return {"error": f"{error_message} (consider !u)"}
             msg = repr(e)
             self.logger.error(f"{self.provider_name} Chat Completion API error: {msg}")
             return {"error": f"API error: {msg}"}

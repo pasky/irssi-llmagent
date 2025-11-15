@@ -300,7 +300,7 @@ class TestAPIAgent:
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ):
             result = await agent.run_agent([{"role": "user", "content": "Test query"}], arc="test")
-            assert "Error - " in result
+            assert "Error:" in result
             assert "refused" in result.lower()
 
     @pytest.mark.asyncio

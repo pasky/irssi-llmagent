@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class BaseAPIClient(ABC):
@@ -108,6 +111,9 @@ class ModelRouter:
         self._clients: dict[str, Any] = {}
         # No default provider; models must be fully-qualified
 
+        # Refusal fallback model
+        self.refusal_fallback_model = config["router"]["refusal_fallback_model"]
+
     def _ensure_client(self, provider: str) -> Any:
         if provider in self._clients:
             return self._clients[provider]
@@ -135,6 +141,14 @@ class ModelRouter:
     def client_for(self, provider: str):
         return self._ensure_client(provider)
 
+    def _is_refusal(self, response: dict) -> bool:
+        """Check if response is a content safety refusal."""
+        return (
+            isinstance(response, dict)
+            and "error" in response
+            and "(consider !u)" in response["error"]
+        )
+
     async def call_raw_with_model(
         self,
         model_str: str,
@@ -157,4 +171,40 @@ class ModelRouter:
             reasoning_effort=reasoning_effort,
             modalities=modalities,
         )
+
+        # Check for content safety refusal and retry with fallback model
+        if self._is_refusal(resp) and self.refusal_fallback_model:
+            logger.warning(
+                f"Safety refusal on {model_str}; retrying with {self.refusal_fallback_model}"
+            )
+
+            fallback_spec = parse_model_spec(self.refusal_fallback_model)
+            fallback_client = self.client_for(fallback_spec.provider)
+            fallback_resp = await fallback_client.call_raw(
+                context,
+                system_prompt,
+                fallback_spec.name,
+                tools=tools,
+                tool_choice=tool_choice,
+                reasoning_effort=reasoning_effort,
+                modalities=modalities,
+            )
+
+            # Prefix text responses with [modelname]
+            if isinstance(fallback_resp, dict) and "content" in fallback_resp:
+                # Anthropic format
+                for block in fallback_resp.get("content", []):
+                    if block.get("type") == "text":
+                        block["text"] = f"[{fallback_spec.name}] {block['text']}"
+                        break
+            elif isinstance(fallback_resp, dict) and "choices" in fallback_resp:
+                # OpenAI format
+                choices = fallback_resp.get("choices", [])
+                if choices and "message" in choices[0]:
+                    msg = choices[0]["message"]
+                    if "content" in msg and isinstance(msg["content"], str):
+                        msg["content"] = f"[{fallback_spec.name}] {msg['content']}"
+
+            return fallback_resp, fallback_client, fallback_spec
+
         return resp, client, spec
