@@ -325,11 +325,8 @@ class AgenticLLMActor:
                                     return f"{cleaned_result}{result_suffix}"
 
                         except Exception as e:
-                            import traceback
-
-                            traceback.print_exc()
+                            logger.warning(f"Tool {tool['name']} failed: {e}", exc_info=True)
                             tool_result = repr(e)
-                            logger.warning(f"Tool {tool['name']} failed: {e}")
 
                         if self.vision_model and not vision_switched:
                             # Check if tool result contains images (Anthropic blocks)
@@ -359,10 +356,7 @@ class AgenticLLMActor:
                         messages.append(results_msg)
 
             except Exception as e:
-                import traceback
-
-                traceback.print_exc()
-                logger.error(f"Agent iteration {iteration + 1} failed: {str(e)}")
+                logger.error(f"Agent iteration {iteration + 1} failed: {str(e)}", exc_info=True)
                 break
 
         # Generate persistence summary before failing
@@ -538,7 +532,4 @@ class AgenticLLMActor:
                     await progress_callback(summary_text.strip(), "tool_persistence")
 
         except Exception as e:
-            logger.error(f"Failed to generate tool persistence summary: {e}")
-            import traceback
-
-            traceback.print_exc()
+            logger.error(f"Failed to generate tool persistence summary: {e}", exc_info=True)
