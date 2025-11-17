@@ -102,7 +102,9 @@ class BaseOpenAIClient(BaseAPIClient):
         for m in context:
             if isinstance(m, dict):
                 if m.get("role") in ("user", "assistant", "tool"):
-                    messages.append(m)
+                    # Preserve reasoning_details when passing assistant messages
+                    msg = {k: v for k, v in m.items() if v is not None}
+                    messages.append(msg)
                 elif m.get("type") == "function_call_output":
                     # Convert to tool message format
                     messages.append(
@@ -265,11 +267,19 @@ class BaseOpenAIClient(BaseAPIClient):
             return {"role": "assistant", "content": ""}
 
         message = choices[0].get("message", {})
-        return {
+        formatted = {
             "role": "assistant",
             "content": message.get("content", ""),
             "tool_calls": message.get("tool_calls"),
         }
+
+        # Preserve reasoning_details for OpenRouter reasoning models
+        reasoning_details = message.get("reasoning_details")
+        if reasoning_details:
+            formatted["reasoning_details"] = reasoning_details
+            self.logger.debug(f"Preserving reasoning_details with {len(reasoning_details)} blocks")
+
+        return formatted
 
     def _split_blocks_to_openai(self, blocks: list[dict]) -> tuple[str, list[dict]]:
         """Convert Anthropic content blocks to OpenAI format.

@@ -194,6 +194,94 @@ class TestOpenRouterClient:
     """Test OpenRouter client functionality."""
 
     @pytest.mark.asyncio
+    async def test_openrouter_reasoning_details_preservation(self):
+        """Test that reasoning_details are preserved in assistant messages."""
+        from irssi_llmagent.providers.openai import OpenRouterClient
+
+        test_config = {"providers": {"openrouter": {"key": "test-key"}}}
+        client = OpenRouterClient(test_config)
+
+        # Mock response with reasoning_details
+        mock_response = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "Let me solve this problem",
+                        "tool_calls": [
+                            {
+                                "id": "call_123",
+                                "type": "function",
+                                "function": {
+                                    "name": "search_web",
+                                    "arguments": '{"query": "test"}',
+                                },
+                            }
+                        ],
+                        "reasoning_details": [
+                            {
+                                "id": "rd_1",
+                                "format": "anthropic-claude-v1",
+                                "type": "reasoning.text",
+                                "text": "I need to search for information...",
+                                "index": 0,
+                            }
+                        ],
+                    }
+                }
+            ]
+        }
+
+        # Test that reasoning_details are extracted and preserved
+        formatted_msg = client.format_assistant_message(mock_response)
+
+        assert formatted_msg["role"] == "assistant"
+        assert formatted_msg["content"] == "Let me solve this problem"
+        assert "reasoning_details" in formatted_msg
+        assert len(formatted_msg["reasoning_details"]) == 1
+        assert formatted_msg["reasoning_details"][0]["type"] == "reasoning.text"
+
+        # Test that reasoning_details are passed back in context
+        captured_kwargs = {}
+
+        class MockResponse:
+            def model_dump(self):
+                return {"choices": [{"message": {"role": "assistant", "content": "Done"}}]}
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create.return_value = MockResponse()
+
+        async def capture_kwargs(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return MockResponse()
+
+        mock_client.chat.completions.create.side_effect = capture_kwargs
+
+        # Send context with reasoning_details followed by tool result
+        # This simulates the continuation of a reasoning flow after tool execution
+        client._client = mock_client
+        await client.call_raw(
+            context=[
+                {"role": "user", "content": "Search for test"},
+                formatted_msg,
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_123",
+                    "content": "Search results: Python is great",
+                },
+            ],
+            system_prompt="Test",
+            model="anthropic/claude-sonnet-4",
+        )
+
+        # Verify reasoning_details were included in the messages
+        messages = captured_kwargs.get("messages", [])
+        assistant_messages = [m for m in messages if m.get("role") == "assistant"]
+        assert len(assistant_messages) > 0, f"Expected assistant messages in: {messages}"
+        assert "reasoning_details" in assistant_messages[0]
+        assert assistant_messages[0]["reasoning_details"] == formatted_msg["reasoning_details"]
+
+    @pytest.mark.asyncio
     async def test_openrouter_provider_routing_parsing(self):
         """Test OpenRouter provider routing syntax parsing."""
         from irssi_llmagent.providers.openai import OpenRouterClient
