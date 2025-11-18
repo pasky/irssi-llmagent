@@ -134,7 +134,7 @@ class BaseOpenAIClient(BaseAPIClient):
             kwargs["reasoning_effort"] = reasoning_effort
         else:
             kwargs["max_tokens"] = max_tokens
-            if reasoning_effort and reasoning_effort != "minimal":
+            if reasoning_effort and reasoning_effort != "minimal" and "gemini" not in model:
                 messages.append(
                     {
                         "role": "user",
@@ -168,7 +168,7 @@ class BaseOpenAIClient(BaseAPIClient):
                     }
                 )
 
-        if not messages or messages[-1].get("role") != "user":
+        if not messages or messages[-1].get("role") not in ("user", "tool"):
             messages.append({"role": "user", "content": "..."})
 
         self.logger.debug(f"Calling {self.provider_name} Chat Completion API with model: {model}")
