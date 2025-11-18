@@ -262,7 +262,7 @@ class AgenticLLMActor:
                         {
                             "type": "tool_result",
                             "tool_use_id": result["tool_id"],
-                            "content": f"Error: Your {result['tool_name']} tool call failed because it was truncated. Please retry with a shorter response or split your call into smaller sequential parts.",
+                            "content": f"Error: Tool call {result['tool_name']} failed because it was truncated. Retry with a shorter call on this turn.",
                         }
                     ]
 
