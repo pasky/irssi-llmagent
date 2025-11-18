@@ -66,9 +66,11 @@ class ChatHistory:
         mynick: str,
         is_response: bool = False,
         content_template: str = "<{nick}> {message}",
+        role: str | None = None,
     ) -> None:
         """Add a message to the chat history."""
-        role = "assistant" if nick.lower() == mynick.lower() else "user"
+        if role is None:
+            role = "assistant" if nick.lower() == mynick.lower() else "user"
         content = content_template.format(nick=nick, message=message)
 
         async with (
