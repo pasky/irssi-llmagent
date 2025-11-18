@@ -179,19 +179,27 @@ class AgenticLLMActor:
                 tool_choice = None
 
                 if iteration == 0:
-                    # On first turn (iteration 0), only allow make_plan tool if
-                    # models will switch, since we are likely switching from a
-                    # good thinking model with bad tool calls to a bad thinking
-                    # model with good tool calls
+                    # On first turn (iteration 0), only allow make_plan tool
+                    # (and few other creative ones) if models will switch, since
+                    # we are likely switching from a good thinking model with
+                    # bad tool calls to a bad thinking model with good tool calls
                     if (
                         isinstance(self.model, list)
                         and len(self.model) >= 2
                         and self.model[0] != self.model[1]
                     ):
-                        tool_choice = ["make_plan", "final_answer"]
+                        tool_choice = [
+                            "make_plan",
+                            "share_artifact",
+                            "generate_image",
+                            "final_answer",
+                        ]
 
                 elif iteration >= self.max_iterations - 1:
-                    tool_choice = ["final_answer"]
+                    # Allow artifacts building at the end of the loop to pass on
+                    # detailed quest state or user output - we block just further
+                    # input gathering at this stage.
+                    tool_choice = ["final_answer", "share_artifact", "edit_artifact"]
 
                 # Clean up any remaining placeholders in tool descriptions
                 if self.allowed_tools is not None:
