@@ -256,6 +256,107 @@ class TestToolExecutors:
             assert "e2b-code-interpreter package not installed" in result
 
     @pytest.mark.asyncio
+    async def test_python_executor_e2b_persistence_across_calls(self):
+        """Test that sandbox persists state across multiple execute() calls."""
+        executor = PythonExecutorE2B()
+
+        mock_execution = MagicMock()
+        mock_execution.text = None
+        mock_execution.logs = MagicMock(stdout=["result\n"], stderr=[])
+        mock_execution.results = None
+
+        mock_sandbox = MagicMock()
+        mock_sandbox.sandbox_id = "test-sandbox-123"
+
+        sandbox_created = False
+
+        async def mock_to_thread_impl(func, *args):
+            nonlocal sandbox_created
+            # First call is creating the sandbox
+            if not sandbox_created:
+                sandbox_created = True
+                return mock_sandbox
+            # Subsequent calls are run_code
+            return mock_execution
+
+        with patch("e2b_code_interpreter.Sandbox"):
+            with patch("asyncio.to_thread", side_effect=mock_to_thread_impl):
+                # First execute should create sandbox
+                result1 = await executor.execute("x = 1")
+                # Second execute should reuse sandbox
+                result2 = await executor.execute("print(x)")
+
+                # Verify sandbox was created and reused
+                assert executor.sandbox is mock_sandbox
+                assert "result" in result1
+                assert "result" in result2
+
+    @pytest.mark.asyncio
+    async def test_python_executor_e2b_cleanup(self):
+        """Test that cleanup properly kills the sandbox."""
+        executor = PythonExecutorE2B()
+
+        mock_sandbox = MagicMock()
+        mock_sandbox.sandbox_id = "test-sandbox-456"
+        mock_sandbox.kill = MagicMock()
+
+        executor.sandbox = mock_sandbox
+
+        with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+            await executor.cleanup()
+
+            # Verify kill was called via to_thread
+            mock_to_thread.assert_called_once()
+            assert executor.sandbox is None
+
+    @pytest.mark.asyncio
+    async def test_python_executor_e2b_error_resets_sandbox(self):
+        """Test that connection errors reset the sandbox."""
+        executor = PythonExecutorE2B()
+
+        mock_sandbox = MagicMock()
+        mock_sandbox.sandbox_id = "test-sandbox-789"
+
+        executor.sandbox = mock_sandbox
+
+        async def mock_to_thread_fail(*args):
+            raise Exception("sandbox connection lost")
+
+        with patch("asyncio.to_thread", side_effect=mock_to_thread_fail):
+            result = await executor.execute("print('test')")
+
+            assert "Error executing code" in result
+            assert executor.sandbox is None  # Should be reset
+
+    @pytest.mark.asyncio
+    async def test_python_executor_e2b_timeout_parameter(self):
+        """Test that timeout is passed to Sandbox constructor."""
+        executor = PythonExecutorE2B(timeout=180)
+
+        assert executor.timeout == 180
+
+        mock_sandbox = MagicMock()
+        mock_sandbox.sandbox_id = "test-sandbox-timeout"
+
+        sandbox_args_captured = None
+
+        def capture_sandbox(**kwargs):
+            nonlocal sandbox_args_captured
+            sandbox_args_captured = kwargs
+            return mock_sandbox
+
+        # Mock to_thread to call our function directly
+        async def mock_to_thread_impl(func, *args):
+            return func()
+
+        with patch("e2b_code_interpreter.Sandbox", side_effect=capture_sandbox):
+            with patch("asyncio.to_thread", side_effect=mock_to_thread_impl):
+                await executor._ensure_sandbox()
+
+                # Verify Sandbox was called with timeout=180
+                assert sandbox_args_captured == {"timeout": 180}
+
+    @pytest.mark.asyncio
     async def test_share_artifact_executor_success(self):
         """Test artifact sharing with valid configuration."""
         import tempfile

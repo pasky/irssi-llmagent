@@ -89,55 +89,57 @@ class AgenticLLMActor:
         # Track tool calls that need persistence
         persistent_tool_calls = []
 
-        for iteration in range(self.max_iterations * 2):
-            if iteration > 0:
-                logger.info(f"Agent iteration {iteration + 1}/{self.max_iterations}")
-            if iteration >= self.max_iterations:
-                logger.warn("Exceeding max iterations...")
+        try:
+            for iteration in range(self.max_iterations * 2):
+                if iteration > 0:
+                    logger.info(f"Agent iteration {iteration + 1}/{self.max_iterations}")
+                if iteration >= self.max_iterations:
+                    logger.warn("Exceeding max iterations...")
 
-            # Select model per iteration; last element repeats thereafter for lists
-            if vision_switched:
-                assert self.vision_model
-                model = self.vision_model
-            elif isinstance(self.model, list):
-                model = self.model[iteration] if iteration < len(self.model) else self.model[-1]
-            else:
-                model = self.model
+                # Select model per iteration; last element repeats thereafter for lists
+                if vision_switched:
+                    assert self.vision_model
+                    model = self.vision_model
+                elif isinstance(self.model, list):
+                    model = self.model[iteration] if iteration < len(self.model) else self.model[-1]
+                else:
+                    model = self.model
 
-            extra_messages = []
+                extra_messages = []
 
-            # Add prompt reminder if configured
-            prompt_reminder = self.prompt_reminder_generator()
-            if prompt_reminder:
-                extra_messages += [{"role": "user", "content": f"<meta>{prompt_reminder}</meta>"}]
-
-            if progress_callback is not None and progress_start_time is not None:
-                from time import time as _now
-
-                # Read last progress time from executor if available
-                last = progress_start_time
-                try:
-                    prog_exec = tool_executors.get("progress_report")
-                    if prog_exec and getattr(prog_exec, "_last_sent", None):
-                        last = max(last, float(prog_exec._last_sent))
-                except Exception:
-                    pass
-                elapsed = _now() - last
-                logger.debug(
-                    f"Last: {last} (start: {progress_start_time}), elapsed {elapsed}, vs. {self.progress_threshold_seconds}"
-                )
-                if (
-                    iteration < self.max_iterations - 2
-                    and elapsed >= self.progress_threshold_seconds
-                ) or (iteration == 0 and self.reasoning_effort in ("medium", "high")):
-                    extra_messages = [
-                        {
-                            "role": "user",
-                            "content": "<meta>If you are going to call more tools, you MUST ALSO use the progress_report tool now.</meta>",
-                        }
+                # Add prompt reminder if configured
+                prompt_reminder = self.prompt_reminder_generator()
+                if prompt_reminder:
+                    extra_messages += [
+                        {"role": "user", "content": f"<meta>{prompt_reminder}</meta>"}
                     ]
 
-            try:
+                if progress_callback is not None and progress_start_time is not None:
+                    from time import time as _now
+
+                    # Read last progress time from executor if available
+                    last = progress_start_time
+                    try:
+                        prog_exec = tool_executors.get("progress_report")
+                        if prog_exec and getattr(prog_exec, "_last_sent", None):
+                            last = max(last, float(prog_exec._last_sent))
+                    except Exception:
+                        pass
+                    elapsed = _now() - last
+                    logger.debug(
+                        f"Last: {last} (start: {progress_start_time}), elapsed {elapsed}, vs. {self.progress_threshold_seconds}"
+                    )
+                    if (
+                        iteration < self.max_iterations - 2
+                        and elapsed >= self.progress_threshold_seconds
+                    ) or (iteration == 0 and self.reasoning_effort in ("medium", "high")):
+                        extra_messages = [
+                            {
+                                "role": "user",
+                                "content": "<meta>If you are going to call more tools, you MUST ALSO use the progress_report tool now.</meta>",
+                            }
+                        ]
+
                 # Fill in {config.path} placeholders in tool descriptions
                 import re
 
@@ -355,9 +357,12 @@ class AgenticLLMActor:
                     else:
                         messages.append(results_msg)
 
-            except Exception as e:
-                logger.error(f"Agent iteration {iteration + 1} failed: {str(e)}", exc_info=True)
-                break
+        except Exception as e:
+            logger.error(f"Agent iteration failed: {str(e)}", exc_info=True)
+
+        finally:
+            if "execute_python" in tool_executors:
+                await tool_executors["execute_python"].cleanup()
 
         # Generate persistence summary before failing
         if persistent_tool_calls and progress_callback:

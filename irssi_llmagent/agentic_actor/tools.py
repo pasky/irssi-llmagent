@@ -105,7 +105,7 @@ TOOLS: list[Tool] = [
     },
     {
         "name": "execute_python",
-        "description": "Execute Python code in a sandbox environment and return the output.",
+        "description": "Execute Python code in a sandbox environment and return the output. The sandbox environment is persisted to follow-up calls of this tool within this thread.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -468,33 +468,47 @@ class WebpageVisitorExecutor:
 class PythonExecutorE2B:
     """Python code executor using E2B sandbox."""
 
-    def __init__(self, api_key: str | None = None, timeout: int = 30):
+    def __init__(self, api_key: str | None = None, timeout: int = 180):
         self.api_key = api_key
         self.timeout = timeout
+        self.sandbox = None
+
+    async def _ensure_sandbox(self):
+        """Ensure sandbox is created and connected."""
+        try:
+            from e2b_code_interpreter import Sandbox
+        except ImportError:
+            raise ImportError(
+                "e2b-code-interpreter package not installed. Install with: pip install e2b-code-interpreter"
+            ) from None
+
+        if self.sandbox is None:
+            import asyncio
+
+            def create_sandbox():
+                from typing import Any
+
+                sandbox_args: dict[str, Any] = {"timeout": self.timeout}
+                if self.api_key:
+                    sandbox_args["api_key"] = self.api_key
+                sandbox = Sandbox(**sandbox_args)
+                return sandbox
+
+            self.sandbox = await asyncio.to_thread(create_sandbox)
+            logger.info(f"Created new E2B sandbox with ID: {self.sandbox.sandbox_id}")
 
     async def execute(self, code: str) -> str:
         """Execute Python code in E2B sandbox and return output."""
         try:
-            from e2b_code_interpreter import Sandbox
-        except ImportError:
-            return "Error: e2b-code-interpreter package not installed. Install with: pip install e2b-code-interpreter"
+            await self._ensure_sandbox()
+        except ImportError as e:
+            return str(e)
 
         try:
-            # Use run_in_executor for synchronous E2B sandbox
             import asyncio
 
-            loop = asyncio.get_event_loop()
-
-            def run_sandbox_code():
-                # Use API key from config if available, otherwise fallback to environment variable
-                sandbox_args = {}
-                if self.api_key:
-                    sandbox_args["api_key"] = self.api_key
-                with Sandbox(**sandbox_args) as sandbox:
-                    result = sandbox.run_code(code)
-                    return result
-
-            result = await loop.run_in_executor(None, run_sandbox_code)
+            assert self.sandbox is not None
+            result = await asyncio.to_thread(self.sandbox.run_code, code)
             logger.debug(result)
 
             # Collect output
@@ -546,7 +560,24 @@ class PythonExecutorE2B:
 
         except Exception as e:
             logger.error(f"E2B sandbox execution failed: {e}")
+            # If sandbox connection is broken, reset it for next call
+            if "sandbox" in str(e).lower() or "connection" in str(e).lower():
+                self.sandbox = None
             return f"Error executing code: {e}"
+
+    async def cleanup(self):
+        """Clean up sandbox resources."""
+        if self.sandbox:
+            try:
+                import asyncio
+
+                sandbox_id = self.sandbox.sandbox_id
+                await asyncio.to_thread(self.sandbox.kill)
+                logger.info(f"Cleaned up E2B sandbox with ID: {sandbox_id}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up E2B sandbox: {e}")
+            finally:
+                self.sandbox = None
 
 
 class ProgressReportExecutor:
