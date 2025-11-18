@@ -7,6 +7,7 @@ import pytest
 
 from irssi_llmagent.agentic_actor.tools import (
     CodeExecutorE2B,
+    EditArtifactExecutor,
     JinaSearchExecutor,
     ShareArtifactExecutor,
     WebpageVisitorExecutor,
@@ -597,6 +598,154 @@ class TestToolExecutors:
         result = await executor.execute("test content")
 
         assert result.startswith("Error: Failed to create artifacts directory:")
+
+    @pytest.mark.asyncio
+    async def test_webpage_visitor_local_artifact(self, artifact_store, webpage_visitor):
+        """Test that webpage visitor can read local artifacts directly."""
+
+        # Create a local artifact
+        content = "def test():\n    return 42"
+        url = artifact_store.write_text(content, ".py")
+
+        # Visit the local artifact URL
+        result = await webpage_visitor.execute(url)
+
+        # Should return raw content without markdown wrapper
+        assert result == content
+        assert not result.startswith("## Content from")
+
+    @pytest.mark.asyncio
+    async def test_webpage_visitor_path_traversal_blocked(
+        self, artifact_store, webpage_visitor, artifacts_url
+    ):
+        """Test that path traversal attempts are blocked."""
+        import pytest
+
+        # Try to traverse outside artifacts directory
+        malicious_url = f"{artifacts_url}/../../../etc/passwd"
+
+        with pytest.raises(ValueError, match="Path traversal detected"):
+            await webpage_visitor.execute(malicious_url)
+
+    @pytest.mark.asyncio
+    async def test_edit_artifact_local(self, artifact_store, webpage_visitor):
+        """Test editing a local artifact via direct filesystem."""
+        from pathlib import Path
+
+        # Create local artifact
+        initial = "def hello():\n    print('Hello')\n    return 42"
+        original_url = artifact_store.write_text(initial, ".py")
+
+        # Use real webpage visitor for local artifact handling
+        executor = EditArtifactExecutor(store=artifact_store, webpage_visitor=webpage_visitor)
+
+        # Edit the artifact
+        result = await executor.execute(
+            original_url,
+            "    print('Hello')\n    return 42",
+            "    print('Hello, World!')\n    return 100",
+        )
+
+        # Verify success
+        assert result.startswith("Artifact edited successfully. New version:")
+        assert result.endswith(".py")
+
+        # Verify content was edited
+        new_url = result.split(": ")[1]
+        filename = new_url.split("/")[-1]
+        artifact_file = Path(artifact_store.artifacts_path) / filename
+        edited_content = artifact_file.read_text()
+
+        assert "Hello, World!" in edited_content
+        assert "return 100" in edited_content
+        assert "return 42" not in edited_content
+
+    @pytest.mark.asyncio
+    async def test_edit_artifact_remote(self, artifact_store, make_edit_executor):
+        """Test editing a remote artifact via webpage visitor."""
+        from pathlib import Path
+
+        # Mock remote artifact
+        initial = "console.log('test');\nvar x = 42;"
+        executor, visitor = make_edit_executor(
+            visitor_result=f"## Content from https://external.com/script.js\n\n{initial}"
+        )
+
+        # Edit the artifact
+        result = await executor.execute(
+            "https://external.com/script.js",
+            "var x = 42;",
+            "var x = 100;",
+        )
+
+        # Verify success
+        assert result.startswith("Artifact edited successfully. New version:")
+        assert result.endswith(".js")
+
+        # Verify visitor called
+        visitor.execute.assert_called_once_with("https://external.com/script.js")
+
+        # Verify content was edited
+        new_url = result.split(": ")[1]
+        filename = new_url.split("/")[-1]
+        artifact_file = Path(artifact_store.artifacts_path) / filename
+        edited_content = artifact_file.read_text()
+
+        assert "var x = 100;" in edited_content
+        assert "var x = 42;" not in edited_content
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "url,expected_suffix",
+        [
+            ("https://example.com/file.py", ".py"),
+            ("https://example.com/script.js", ".js"),
+            ("https://example.com/data.json", ".json"),
+            ("https://example.com/archive.tar.gz", ".tar.gz"),
+            ("https://example.com/noextension", ".txt"),  # Fallback
+        ],
+    )
+    async def test_edit_artifact_suffix_extraction(self, make_edit_executor, url, expected_suffix):
+        """Test suffix extraction from various URL formats."""
+        executor, _ = make_edit_executor(visitor_result=f"## Content from {url}\n\ntest content")
+        result = await executor.execute(url, "test", "modified")
+        assert result.endswith(expected_suffix)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "content,old,error_message",
+        [
+            ("def hello():\n    print('Hello')", "nonexistent", "Error: old_string not found"),
+            ("print('test')\nprint('test')", "print('test')", "Error: old_string appears 2 times"),
+        ],
+        ids=["not-found", "non-unique"],
+    )
+    async def test_edit_artifact_validation_errors(
+        self, make_edit_executor, content, old, error_message
+    ):
+        """Test edit validation: old_string not found or non-unique."""
+        executor, _ = make_edit_executor(
+            visitor_result=f"## Content from https://external.com/test.py\n\n{content}"
+        )
+        result = await executor.execute("https://external.com/test.py", old, "new")
+        assert result.startswith(error_message)
+
+    @pytest.mark.asyncio
+    async def test_edit_artifact_binary_rejection(self, make_edit_executor):
+        """Test editing binary (image) artifact returns error."""
+        from .conftest import image_content_block
+
+        executor, _ = make_edit_executor(visitor_result=image_content_block())
+        result = await executor.execute("https://external.com/test.png", "old", "new")
+        assert result == "Error: Cannot edit binary artifacts (images)"
+
+    @pytest.mark.asyncio
+    async def test_edit_artifact_fetch_error(self, make_edit_executor):
+        """Test editing when artifact fetch fails."""
+        executor, _ = make_edit_executor(visitor_exc=Exception("Network error"))
+        result = await executor.execute("https://external.com/test.py", "old", "new")
+        assert result.startswith("Error: Failed to fetch artifact:")
+        assert "Network error" in result
 
 
 class TestToolRegistry:

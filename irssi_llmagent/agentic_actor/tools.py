@@ -184,7 +184,7 @@ TOOLS: list[Tool] = [
     },
     {
         "name": "share_artifact",
-        "description": "Share an artifact (additional command output - created script, detailed report, supporting data) with the user. The content is made available on a public link that is returned by the tool. Use this only for additional content that doesn't fit into your standard IRC message response (or when explicitly requested).",
+        "description": "Share an additional artifact (created script, detailed report, supporting data). The content is made available on a public link that is returned by the tool. Use this only for additional content that doesn't fit into your standard IRC message response (or when explicitly requested).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -196,6 +196,30 @@ TOOLS: list[Tool] = [
             "required": ["content"],
         },
         "persist": "none",
+    },
+    {
+        "name": "edit_artifact",
+        "description": "Edit an existing artifact by replacing a unique (exactly one) occurrence of old_string with new_string, creating a new derived artifact in the process. The new artifact is shared in return value of the tool.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "artifact_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "The URL of the artifact to edit (from a previous share_artifact or visit_webpage call).",
+                },
+                "old_string": {
+                    "type": "string",
+                    "description": "The text to find and replace, which must match exactly, even whitespaces perfectly. Include enough surrounding context (3-5 lines) to ensure uniqueness.",
+                },
+                "new_string": {
+                    "type": "string",
+                    "description": "The text to replace old_string with. Can be empty to delete text.",
+                },
+            },
+            "required": ["artifact_url", "old_string", "new_string"],
+        },
+        "persist": "artifact",
     },
     {
         "name": "generate_image",
@@ -875,6 +899,62 @@ class ShareArtifactExecutor:
         return f"Artifact shared: {url}"
 
 
+class EditArtifactExecutor:
+    """Executor for editing existing artifacts."""
+
+    def __init__(self, store: ArtifactStore, webpage_visitor: WebpageVisitorExecutor):
+        self.store = store
+        self.webpage_visitor = webpage_visitor
+
+    @classmethod
+    def from_config(
+        cls, config: dict, webpage_visitor: WebpageVisitorExecutor
+    ) -> "EditArtifactExecutor":
+        """Create executor from configuration."""
+        return cls(ArtifactStore.from_config(config), webpage_visitor)
+
+    async def execute(self, artifact_url: str, old_string: str, new_string: str) -> str:
+        """Edit an artifact by replacing old_string with new_string."""
+        # Fetch via webpage visitor (handles local artifacts automatically)
+        try:
+            content_result = await self.webpage_visitor.execute(artifact_url)
+            if isinstance(content_result, list):
+                return "Error: Cannot edit binary artifacts (images)"
+
+            # Extract content from markdown wrapper if present (remote URLs only)
+            content = content_result
+            if content.startswith("## Content from "):
+                # Strip the markdown header
+                parts = content.split("\n\n", 1)
+                if len(parts) == 2:
+                    content = parts[1]
+        except Exception as e:
+            logger.error(f"Failed to fetch artifact from {artifact_url}: {e}")
+            return f"Error: Failed to fetch artifact: {e}"
+
+        # Validate old_string exists and is unique
+        if old_string not in content:
+            return "Error: old_string not found in artifact. The artifact may have changed, or the search string is incorrect."
+
+        occurrences = content.count(old_string)
+        if occurrences > 1:
+            return f"Error: old_string appears {occurrences} times in the artifact. It must be unique. Add more surrounding context to make it unique."
+
+        # Perform the replacement
+        new_content = content.replace(old_string, new_string, 1)
+
+        # Extract suffix from URL (everything after last / and including .)
+        url_filename = artifact_url.split("/")[-1]
+        suffix = "." + url_filename.split(".", 1)[1] if "." in url_filename else ".txt"
+
+        url = self.store.write_text(new_content, suffix)
+        if url.startswith("Error:"):
+            return url
+
+        logger.info(f"Edited artifact: {artifact_url} -> {url}")
+        return f"Artifact edited successfully. New version: {url}"
+
+
 class ImageGenExecutor:
     """Executor for generating images via OpenRouter."""
 
@@ -1117,6 +1197,9 @@ def create_tool_executors(
         "final_answer": FinalAnswerExecutor(),
         "make_plan": MakePlanExecutor(),
         "share_artifact": ShareArtifactExecutor(store=artifact_store),
+        "edit_artifact": EditArtifactExecutor(
+            store=artifact_store, webpage_visitor=webpage_visitor
+        ),
         "chronicle_append": ChapterAppendExecutor(agent=agent, arc=arc),
         "chronicle_read": ChapterRenderExecutor(chronicle=agent.chronicle, arc=arc),
     }
