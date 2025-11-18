@@ -97,14 +97,14 @@ TOOLS: list[Tool] = [
     },
     {
         "name": "visit_webpage",
-        "description": "Visit the given URL and return its content as markdown text if HTML website, or picture if an image URL.",
+        "description": "Visit the given URL and return its content as markdown text if HTML website, or picture if an image URL (or raw if an artifact).",
         "input_schema": {
             "type": "object",
             "properties": {
                 "url": {
                     "type": "string",
                     "format": "uri",
-                    "description": "The URL of the webpage to visit.",
+                    "description": "The URL of the webpage to visit or artifact to load.",
                 }
             },
             "required": ["url"],
@@ -391,12 +391,14 @@ class WebpageVisitorExecutor:
         max_image_size: int = 3_500_000,
         progress_callback: Any | None = None,
         api_key: str | None = None,
+        artifact_store: "ArtifactStore | None" = None,
     ):
         self.max_content_length = max_content_length
         self.timeout = timeout
         self.max_image_size = max_image_size  # 5MB default limit post base64 encode
         self.progress_callback = progress_callback
         self.api_key = api_key
+        self.artifact_store = artifact_store
 
     async def execute(self, url: str) -> str | list[dict]:
         """Visit webpage and return content as markdown, or image data for images."""
@@ -405,6 +407,49 @@ class WebpageVisitorExecutor:
         # Basic URL validation
         if not url.startswith(("http://", "https://")):
             raise ValueError("Invalid URL. Must start with http:// or https://")
+
+        # Check if this is a local artifact we can access directly
+        if (
+            self.artifact_store
+            and self.artifact_store.artifacts_url
+            and self.artifact_store.artifacts_path
+            and url.startswith(self.artifact_store.artifacts_url + "/")
+        ):
+            # Direct file system access for local artifacts
+            logger.info(f"Using direct filesystem access for local artifact: {url}")
+            filename = url[len(self.artifact_store.artifacts_url) + 1 :]
+            filepath = self.artifact_store.artifacts_path / filename
+
+            # Resolve paths and validate no path traversal
+            try:
+                # Resolve paths (non-strict to catch traversal even if target doesn't exist)
+                resolved_path = filepath.resolve()
+                artifacts_base = self.artifact_store.artifacts_path.resolve()
+
+                # Validate containment
+                if not resolved_path.is_relative_to(artifacts_base):
+                    raise ValueError("Path traversal detected")
+
+                # Check existence after validating path
+                if not resolved_path.exists():
+                    raise ValueError("Artifact file not found")
+
+                # Check file size to prevent reading huge files
+                file_size = resolved_path.stat().st_size
+                if file_size > self.max_content_length:
+                    content = resolved_path.read_text(encoding="utf-8")[: self.max_content_length]
+                    logger.warning(
+                        f"Local artifact truncated from {file_size} to {self.max_content_length}"
+                    )
+                    return content + "\n\n..._Content truncated_..."
+                else:
+                    content = resolved_path.read_text(encoding="utf-8")
+
+                logger.info(f"Read local artifact: {filename}")
+                return content
+            except Exception as e:
+                logger.error(f"Failed to read local artifact '{filename}': {e}")
+                raise ValueError(f"Failed to read artifact: {e}") from e
 
         async with aiohttp.ClientSession() as session:
             # First, check the original URL for content-type to detect images
@@ -1058,11 +1103,13 @@ def create_tool_executors(
     # Shared artifact store for code executor and share_artifact
     artifact_store = ArtifactStore.from_config(config or {})
 
+    webpage_visitor = WebpageVisitorExecutor(
+        progress_callback=progress_callback, api_key=jina_api_key, artifact_store=artifact_store
+    )
+
     executors = {
         "web_search": search_executor,
-        "visit_webpage": WebpageVisitorExecutor(
-            progress_callback=progress_callback, api_key=jina_api_key
-        ),
+        "visit_webpage": webpage_visitor,
         "execute_code": CodeExecutorE2B(api_key=e2b_api_key, artifact_store=artifact_store),
         "progress_report": ProgressReportExecutor(
             send_callback=progress_callback, min_interval_seconds=min_interval
