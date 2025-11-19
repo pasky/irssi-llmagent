@@ -690,7 +690,7 @@ class IRCRoomMonitor:
                 context[-modes_config["unsafe"].get("history_size", default_size) :],
                 mynick,
                 mode="unsafe",
-                reasoning_effort=reasoning_effort,
+                reasoning_effort="low",
                 progress_callback=progress_cb,
                 arc=f"{server}#{chan_name}",
                 model=model_override,
