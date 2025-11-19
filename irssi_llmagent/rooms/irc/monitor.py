@@ -366,13 +366,17 @@ class IRCRoomMonitor:
         mode_cfg = self.irc_config["command"]["modes"][mode]
         system_prompt = self.build_system_prompt(mode, mynick) + extra_prompt
 
-        response = await self.agent.run_actor(
-            context,
-            mode_cfg=mode_cfg,
-            system_prompt=system_prompt,
-            model=model,
-            **actor_kwargs,
-        )
+        try:
+            response = await self.agent.run_actor(
+                context,
+                mode_cfg=mode_cfg,
+                system_prompt=system_prompt,
+                model=model,
+                **actor_kwargs,
+            )
+        except Exception as e:
+            logger.error(f"Error during agent execution: {e}", exc_info=True)
+            return f"Error: {e}"
 
         if response and len(response) > 800:
             logger.info(f"Response too long ({len(response)} chars), creating artifact")

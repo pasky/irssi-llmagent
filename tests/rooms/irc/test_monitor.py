@@ -683,6 +683,31 @@ class TestIRCMonitor:
             agent.irc_monitor.varlink_sender.send_message.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_unsafe_mode_error_handling(self, temp_config_file):
+        """Test that validation errors during unsafe mode are reported to user."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.irc_monitor.varlink_sender = AsyncMock()
+
+        # Initialize the real databases (now fast due to tmpfs)
+        await agent.history.initialize()
+        await agent.chronicle.initialize()
+
+        with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.run_agent.side_effect = ValueError("Invalid model format")
+            mock_agent_class.return_value = mock_agent_instance
+
+            # Test explicit unsafe mode command with invalid model
+            await agent.irc_monitor.handle_command(
+                "test", "#test", "#test", "user", "!u @invalid tell me something", "mybot"
+            )
+
+            # Verify error message was sent
+            agent.irc_monitor.varlink_sender.send_message.assert_called_once()
+            call_args = agent.irc_monitor.varlink_sender.send_message.call_args
+            assert "Error: Invalid model format" in call_args[0][1]
+
+    @pytest.mark.asyncio
     async def test_unsafe_mode_automatic_classification(self, temp_config_file):
         """Test that unsafe mode classification works in automatic mode."""
         agent = IRSSILLMAgent(temp_config_file)
