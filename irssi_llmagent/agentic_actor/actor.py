@@ -89,6 +89,9 @@ class AgenticLLMActor:
         # Track tool calls that need persistence
         persistent_tool_calls = []
 
+        # Track empty response retries
+        empty_response_retries = 0
+
         try:
             for iteration in range(self.max_iterations * 2):
                 if iteration > 0:
@@ -198,6 +201,26 @@ class AgenticLLMActor:
                 result = self._process_ai_response_provider(response, client)
 
                 if result["type"] == "error":
+                    logger.error(f"Invalid AI response: {result['message']}")
+                    return f"Error: {result['message']}"
+                elif result["type"] == "empty_response_retry":
+                    if empty_response_retries < 3:
+                        empty_response_retries += 1
+                        msg = (
+                            f"Error: {result['message']}. Retrying ({empty_response_retries}/3)..."
+                        )
+                        logger.warning(msg)
+                        if progress_callback:
+                            await progress_callback(msg, "error")
+
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": f"Error: {result['message']}. Please try again.",
+                            }
+                        )
+                        continue
+
                     logger.error(f"Invalid AI response: {result['message']}")
                     return f"Error: {result['message']}"
                 elif result["type"] == "final_text":
@@ -428,7 +451,10 @@ class AgenticLLMActor:
             return {"type": "final_text", "text": text_response}
 
         logger.debug(response)
-        return {"type": "error", "message": "No valid text or tool use found in response"}
+        return {
+            "type": "empty_response_retry",
+            "message": "No valid text or tool use found in response",
+        }
 
     async def _create_artifact_for_tool(
         self, tool_name: str, tool_input: dict, tool_result: str | list[dict], tool_executors: dict

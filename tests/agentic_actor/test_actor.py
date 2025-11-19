@@ -951,8 +951,62 @@ class TestAPIAgent:
 
         # Test invalid dict response (AI client returns None, so we return error)
         result = agent._process_ai_response_provider({"invalid": "response"}, FakeClient())
-        assert result["type"] == "error"
+        assert result["type"] == "empty_response_retry"
         assert "No valid text" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_agent_empty_response_retry(self, agent):
+        """Test agent retries on empty/invalid responses."""
+
+        # 1st response: Invalid (will trigger empty_response_retry)
+        # 2nd response: Invalid (will trigger empty_response_retry)
+        # 3rd response: Valid
+
+        invalid_response = {"invalid": "response"}
+        valid_response = {
+            "content": [{"type": "text", "text": "Success!"}],
+            "stop_reason": "end_turn",
+        }
+
+        class FakeClient:
+            def extract_text_from_response(self, r):
+                if r == valid_response:
+                    return "Success!"
+                return ""
+
+            def has_tool_calls(self, r):
+                return False
+
+            def extract_tool_calls(self, r):
+                return None
+
+            def format_assistant_message(self, r):
+                return {"role": "assistant", "content": ""}
+
+        responses = [invalid_response, invalid_response, valid_response]
+
+        async def fake_call_raw_with_model(*args, **kwargs):
+            return responses.pop(0), FakeClient(), ModelSpec("anthropic", "dummy")
+
+        progress_calls = []
+
+        async def mock_progress_callback(text: str, type: str = "progress"):
+            progress_calls.append({"text": text, "type": type})
+
+        with patch.object(
+            ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+        ):
+            result = await agent.run_agent(
+                [{"role": "user", "content": "test"}],
+                arc="test",
+                progress_callback=mock_progress_callback,
+            )
+
+            assert "Success!" in result
+            # Should have 2 retry warnings in progress
+            assert len(progress_calls) == 2
+            assert "Retrying (1/3)" in progress_calls[0]["text"]
+            assert "Retrying (2/3)" in progress_calls[1]["text"]
 
     @pytest.mark.asyncio
     async def test_final_answer_empty_with_thinking_continues_turn(self, agent):
