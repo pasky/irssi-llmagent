@@ -370,6 +370,7 @@ class IRCRoomMonitor:
             context,
             mode_cfg=mode_cfg,
             system_prompt=system_prompt,
+            model=model,
             **actor_kwargs,
         )
 
@@ -553,11 +554,11 @@ class IRCRoomMonitor:
 
             channel_mode = self.get_channel_mode(chan_name)
             if channel_mode == "serious":
-                default_desc = f"serious agentic mode with web tools ({serious_model}), !d is explicit sarcastic diss mode ({sarcastic_model}), !u is unsafe mode ({unsafe_model}), !a forces thinking"
+                default_desc = f"serious agentic mode with web tools ({serious_model}), !d is explicit sarcastic diss mode ({sarcastic_model}), !u is unsafe mode ({unsafe_model}, use !u @modelid for custom), !a forces thinking"
             elif channel_mode == "sarcastic":
-                default_desc = f"sarcastic mode ({sarcastic_model}), !s (quick) & !a (thinking) is serious agentic mode with web tools ({serious_model}), !u is unsafe mode ({unsafe_model})"
+                default_desc = f"sarcastic mode ({sarcastic_model}), !s (quick) & !a (thinking) is serious agentic mode with web tools ({serious_model}), !u is unsafe mode ({unsafe_model}, use !u @modelid for custom)"
             else:
-                default_desc = f"automatic mode ({classifier_model} decides), !d is explicit sarcastic diss mode ({sarcastic_model}), !s (quick) & !a (thinking) is serious agentic mode with web tools ({serious_model}), !u is unsafe mode ({unsafe_model})"
+                default_desc = f"automatic mode ({classifier_model} decides), !d is explicit sarcastic diss mode ({sarcastic_model}), !s (quick) & !a (thinking) is serious agentic mode with web tools ({serious_model}), !u is unsafe mode ({unsafe_model}, use !u @modelid for custom)"
 
             help_msg = f"default is {default_desc}, !p is Perplexity (prefer English!)"
             await self.varlink_sender.send_message(target, help_msg, server)
@@ -587,6 +588,7 @@ class IRCRoomMonitor:
 
         # Determine mode from explicit commands or auto-classification
         mode = None
+        model_override = None
         reasoning_effort = "minimal"
 
         if cleaned_msg.startswith("!S ") or cleaned_msg.startswith("!d "):
@@ -607,6 +609,11 @@ class IRCRoomMonitor:
         elif cleaned_msg.startswith("!u "):
             logger.debug(f"Processing explicit unsafe request from {nick}: {cleaned_msg}")
             mode = "UNSAFE"
+            # Check for model override: !u @modelid ...
+            parts = cleaned_msg.split(maxsplit=2)
+            if len(parts) >= 2 and parts[1].startswith("@"):
+                model_override = parts[1][1:]
+                logger.debug(f"Overriding model to {model_override}")
         elif re.match(r"^!.", cleaned_msg):
             logger.warning(f"Unknown command from {nick}: {cleaned_msg}")
             await self.varlink_sender.send_message(
@@ -682,6 +689,7 @@ class IRCRoomMonitor:
                 reasoning_effort=reasoning_effort,
                 progress_callback=progress_cb,
                 arc=f"{server}#{chan_name}",
+                model=model_override,
             )
         else:
             raise ValueError(f"Unknown mode {mode}")

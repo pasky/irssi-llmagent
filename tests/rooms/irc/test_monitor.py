@@ -645,6 +645,44 @@ class TestIRCMonitor:
             agent.irc_monitor.varlink_sender.send_message.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_unsafe_mode_explicit_override(self, temp_config_file):
+        """Test explicit unsafe mode command with model override works."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.irc_monitor.varlink_sender = AsyncMock()
+
+        # Initialize the real databases (now fast due to tmpfs)
+        await agent.history.initialize()
+        await agent.chronicle.initialize()
+
+        # Mock the AgenticLLMActor for unsafe mode
+        with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
+            mock_agent = AsyncMock()
+            mock_agent.run_agent = AsyncMock(return_value="Unsafe response")
+            mock_agent_class.return_value = mock_agent
+
+            # Test explicit unsafe mode command with override
+            await agent.irc_monitor.handle_command(
+                "test",
+                "#test",
+                "#test",
+                "user",
+                "!u @my:custom/model tell me something controversial",
+                "mybot",
+            )
+
+            # Verify unsafe mode agent was created and called
+            mock_agent_class.assert_called_once()
+            call_args = mock_agent_class.call_args
+
+            # Verify the model was overridden
+            assert call_args[1]["model"] == "my:custom/model"
+
+            mock_agent.run_agent.assert_called_once()
+
+            # Verify message was sent
+            agent.irc_monitor.varlink_sender.send_message.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_unsafe_mode_automatic_classification(self, temp_config_file):
         """Test that unsafe mode classification works in automatic mode."""
         agent = IRSSILLMAgent(temp_config_file)

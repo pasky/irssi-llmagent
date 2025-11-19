@@ -75,6 +75,7 @@ class IRSSILLMAgent:
         system_prompt: str,
         arc: str = "",
         progress_callback=None,
+        model: str | list[str] | None = None,
         **actor_kwargs,
     ) -> str | None:
         prepended_context: list[dict[str, str]] = []
@@ -83,7 +84,7 @@ class IRSSILLMAgent:
 
         actor = AgenticLLMActor(
             config=self.config,
-            model=mode_cfg["model"],
+            model=model or mode_cfg["model"],
             system_prompt_generator=lambda: system_prompt,
             prompt_reminder_generator=lambda: mode_cfg.get("prompt_reminder"),
             prepended_context=prepended_context,
