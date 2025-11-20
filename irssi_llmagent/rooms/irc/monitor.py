@@ -417,7 +417,7 @@ class IRCRoomMonitor:
                 trimmed = trimmed[:last_word]
 
             # Add ellipsis and artifact link
-            trimmed += f"... (full response: {artifact_url})"
+            trimmed += f"... full response: {artifact_url}"
 
         return trimmed
 
