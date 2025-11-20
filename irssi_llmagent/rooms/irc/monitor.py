@@ -553,16 +553,18 @@ class IRCRoomMonitor:
             logger.debug(f"Sending help message to {nick}")
             sarcastic_model = modes_config["sarcastic"]["model"]
             serious_model = modes_config["serious"]["model"]
+            thinking_model = modes_config["serious"].get("thinking_model")
+            thinking_desc = f" ({thinking_model})" if thinking_model else ""
             unsafe_model = modes_config["unsafe"]["model"]
             classifier_model = self.irc_config["command"]["mode_classifier"]["model"]
 
             channel_mode = self.get_channel_mode(chan_name)
             if channel_mode == "serious":
-                default_desc = f"serious agentic mode with web tools ({serious_model}), !d is explicit sarcastic diss mode ({sarcastic_model}), !u is unsafe mode ({unsafe_model}, use !u @modelid for custom), !a forces thinking"
+                default_desc = f"serious agentic mode with web tools ({serious_model}), !d is explicit sarcastic diss mode ({sarcastic_model}), !u is unsafe mode ({unsafe_model}, use !u @modelid for custom), !a forces thinking{thinking_desc}"
             elif channel_mode == "sarcastic":
-                default_desc = f"sarcastic mode ({sarcastic_model}), !s (quick) & !a (thinking) is serious agentic mode with web tools ({serious_model}), !u is unsafe mode ({unsafe_model}, use !u @modelid for custom)"
+                default_desc = f"sarcastic mode ({sarcastic_model}), !s (quick, {serious_model}) & !a (thinking{thinking_desc}) is serious agentic mode with web tools, !u is unsafe mode ({unsafe_model}, use !u @modelid for custom)"
             else:
-                default_desc = f"automatic mode ({classifier_model} decides), !d is explicit sarcastic diss mode ({sarcastic_model}), !s (quick) & !a (thinking) is serious agentic mode with web tools ({serious_model}), !u is unsafe mode ({unsafe_model}, use !u @modelid for custom)"
+                default_desc = f"automatic mode ({classifier_model} decides), !d is explicit sarcastic diss mode ({sarcastic_model}), !s (quick, {serious_model}) & !a (thinking{thinking_desc}) is serious agentic mode with web tools, !u is unsafe mode ({unsafe_model}, use !u @modelid for custom)"
 
             help_msg = f"default is {default_desc}, !p is Perplexity (prefer English!)"
             await self.varlink_sender.send_message(target, help_msg, server)
@@ -677,11 +679,15 @@ class IRCRoomMonitor:
             assert (
                 reasoning_effort == "minimal"
             )  # test we didn't override it earlier since we ignore it here
+
             response = await self._run_actor(
                 context[-modes_config["serious"].get("history_size", default_size) :],
                 mynick,
                 mode="serious",
                 reasoning_effort="low" if mode == "EASY_SERIOUS" else "medium",
+                model=modes_config["serious"].get("thinking_model")
+                if mode == "THINKING_SERIOUS"
+                else None,
                 progress_callback=progress_cb,
                 arc=f"{server}#{chan_name}",
             )

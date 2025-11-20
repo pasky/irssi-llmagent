@@ -535,6 +535,89 @@ class TestIRCMonitor:
             agent.irc_monitor.varlink_sender.send_message.assert_called()
 
     @pytest.mark.asyncio
+    async def test_thinking_serious_mode_override(self, temp_config_file):
+        """Test that THINKING_SERIOUS mode uses thinking_model if configured, and falls back if not."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.irc_monitor.varlink_sender = AsyncMock()
+
+        # Initialize databases
+        await agent.history.initialize()
+        await agent.chronicle.initialize()
+
+        with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
+            mock_agent = AsyncMock()
+            mock_agent.run_agent = AsyncMock(return_value="Agent response")
+            mock_agent_class.return_value = mock_agent
+
+            # 1. Test fallback (thinking_model NOT configured)
+            # Ensure thinking_model is not set
+            if "thinking_model" in agent.config["rooms"]["irc"]["command"]["modes"]["serious"]:
+                del agent.config["rooms"]["irc"]["command"]["modes"]["serious"]["thinking_model"]
+
+            default_serious_model = agent.config["rooms"]["irc"]["command"]["modes"]["serious"][
+                "model"
+            ]
+
+            # Trigger THINKING_SERIOUS mode with !a
+            await agent.irc_monitor.handle_command(
+                "test", "#test", "#test", "user", "!a solve default", "mybot"
+            )
+
+            # Verify fallback to default serious model
+            mock_agent_class.assert_called_once()
+            call_args = mock_agent_class.call_args
+            assert call_args[1]["model"] == default_serious_model
+            assert call_args[1]["reasoning_effort"] == "medium"
+
+            # Reset mock for next test
+            mock_agent_class.reset_mock()
+
+            # 2. Test override (thinking_model IS configured)
+            thinking_model = "provider:thinking-model"
+            agent.config["rooms"]["irc"]["command"]["modes"]["serious"][
+                "thinking_model"
+            ] = thinking_model
+
+            # Trigger THINKING_SERIOUS mode with !a
+            await agent.irc_monitor.handle_command(
+                "test", "#test", "#test", "user", "!a solve override", "mybot"
+            )
+
+            # Verify override with thinking_model
+            mock_agent_class.assert_called_once()
+            call_args = mock_agent_class.call_args
+            assert call_args[1]["model"] == thinking_model
+            assert call_args[1]["reasoning_effort"] == "medium"
+
+    @pytest.mark.asyncio
+    async def test_help_command_with_thinking_model(self, shared_agent):
+        """Test help command shows thinking model info when configured."""
+        agent = shared_agent
+
+        # Configure thinking_model
+        thinking_model = "provider:thinking-model"
+        agent.config["rooms"]["irc"]["command"]["modes"]["serious"][
+            "thinking_model"
+        ] = thinking_model
+
+        # Set up channel modes to test serious channel output
+        agent.config["rooms"]["irc"]["command"]["channel_modes"] = {
+            "#serious-work": "serious",
+        }
+
+        # Test help in serious channel
+        await agent.irc_monitor.handle_command(
+            "test", "#serious-work", "#serious-work", "user", "!h", "mybot"
+        )
+        call_args = agent.irc_monitor.varlink_sender.send_message.call_args[0]
+        assert f"!a forces thinking ({thinking_model})" in call_args[1]
+
+        # Test help in automatic mode (default)
+        await agent.irc_monitor.handle_command("test", "#test", "#test", "user", "!h", "mybot")
+        call_args = agent.irc_monitor.varlink_sender.send_message.call_args[0]
+        assert f"!a (thinking ({thinking_model}))" in call_args[1]
+
+    @pytest.mark.asyncio
     async def test_sarcastic_mode_unchanged(self, temp_config_file):
         """Test sarcastic mode excludes chapter context."""
         agent = IRSSILLMAgent(temp_config_file)
