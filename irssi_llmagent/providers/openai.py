@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -15,6 +16,15 @@ try:
     from openai import AsyncOpenAI as _AsyncOpenAI
 except Exception:  # pragma: no cover - handled at runtime
     _AsyncOpenAI = None  # type: ignore
+
+
+class SoftAPIError(Exception):
+    """Exception for API errors returned in 200 OK responses."""
+
+    def __init__(self, message: str, code: int | str | None):
+        self.message = message
+        self.status_code = code
+        super().__init__(f"API Error {code}: {message}")
 
 
 class BaseOpenAIClient(BaseAPIClient):
@@ -183,28 +193,59 @@ class BaseOpenAIClient(BaseAPIClient):
             kwargs["model"] = model_override
             self.logger.debug(f"Using extra_body: {extra_body}, model override: {model_override}")
 
-        try:
-            resp = await self._client.chat.completions.create(**kwargs)
-            data = resp.model_dump() if hasattr(resp, "model_dump") else json.loads(resp.json())
-            self.logger.debug(
-                f"{self.provider_name} Chat Completion response: {json.dumps(data, indent=2)}"
-            )
-            return data
-        except Exception as e:
-            # Check for OpenAI content safety errors and convert to refusal format
-            # Note: OpenAI SDK extracts body.get("error", body) so .body is the error dict directly
-            error_body = getattr(e, "body", None)
-            if isinstance(error_body, dict):
-                error_code = error_body.get("code")
-                error_message = error_body.get("message", "")
-                if error_code == "invalid_prompt" and "safety reasons" in error_message:
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                resp = await self._client.chat.completions.create(**kwargs)
+                data = resp.model_dump() if hasattr(resp, "model_dump") else json.loads(resp.json())
+                self.logger.debug(
+                    f"{self.provider_name} Chat Completion response: {json.dumps(data, indent=2)}"
+                )
+
+                # Check for API errors returned in 200 OK response (common with proxies/OpenRouter)
+                if "error" in data and isinstance(data["error"], dict):
+                    error = data["error"]
+                    raise SoftAPIError(error.get("message", "Unknown error"), error.get("code"))
+
+                return data
+            except Exception as e:
+                # Check if we should retry based on exception type/status
+                is_retryable = False
+                status_code = getattr(e, "status_code", None)
+
+                if status_code:
+                    try:
+                        code_int = int(status_code)
+                        if code_int >= 500:
+                            is_retryable = True
+                    except (ValueError, TypeError):
+                        pass
+
+                if is_retryable and attempt < max_retries - 1:
+                    delay = 2**attempt
                     self.logger.warning(
-                        f"{self.provider_name} content safety refusal: {error_message}"
+                        f"{self.provider_name} request failed (status {status_code}), retrying in {delay}s: {e}"
                     )
-                    return {"error": f"{error_message} (consider !u)"}
-            msg = repr(e)
-            self.logger.error(f"{self.provider_name} Chat Completion API error: {msg}")
-            return {"error": f"API error: {msg}"}
+                    await asyncio.sleep(delay)
+                    continue
+
+                # Check for OpenAI content safety errors and convert to refusal format
+                # Note: OpenAI SDK extracts body.get("error", body) so .body is the error dict directly
+                error_body = getattr(e, "body", None)
+                if isinstance(error_body, dict):
+                    error_code = error_body.get("code")
+                    error_message = error_body.get("message", "")
+                    if error_code == "invalid_prompt" and "safety reasons" in error_message:
+                        self.logger.warning(
+                            f"{self.provider_name} content safety refusal: {error_message}"
+                        )
+                        return {"error": f"{error_message} (consider !u)"}
+
+                msg = repr(e)
+                self.logger.error(f"{self.provider_name} Chat Completion API error: {msg}")
+                return {"error": f"API error: {msg}"}
+
+        return {"error": "Max retries exceeded"}
 
     def _extract_raw_text(self, response: dict) -> str:
         """Extract raw text content from Chat Completion response."""

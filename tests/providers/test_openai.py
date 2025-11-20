@@ -1,7 +1,7 @@
 """Tests for OpenAI-specific functionality."""
 
 import base64
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -522,3 +522,104 @@ class TestOpenAIContentSafetyRefusal:
         assert "error" in response
         assert "API error:" in response["error"]
         assert "The AI refused to respond" not in response["error"]
+
+
+class TestOpenAIRetry:
+    """Test OpenAI client retry logic."""
+
+    @pytest.mark.asyncio
+    async def test_retry_on_500_error_in_response(self):
+        """Test retry when 200 OK response contains 500 error code (OpenRouter style)."""
+        from irssi_llmagent.providers.openai import OpenAIClient
+
+        test_config = {"providers": {"openai": {"key": "test-key"}}}
+        client = OpenAIClient(test_config)
+
+        # Mock response with error
+        error_response = {
+            "id": None,
+            "choices": None,
+            "error": {"message": "Internal Server Error", "code": 500},
+        }
+
+        # Mock response with success
+        success_response = {
+            "id": "123",
+            "choices": [{"message": {"role": "assistant", "content": "Success"}}],
+        }
+
+        class MockResponse:
+            def __init__(self, data):
+                self.data = data
+
+            def model_dump(self):
+                return self.data
+
+        # Mock the OpenAI client
+        mock_completions = AsyncMock()
+        # Side effect: return error twice, then success
+        mock_completions.create.side_effect = [
+            MockResponse(error_response),
+            MockResponse(error_response),
+            MockResponse(success_response),
+        ]
+
+        # Replace _client with MagicMock to avoid property setter issues
+        client._client = MagicMock()
+        client._client.chat.completions = mock_completions
+
+        # We need to mock asyncio.sleep to avoid waiting
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            response = await client.call_raw(
+                context=[{"role": "user", "content": "test"}], system_prompt="test", model="gpt-4"
+            )
+
+            # Check that it retried
+            assert mock_completions.create.call_count == 3
+            assert mock_sleep.call_count == 2
+
+            # Check result
+            assert response["choices"][0]["message"]["content"] == "Success"
+
+    @pytest.mark.asyncio
+    async def test_retry_on_500_exception(self):
+        """Test retry when API raises 500 status exception."""
+        from irssi_llmagent.providers.openai import OpenAIClient
+
+        test_config = {"providers": {"openai": {"key": "test-key"}}}
+        client = OpenAIClient(test_config)
+
+        # Mocking a generic exception with status_code attribute for simplicity/robustness
+        class Mock500Error(Exception):
+            status_code = 500
+
+        success_response = {
+            "id": "123",
+            "choices": [{"message": {"role": "assistant", "content": "Success"}}],
+        }
+
+        class MockResponse:
+            def __init__(self, data):
+                self.data = data
+
+            def model_dump(self):
+                return self.data
+
+        mock_completions = AsyncMock()
+        mock_completions.create.side_effect = [
+            Mock500Error("Server Error"),
+            MockResponse(success_response),
+        ]
+
+        # Replace _client with MagicMock to avoid property setter issues
+        client._client = MagicMock()
+        client._client.chat.completions = mock_completions
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            response = await client.call_raw(
+                context=[{"role": "user", "content": "test"}], system_prompt="test", model="gpt-4"
+            )
+
+            assert mock_completions.create.call_count == 2
+            assert mock_sleep.call_count == 1
+            assert response["choices"][0]["message"]["content"] == "Success"
