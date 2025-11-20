@@ -133,9 +133,10 @@ async def test_chapter_rollover_copies_unresolved_quests(shared_agent):
             actor_call_count["n"] += 1
             return None
 
-    with patch("irssi_llmagent.main.AgenticLLMActor", new=DummyActor3), patch(
-        "irssi_llmagent.providers.ModelRouter.call_raw_with_model"
-    ) as mock_router:
+    with (
+        patch("irssi_llmagent.main.AgenticLLMActor", new=DummyActor3),
+        patch("irssi_llmagent.providers.ModelRouter.call_raw_with_model") as mock_router,
+    ):
         # Mock the model router to avoid network calls during chronicle summarization
         mock_client = MagicMock()
         mock_client.extract_text_from_response.return_value = (

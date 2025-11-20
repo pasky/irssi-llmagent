@@ -82,11 +82,14 @@ class Chronicle:
             return last_id, True
 
     async def _get_open_chapter_row(self, arc_id: int) -> Chapter | None:
-        async with aiosqlite.connect(self.db_path) as db, db.execute(
-            "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters"
-            " WHERE arc_id = ? AND closed_at IS NULL",
-            (arc_id,),
-        ) as cur:
+        async with (
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters"
+                " WHERE arc_id = ? AND closed_at IS NULL",
+                (arc_id,),
+            ) as cur,
+        ):
             row = await cur.fetchone()
             if not row:
                 return None
@@ -172,11 +175,14 @@ class Chronicle:
         if open_ch:
             return open_ch.id, open_ch
         # fallback to latest closed
-        async with aiosqlite.connect(self.db_path) as db, db.execute(
-            "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters"
-            " WHERE arc_id = ? ORDER BY opened_at DESC LIMIT 1",
-            (arc_id,),
-        ) as cur:
+        async with (
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters"
+                " WHERE arc_id = ? ORDER BY opened_at DESC LIMIT 1",
+                (arc_id,),
+            ) as cur,
+        ):
             row = await cur.fetchone()
             if not row:
                 return None, None
@@ -189,11 +195,14 @@ class Chronicle:
         arc_id, _ = await self._get_or_create_arc(arc)
 
         # Get all chapters for this arc, ordered by opened_at (oldest first)
-        async with aiosqlite.connect(self.db_path) as db, db.execute(
-            "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters"
-            " WHERE arc_id = ? ORDER BY opened_at ASC",
-            (arc_id,),
-        ) as cur:
+        async with (
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                "SELECT id, arc_id, opened_at, closed_at, meta_json FROM chapters"
+                " WHERE arc_id = ? ORDER BY opened_at ASC",
+                (arc_id,),
+            ) as cur,
+        ):
             rows = await cur.fetchall()
 
         if not rows:
@@ -229,9 +238,12 @@ class Chronicle:
 
     async def read_chapter(self, chapter_id: int) -> list[str]:
         """Read all paragraphs from a chapter."""
-        async with aiosqlite.connect(self.db_path) as db, db.execute(
-            "SELECT content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC", (chapter_id,)
-        ) as cursor:
+        async with (
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                "SELECT content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC", (chapter_id,)
+            ) as cursor,
+        ):
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
 
@@ -262,10 +274,13 @@ class Chronicle:
         if chap_id is None or chap is None:
             return f"# Arc: {arc} — No chapters yet\n\n(Empty)"
 
-        async with aiosqlite.connect(self.db_path) as db, db.execute(
-            "SELECT ts, content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC",
-            (chap_id,),
-        ) as cur:
+        async with (
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                "SELECT ts, content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC",
+                (chap_id,),
+            ) as cur,
+        ):
             rows = await cur.fetchall()
 
         rows_list = list(rows)
@@ -292,10 +307,13 @@ class Chronicle:
         if chap_id is None or chap is None:
             return f"# Arc: {arc} — No chapters at relative offset {relative_chapter_id}\n\n(Empty)"
 
-        async with aiosqlite.connect(self.db_path) as db, db.execute(
-            "SELECT ts, content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC",
-            (chap_id,),
-        ) as cur:
+        async with (
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                "SELECT ts, content FROM paragraphs WHERE chapter_id = ? ORDER BY ts ASC",
+                (chap_id,),
+            ) as cur,
+        ):
             rows = await cur.fetchall()
 
         rows_list = list(rows)

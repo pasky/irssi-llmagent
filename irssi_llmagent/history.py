@@ -71,14 +71,18 @@ class ChatHistory:
         role = "assistant" if nick.lower() == mynick.lower() else "user"
         content = content_template.format(nick=nick, message=message)
 
-        async with self._lock, aiosqlite.connect(self.db_path) as db, db.execute(
-            """
+        async with (
+            self._lock,
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                """
                     INSERT INTO chat_messages
                     (server_tag, channel_name, nick, message, role)
                     VALUES (?, ?, ?, ?, ?)
                     """,
-            (server_tag, channel_name, nick, content, role),
-        ) as _:
+                (server_tag, channel_name, nick, content, role),
+            ) as _,
+        ):
             await db.commit()
 
         logger.debug(f"Added message to history: {server_tag}/{channel_name} - {nick}: {message}")
@@ -145,10 +149,14 @@ class ChatHistory:
 
     async def cleanup_old_messages(self, days: int = 30) -> int:
         """Remove messages older than specified days."""
-        async with self._lock, aiosqlite.connect(self.db_path) as db, db.execute(
-            "DELETE FROM chat_messages WHERE timestamp < datetime('now', '-' || ? || ' days')",
-            (days,),
-        ) as cursor:
+        async with (
+            self._lock,
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                "DELETE FROM chat_messages WHERE timestamp < datetime('now', '-' || ? || ' days')",
+                (days,),
+            ) as cursor,
+        ):
             await db.commit()
             return cursor.rowcount
 
@@ -156,16 +164,20 @@ class ChatHistory:
         self, server_tag: str, channel_name: str, nick: str, timestamp: float
     ) -> list[dict[str, str]]:
         """Get messages from a specific user since a given timestamp."""
-        async with self._lock, aiosqlite.connect(self.db_path) as db, db.execute(
-            """
+        async with (
+            self._lock,
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                """
                 SELECT message, timestamp FROM chat_messages
                 WHERE server_tag = ? AND channel_name = ? AND nick = ?
                 AND strftime('%s', timestamp) > ?
                 ORDER BY timestamp ASC
                 """,
-            # strftime('%s', timestamp) converts SQLite datetime to Unix timestamp for comparison
-            (server_tag, channel_name, nick, str(int(timestamp))),
-        ) as cursor:
+                # strftime('%s', timestamp) converts SQLite datetime to Unix timestamp for comparison
+                (server_tag, channel_name, nick, str(int(timestamp))),
+            ) as cursor,
+        ):
             rows = await cursor.fetchall()
 
         # Extract message text (message field stores "<nick> text", strip the prefix)
@@ -184,15 +196,19 @@ class ChatHistory:
         self, server_tag: str, channel_name: str, days: int = 7
     ) -> int:
         """Count unchronicled messages from the last N days."""
-        async with self._lock, aiosqlite.connect(self.db_path) as db, db.execute(
-            """
+        async with (
+            self._lock,
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                """
                 SELECT COUNT(*) FROM chat_messages
                 WHERE server_tag = ? AND channel_name = ?
                 AND chapter_id IS NULL
                 AND timestamp >= datetime('now', '-' || ? || ' days')
                 """,
-            (server_tag, channel_name, days),
-        ) as cursor:
+                (server_tag, channel_name, days),
+            ) as cursor,
+        ):
             row = await cursor.fetchone()
             return int(row[0]) if row else 0
 

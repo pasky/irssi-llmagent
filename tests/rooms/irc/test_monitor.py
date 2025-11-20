@@ -282,9 +282,10 @@ class TestIRCMonitor:
             )
             await agent.history.add_message("test", "#test", "final interfering", "dave", "mybot")
 
-        with patch("irssi_llmagent.rooms.irc.monitor.time", spec=True) as mock_time_module, patch(
-            "irssi_llmagent.providers.ModelRouter.call_raw_with_model"
-        ) as mock_router:
+        with (
+            patch("irssi_llmagent.rooms.irc.monitor.time", spec=True) as mock_time_module,
+            patch("irssi_llmagent.providers.ModelRouter.call_raw_with_model") as mock_router,
+        ):
             # Mock time and API calls to prevent delays
             mock_time_module.time = mock_time
             mock_client = MagicMock()

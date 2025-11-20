@@ -59,19 +59,23 @@ async def _close_chapter(chronicle: Any, chapter_id: int, summary: str) -> None:
     import json
 
     meta_json = json.dumps({"summary": summary})
-    async with aiosqlite.connect(chronicle.db_path) as db, db.execute(
-        "UPDATE chapters SET closed_at = CURRENT_TIMESTAMP, meta_json = ? WHERE id = ?",
-        (meta_json, chapter_id),
-    ) as _:
+    async with (
+        aiosqlite.connect(chronicle.db_path) as db,
+        db.execute(
+            "UPDATE chapters SET closed_at = CURRENT_TIMESTAMP, meta_json = ? WHERE id = ?",
+            (meta_json, chapter_id),
+        ) as _,
+    ):
         await db.commit()
     logger.info(f"Closed chapter {chapter_id} with summary")
 
 
 async def _count_paragraphs_in_chapter(chronicle: Any, chapter_id: int) -> int:
     """Count number of paragraphs in a chapter."""
-    async with aiosqlite.connect(chronicle.db_path) as db, db.execute(
-        "SELECT COUNT(*) FROM paragraphs WHERE chapter_id = ?", (chapter_id,)
-    ) as cursor:
+    async with (
+        aiosqlite.connect(chronicle.db_path) as db,
+        db.execute("SELECT COUNT(*) FROM paragraphs WHERE chapter_id = ?", (chapter_id,)) as cursor,
+    ):
         row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
