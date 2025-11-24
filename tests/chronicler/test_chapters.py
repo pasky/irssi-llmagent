@@ -246,9 +246,9 @@ async def test_concurrent_appends_different_arcs(temp_config_file):
     assert all(result is not None for result in results)
 
     # We should have seen concurrent processing (both arcs active at once)
-    assert (
-        max_concurrent >= 2
-    ), f"Expected concurrent processing, but max_concurrent was {max_concurrent}"
+    assert max_concurrent >= 2, (
+        f"Expected concurrent processing, but max_concurrent was {max_concurrent}"
+    )
 
 
 @pytest.mark.asyncio

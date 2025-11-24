@@ -574,9 +574,9 @@ class TestIRCMonitor:
 
             # 2. Test override (thinking_model IS configured)
             thinking_model = "provider:thinking-model"
-            agent.config["rooms"]["irc"]["command"]["modes"]["serious"][
-                "thinking_model"
-            ] = thinking_model
+            agent.config["rooms"]["irc"]["command"]["modes"]["serious"]["thinking_model"] = (
+                thinking_model
+            )
 
             # Trigger THINKING_SERIOUS mode with !a
             await agent.irc_monitor.handle_command(
@@ -596,9 +596,9 @@ class TestIRCMonitor:
 
         # Configure thinking_model
         thinking_model = "provider:thinking-model"
-        agent.config["rooms"]["irc"]["command"]["modes"]["serious"][
-            "thinking_model"
-        ] = thinking_model
+        agent.config["rooms"]["irc"]["command"]["modes"]["serious"]["thinking_model"] = (
+            thinking_model
+        )
 
         # Set up channel modes to test serious channel output
         agent.config["rooms"]["irc"]["command"]["channel_modes"] = {
@@ -622,9 +622,9 @@ class TestIRCMonitor:
         """Test sarcastic mode excludes chapter context."""
         agent = IRSSILLMAgent(temp_config_file)
         # Set include_chapter_summary to false for sarcastic mode
-        agent.config["rooms"]["irc"]["command"]["modes"]["sarcastic"][
-            "include_chapter_summary"
-        ] = False
+        agent.config["rooms"]["irc"]["command"]["modes"]["sarcastic"]["include_chapter_summary"] = (
+            False
+        )
 
         # Initialize the real databases (now fast due to tmpfs)
         await agent.history.initialize()

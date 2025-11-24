@@ -16,9 +16,9 @@ class TestAPIAgent:
     def agent(self, test_config, mock_agent):
         """Create agent instance for testing."""
         # Update serious prompt for agent tests (config structure already has the prompt)
-        test_config["rooms"]["irc"]["command"]["modes"]["serious"][
-            "prompt"
-        ] = "You are IRC user {mynick}. Be helpful and informative. Available models: serious={serious_model}, sarcastic={sarcastic_model}."
+        test_config["rooms"]["irc"]["command"]["modes"]["serious"]["prompt"] = (
+            "You are IRC user {mynick}. Be helpful and informative. Available models: serious={serious_model}, sarcastic={sarcastic_model}."
+        )
 
         def build_test_prompt():
             from datetime import datetime
@@ -111,9 +111,9 @@ class TestAPIAgent:
         mock_response = self.create_text_response(api_type, "This is a simple answer.")
 
         # Add prompt reminder to test config and capture messages
-        agent.config["rooms"]["irc"]["command"]["modes"]["serious"][
-            "prompt_reminder"
-        ] = "Be helpful!"
+        agent.config["rooms"]["irc"]["command"]["modes"]["serious"]["prompt_reminder"] = (
+            "Be helpful!"
+        )
         captured_messages = []
 
         class FakeClient:
@@ -570,9 +570,9 @@ class TestAPIAgent:
     async def test_vision_fallback_switches_model_and_appends_suffix(self, test_config, mock_agent):
         """Image via visit_webpage triggers switching to vision_model and suffix in final text."""
         # Minimal prompt wiring
-        test_config["rooms"]["irc"]["command"]["modes"]["serious"][
-            "prompt"
-        ] = "You are IRC user {mynick}."
+        test_config["rooms"]["irc"]["command"]["modes"]["serious"]["prompt"] = (
+            "You are IRC user {mynick}."
+        )
 
         # Build actor with openrouter base and anthropic vision
         from irssi_llmagent.agentic_actor import AgenticLLMActor
