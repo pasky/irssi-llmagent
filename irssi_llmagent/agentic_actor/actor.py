@@ -469,6 +469,7 @@ class AgenticLLMActor:
                 artifact_content += (
                     f"## Input\n```json\n{json.dumps(tool_input, indent=2)}\n```\n\n"
                 )
+                artifact_content.replace("\\n", "\n")
                 # Convert list[dict] to JSON string if needed
                 output_str = (
                     json.dumps(tool_result, indent=2)
