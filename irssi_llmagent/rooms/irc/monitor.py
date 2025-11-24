@@ -361,9 +361,15 @@ class IRCRoomMonitor:
         mode: str,
         extra_prompt: str = "",
         model: str | list[str] | None = None,
+        no_context: bool = False,
         **actor_kwargs,
     ) -> str | None:
         mode_cfg = self.irc_config["command"]["modes"][mode]
+        if no_context:
+            context = context[-1:]
+            mode_cfg = mode_cfg.copy()
+            mode_cfg["include_chapter_summary"] = False
+
         system_prompt = self.build_system_prompt(mode, mynick) + extra_prompt
 
         try:
@@ -549,6 +555,11 @@ class IRCRoomMonitor:
         """Route commands based on message content with prepared context."""
         modes_config = self.irc_config["command"]["modes"]
 
+        no_context = False
+        if re.search(r"(?:^|\s)!c(?:\s|$)", cleaned_msg):
+            no_context = True
+            cleaned_msg = re.sub(r"(?:^|\s)!c(?=\s|$)", "", cleaned_msg, count=1).lstrip()
+
         if cleaned_msg.startswith("!h") or cleaned_msg == "!h":
             logger.debug(f"Sending help message to {nick}")
             sarcastic_model = modes_config["sarcastic"]["model"]
@@ -566,7 +577,7 @@ class IRCRoomMonitor:
             else:
                 default_desc = f"automatic mode ({classifier_model} decides), !d is explicit sarcastic diss mode ({sarcastic_model}), !s (quick, {serious_model}) & !a (thinking{thinking_desc}) is serious agentic mode with web tools, !u is unsafe mode ({unsafe_model}, use !u @modelid for custom)"
 
-            help_msg = f"default is {default_desc}, !p is Perplexity (prefer English!)"
+            help_msg = f"default is {default_desc}, !p is Perplexity (prefer English!), !c disables context"
             await self.varlink_sender.send_message(target, help_msg, server)
             return
 
@@ -674,6 +685,7 @@ class IRCRoomMonitor:
                 allowed_tools=[],
                 progress_callback=progress_cb,
                 arc=f"{server}#{chan_name}",
+                no_context=no_context,
             )
         elif mode and mode.endswith("SERIOUS"):
             assert (
@@ -690,6 +702,7 @@ class IRCRoomMonitor:
                 else None,
                 progress_callback=progress_cb,
                 arc=f"{server}#{chan_name}",
+                no_context=no_context,
             )
         elif mode == "UNSAFE":
             response = await self._run_actor(
@@ -700,6 +713,7 @@ class IRCRoomMonitor:
                 progress_callback=progress_cb,
                 arc=f"{server}#{chan_name}",
                 model=model_override,
+                no_context=no_context,
             )
         else:
             raise ValueError(f"Unknown mode {mode}")

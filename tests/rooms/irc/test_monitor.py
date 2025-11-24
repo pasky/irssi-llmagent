@@ -1052,3 +1052,58 @@ class TestIRCMonitor:
             agent.irc_monitor.varlink_sender.send_message.assert_called_once()
             sent_message = agent.irc_monitor.varlink_sender.send_message.call_args[0][1]
             assert sent_message == short_response
+
+    @pytest.mark.asyncio
+    async def test_no_context_command(self, temp_config_file):
+        """Test that !c prefix disables context inclusion."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.irc_monitor.varlink_sender = AsyncMock()
+
+        # Initialize databases
+        await agent.history.initialize()
+        await agent.chronicle.initialize()
+
+        # Mock autochronicler to avoid side effects (slow retry loops on unmocked model calls)
+        agent.irc_monitor.autochronicler.check_and_chronicle = AsyncMock()
+
+        # Add some history
+        await agent.history.add_message("test", "#test", "history 1", "user", "mybot")
+        await agent.history.add_message("test", "#test", "history 2", "user", "mybot")
+
+        # Mock agent.run_actor to check arguments
+        agent.run_actor = AsyncMock(return_value="Response")
+
+        # Test !s !c
+        await agent.irc_monitor.handle_command(
+            "test", "#test", "#test", "user", "!s !c hello", "mybot"
+        )
+
+        # Check calls
+        agent.run_actor.assert_called_once()
+        call_args = agent.run_actor.call_args
+
+        # Context should only contain the command message
+        context = call_args[0][0]
+        assert len(context) == 1
+        assert "!s" in context[0]["content"]
+        assert "hello" in context[0]["content"]
+
+        # mode_cfg should have include_chapter_summary = False
+        mode_cfg = call_args[1]["mode_cfg"]
+        assert mode_cfg["include_chapter_summary"] is False
+
+        # Reset mock
+        agent.run_actor.reset_mock()
+
+        # Test !c !s order
+        await agent.irc_monitor.handle_command(
+            "test", "#test", "#test", "user", "!c !s hello", "mybot"
+        )
+
+        agent.run_actor.assert_called_once()
+        context = agent.run_actor.call_args[0][0]
+        assert len(context) == 1
+        assert "!s" in context[0]["content"]
+        assert "hello" in context[0]["content"]
+        mode_cfg = agent.run_actor.call_args[1]["mode_cfg"]
+        assert mode_cfg["include_chapter_summary"] is False
