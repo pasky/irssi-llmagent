@@ -6,6 +6,7 @@ import aiohttp
 import pytest
 
 from irssi_llmagent.agentic_actor.tools import (
+    JinaSearchExecutor,
     PythonExecutorE2B,
     ShareArtifactExecutor,
     WebpageVisitorExecutor,
@@ -63,6 +64,35 @@ class TestToolExecutors:
                 result = await executor.execute("no results query")
 
                 assert "No search results found" in result
+
+    @pytest.mark.asyncio
+    async def test_jina_executor_extra_kwargs(self):
+        """Test Jina executor with extra kwargs."""
+        executor = JinaSearchExecutor()
+
+        with patch("aiohttp.ClientSession") as mock_session_cls:
+            mock_session = AsyncMock()
+            mock_session_cls.return_value.__aenter__.return_value = mock_session
+
+            mock_response = AsyncMock()
+            mock_response.text.return_value = "Search results"
+            mock_response.raise_for_status = MagicMock()
+
+            mock_get_ctx = AsyncMock()
+            mock_get_ctx.__aenter__.return_value = mock_response
+            mock_get_ctx.__aexit__.return_value = None
+
+            # session.get() must return an async context manager, not be a coroutine itself
+            mock_session.get = MagicMock(return_value=mock_get_ctx)
+
+            result = await executor.execute("query", extra_param="ignored", another_param=123)
+
+            assert (
+                "Warning: The following parameters were ignored: extra_param, another_param"
+                in result
+            )
+            assert "## Search Results" in result
+            assert "Search results" in result
 
     @pytest.mark.asyncio
     async def test_webpage_visitor_invalid_url(self):

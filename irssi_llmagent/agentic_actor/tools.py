@@ -323,9 +323,16 @@ class JinaSearchExecutor:
         self.rate_limiter = RateLimiter(max_calls_per_second)
         self.api_key = api_key
 
-    async def execute(self, query: str) -> str:
+    async def execute(self, query: str, **kwargs) -> str:
         """Execute Jina search and return formatted results."""
         await self.rate_limiter.wait_if_needed()
+
+        warning_prefix = ""
+        if kwargs:
+            logger.warning(f"JinaSearchExecutor received unsupported arguments: {kwargs}")
+            warning_prefix = (
+                f"Warning: The following parameters were ignored: {', '.join(kwargs.keys())}\n\n"
+            )
 
         url = "https://s.jina.ai/?q=" + query
         headers = {
@@ -349,13 +356,13 @@ class JinaSearchExecutor:
                     logger.info(f"Jina searching '{query}': retrieved search results")
 
                     if not content.strip():
-                        return "No search results found. Try a different query."
+                        return f"{warning_prefix}No search results found. Try a different query."
 
-                    return f"## Search Results\n\n{content.strip()}"
+                    return f"{warning_prefix}## Search Results\n\n{content.strip()}"
 
             except Exception as e:
                 logger.error(f"Jina search failed: {e}")
-                return f"Search failed: {e}"
+                return f"{warning_prefix}Search failed: {e}"
 
 
 class WebpageVisitorExecutor:
