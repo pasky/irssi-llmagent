@@ -26,6 +26,7 @@ class BaseAPIClient(ABC):
         tools: list | None = None,
         tool_choice: str | dict | None = None,
         reasoning_effort: str = "minimal",
+        max_tokens: int | None = None,
     ) -> dict:
         """Call API with context and system prompt, returning raw response."""
         pass
@@ -159,6 +160,7 @@ class ModelRouter:
         tool_choice: list | None = None,
         reasoning_effort: str = "minimal",
         modalities: list[str] | None = None,
+        max_tokens: int | None = None,
     ) -> tuple[dict, Any, ModelSpec]:
         spec = parse_model_spec(model_str)
         client = self.client_for(spec.provider)
@@ -170,6 +172,7 @@ class ModelRouter:
             tool_choice=tool_choice,
             reasoning_effort=reasoning_effort,
             modalities=modalities,
+            max_tokens=max_tokens,
         )
 
         # Check for content safety refusal and retry with fallback model
@@ -188,6 +191,7 @@ class ModelRouter:
                 tool_choice=tool_choice,
                 reasoning_effort=reasoning_effort,
                 modalities=modalities,
+                max_tokens=max_tokens,
             )
 
             # Prefix text responses with [modelname]

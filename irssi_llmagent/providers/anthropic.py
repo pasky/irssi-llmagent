@@ -31,6 +31,7 @@ class BaseAnthropicAPIClient(BaseAPIClient):
         tool_choice: list | None = None,
         reasoning_effort: str = "minimal",
         modalities: list[str] | None = None,
+        max_tokens: int | None = None,
     ) -> dict:
         """Call Anthropic API with context and system prompt."""
 
@@ -84,7 +85,7 @@ class BaseAnthropicAPIClient(BaseAPIClient):
 
         payload = {
             "model": model,
-            "max_tokens": (4096 if tools else 256) + thinking_budget,
+            "max_tokens": max_tokens or ((4096 if tools else 256) + thinking_budget),
             "messages": messages,
             "system": system_prompt,
         }

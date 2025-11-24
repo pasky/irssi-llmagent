@@ -150,6 +150,7 @@ class TestAutoChronicler:
         # Check that the system prompt and context were passed correctly
         assert call_args.kwargs["system_prompt"] is not None
         assert "chronicle" in call_args.kwargs["system_prompt"].lower()
+        assert call_args.kwargs["max_tokens"] == 1024
 
         # Check that there are three context messages: 2 chapter contexts + message content
         context_messages = call_args.kwargs["context"]

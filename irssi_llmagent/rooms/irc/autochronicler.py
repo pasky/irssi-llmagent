@@ -144,6 +144,7 @@ class AutoChronicler:
             model_str=chronicler_model,
             context=context_messages,
             system_prompt=system_prompt,
+            max_tokens=1024,
         )
         response = client.extract_text_from_response(resp)
 

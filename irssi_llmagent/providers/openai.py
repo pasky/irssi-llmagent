@@ -96,6 +96,7 @@ class BaseOpenAIClient(BaseAPIClient):
         tool_choice: list | None = None,
         reasoning_effort: str = "minimal",
         modalities: list[str] | None = None,
+        max_tokens: int | None = None,
     ) -> dict:
         """Call the OpenAI Chat Completion API and return native response dict."""
         # O1 and GPT-5 models use max_completion_tokens instead of max_tokens
@@ -129,7 +130,8 @@ class BaseOpenAIClient(BaseAPIClient):
         if len(messages) >= 2 and messages[-1].get("role") == "assistant":
             return {"cancel": "(wait, I just replied)"}
 
-        max_tokens = int(self.config.get("max_tokens", 1024 if tools else 256))
+        if max_tokens is None:
+            max_tokens = int(self.config.get("max_tokens", 1024 if tools else 256))
 
         kwargs = {
             "model": model,
