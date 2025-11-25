@@ -34,6 +34,21 @@ class MockAPIClient:
 class TestIRCMonitor:
     """Test IRC monitor functionality."""
 
+    def test_build_system_prompt_model_override(self, temp_config_file):
+        """Test that model override is substituted into system prompt."""
+        agent = IRSSILLMAgent(temp_config_file)
+
+        # Without override - uses config model (serious is a list in test config)
+        prompt = agent.irc_monitor.build_system_prompt("sarcastic", "testbot")
+        assert "sarcastic=dummy-sarcastic" in prompt
+
+        # With override - uses override model for the current mode only
+        prompt = agent.irc_monitor.build_system_prompt(
+            "sarcastic", "testbot", model_override="custom:override-model"
+        )
+        assert "sarcastic=override-model" in prompt
+        assert "unsafe=dummy-unsafe" in prompt  # Other modes unchanged
+
     def test_should_ignore_user(self, temp_config_file):
         """Test user ignoring functionality."""
         agent = IRSSILLMAgent(temp_config_file)
@@ -765,6 +780,37 @@ class TestIRCMonitor:
 
             # Verify message was sent
             agent.irc_monitor.varlink_sender.send_message.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "command,mode_key",
+        [
+            ("!s @test:override/model query", "serious"),
+            ("!d @test:override/model query", "sarcastic"),
+        ],
+    )
+    async def test_model_override_all_modes(self, temp_config_file, command, mode_key):
+        """Test @modelid override works for all explicit command modes."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.irc_monitor.varlink_sender = AsyncMock()
+
+        await agent.history.initialize()
+        await agent.chronicle.initialize()
+
+        with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
+            mock_agent = AsyncMock()
+            mock_agent.run_agent = AsyncMock(return_value="Response")
+            mock_agent_class.return_value = mock_agent
+
+            await agent.irc_monitor.handle_command(
+                "test", "#test", "#test", "user", command, "mybot"
+            )
+
+            mock_agent_class.assert_called_once()
+            call_args = mock_agent_class.call_args
+
+            # Verify the model was overridden
+            assert call_args[1]["model"] == "test:override/model"
 
     @pytest.mark.asyncio
     async def test_unsafe_mode_error_handling(self, temp_config_file):

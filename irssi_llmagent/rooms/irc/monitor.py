@@ -63,12 +63,13 @@ class IRCRoomMonitor:
         ignore_list = self.irc_config["command"]["ignore_users"]
         return any(nick.lower() == ignored.lower() for ignored in ignore_list)
 
-    def build_system_prompt(self, mode: str, mynick: str) -> str:
+    def build_system_prompt(self, mode: str, mynick: str, model_override: str | None = None) -> str:
         """Build a command system prompt with standard substitutions.
 
         Args:
             mode: Command mode (e.g., "serious", "sarcastic")
             mynick: IRC nickname for substitution
+            model_override: Optional model override to use in prompt instead of configured model
 
         Returns:
             Formatted system prompt with all substitutions applied
@@ -80,12 +81,18 @@ class IRCRoomMonitor:
             raise ValueError(f"Command mode '{mode}' not found in config") from None
 
         modes_config = self.irc_config["command"]["modes"]
+
+        def get_model(m: str) -> str:
+            if model_override and m == mode:
+                return model_str_core(model_override)
+            return model_str_core(modes_config[m]["model"])
+
         return prompt_template.format(
             mynick=mynick,
             current_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
-            sarcastic_model=model_str_core(modes_config["sarcastic"]["model"]),
-            serious_model=model_str_core(modes_config["serious"]["model"]),
-            unsafe_model=model_str_core(modes_config["unsafe"]["model"]),
+            sarcastic_model=get_model("sarcastic"),
+            serious_model=get_model("serious"),
+            unsafe_model=get_model("unsafe"),
         )
 
     async def get_mynick(self, server: str) -> str | None:
@@ -370,7 +377,8 @@ class IRCRoomMonitor:
             mode_cfg = mode_cfg.copy()
             mode_cfg["include_chapter_summary"] = False
 
-        system_prompt = self.build_system_prompt(mode, mynick) + extra_prompt
+        model_override = model if isinstance(model, str) else None
+        system_prompt = self.build_system_prompt(mode, mynick, model_override) + extra_prompt
 
         try:
             response = await self.agent.run_actor(
