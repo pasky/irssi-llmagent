@@ -571,11 +571,11 @@ class IRCRoomMonitor:
 
             channel_mode = self.get_channel_mode(chan_name)
             if channel_mode == "serious":
-                default_desc = f"serious agentic mode with web tools ({serious_model}), !d is explicit sarcastic diss mode ({sarcastic_model}), !u is unsafe mode ({unsafe_model}, use !u @modelid for custom), !a forces thinking{thinking_desc}"
+                default_desc = f"serious agentic mode with web tools ({serious_model}), !d is explicit sarcastic diss mode ({sarcastic_model}), !u is unsafe mode ({unsafe_model}), !a forces thinking{thinking_desc}; use @modelid to override model"
             elif channel_mode == "sarcastic":
-                default_desc = f"sarcastic mode ({sarcastic_model}), !s (quick, {serious_model}) & !a (thinking{thinking_desc}) is serious agentic mode with web tools, !u is unsafe mode ({unsafe_model}, use !u @modelid for custom)"
+                default_desc = f"sarcastic mode ({sarcastic_model}), !s (quick, {serious_model}) & !a (thinking{thinking_desc}) is serious agentic mode with web tools, !u is unsafe mode ({unsafe_model}); use @modelid to override model"
             else:
-                default_desc = f"automatic mode ({classifier_model} decides), !d is explicit sarcastic diss mode ({sarcastic_model}), !s (quick, {serious_model}) & !a (thinking{thinking_desc}) is serious agentic mode with web tools, !u is unsafe mode ({unsafe_model}, use !u @modelid for custom)"
+                default_desc = f"automatic mode ({classifier_model} decides), !d is explicit sarcastic diss mode ({sarcastic_model}), !s (quick, {serious_model}) & !a (thinking{thinking_desc}) is serious agentic mode with web tools, !u is unsafe mode ({unsafe_model}); use @modelid to override model"
 
             help_msg = f"default is {default_desc}, !p is Perplexity (prefer English!), !c disables context"
             await self.varlink_sender.send_message(target, help_msg, server)
@@ -608,6 +608,12 @@ class IRCRoomMonitor:
         model_override = None
         reasoning_effort = "minimal"
 
+        # Check for model override: !cmd @modelid ...
+        parts = cleaned_msg.split(maxsplit=2)
+        if len(parts) >= 2 and parts[1].startswith("@"):
+            model_override = parts[1][1:]
+            logger.debug(f"Overriding model to {model_override}")
+
         if cleaned_msg.startswith("!S ") or cleaned_msg.startswith("!d "):
             logger.debug(f"Processing explicit sarcastic request from {nick}: {cleaned_msg}")
             mode = "SARCASTIC"
@@ -626,11 +632,6 @@ class IRCRoomMonitor:
         elif cleaned_msg.startswith("!u "):
             logger.debug(f"Processing explicit unsafe request from {nick}: {cleaned_msg}")
             mode = "UNSAFE"
-            # Check for model override: !u @modelid ...
-            parts = cleaned_msg.split(maxsplit=2)
-            if len(parts) >= 2 and parts[1].startswith("@"):
-                model_override = parts[1][1:]
-                logger.debug(f"Overriding model to {model_override}")
         elif re.match(r"^!.", cleaned_msg):
             logger.warning(f"Unknown command from {nick}: {cleaned_msg}")
             await self.varlink_sender.send_message(
@@ -686,6 +687,7 @@ class IRCRoomMonitor:
                 progress_callback=progress_cb,
                 arc=f"{server}#{chan_name}",
                 no_context=no_context,
+                model=model_override,
             )
         elif mode and mode.endswith("SERIOUS"):
             assert (
@@ -697,9 +699,12 @@ class IRCRoomMonitor:
                 mynick,
                 mode="serious",
                 reasoning_effort="low" if mode == "EASY_SERIOUS" else "medium",
-                model=modes_config["serious"].get("thinking_model")
-                if mode == "THINKING_SERIOUS"
-                else None,
+                model=model_override
+                or (
+                    modes_config["serious"].get("thinking_model")
+                    if mode == "THINKING_SERIOUS"
+                    else None
+                ),
                 progress_callback=progress_cb,
                 arc=f"{server}#{chan_name}",
                 no_context=no_context,
