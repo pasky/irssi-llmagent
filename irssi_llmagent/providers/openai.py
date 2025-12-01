@@ -131,7 +131,7 @@ class BaseOpenAIClient(BaseAPIClient):
             return {"cancel": "(wait, I just replied)"}
 
         if max_tokens is None:
-            max_tokens = int(self.config.get("max_tokens", 1024 if tools else 256))
+            max_tokens = int(self.config.get("max_tokens", 1024 if tools else 512))
 
         kwargs = {
             "model": model,
