@@ -98,7 +98,7 @@ class IRSSILLMAgent:
             arc=arc,
         )
 
-        if not response or response.strip().upper() == "NULL":
+        if not response or response.strip().upper().startswith("NULL"):
             return None
         cleaned = response.strip()
         # Strip IRC-style leading prefixes from context-echoed outputs: timestamps and non-quest tags like <nick>.
