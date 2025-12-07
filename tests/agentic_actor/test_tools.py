@@ -653,3 +653,28 @@ class TestToolDefinitions:
         assert filtered_tools[0]["name"] == "web_search"
         assert filtered_tools[0]["description"] == "Search the web"
         assert filtered_tools[1]["name"] == "execute_python"
+
+    def test_get_tools_for_arc_quests_filtering(self):
+        """Test that chronicle_append is only available when quests are enabled for the arc."""
+        from irssi_llmagent.agentic_actor.actor import get_tools_for_arc
+
+        # Config with quests enabled for specific arc
+        config = {"chronicler": {"quests": {"arcs": ["server#quests-channel"]}}}
+
+        # Arc with quests enabled - should have chronicle_append
+        tools_with_quests = get_tools_for_arc(config, "server#quests-channel")
+        tool_names = [t["name"] for t in tools_with_quests]
+        assert "chronicle_append" in tool_names
+        assert "chronicle_read" in tool_names
+
+        # Arc without quests - should NOT have chronicle_append
+        tools_without_quests = get_tools_for_arc(config, "server#other-channel")
+        tool_names = [t["name"] for t in tools_without_quests]
+        assert "chronicle_append" not in tool_names
+        assert "chronicle_read" in tool_names
+
+        # Empty config - no quests anywhere
+        tools_no_config = get_tools_for_arc({}, "any-arc")
+        tool_names = [t["name"] for t in tools_no_config]
+        assert "chronicle_append" not in tool_names
+        assert "chronicle_read" in tool_names

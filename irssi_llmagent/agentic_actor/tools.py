@@ -12,7 +12,7 @@ from typing import Any, TypedDict
 import aiohttp
 from ddgs import DDGS
 
-from ..chronicler.tools import ChapterAppendExecutor, ChapterRenderExecutor, chronicle_tools_defs
+from ..chronicler.tools import ChapterAppendExecutor, ChapterRenderExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -199,9 +199,6 @@ TOOLS: list[Tool] = [
         "persist": "artifact",
     },
 ]
-
-# Add chronicle tools to the main tools list
-TOOLS.extend(chronicle_tools_defs())  # type: ignore
 
 
 class RateLimiter:

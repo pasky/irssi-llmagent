@@ -5,10 +5,24 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from ..chronicler.tools import chronicle_tools_defs
 from ..providers import ModelRouter
 from .tools import TOOLS, create_tool_executors, execute_tool
 
 logger = logging.getLogger(__name__)
+
+
+def get_tools_for_arc(config: dict | None, arc: str) -> list:
+    """Get the full tools list including chronicle tools configured for the arc.
+
+    chronicle_append is only available on channels where quests are enabled.
+    chronicle_read is always available.
+    """
+    quests_arcs = config.get("chronicler", {}).get("quests", {}).get("arcs", []) if config else []
+    chronicle_tools = chronicle_tools_defs()
+    if arc not in quests_arcs:
+        chronicle_tools = [t for t in chronicle_tools if t["name"] != "chronicle_append"]
+    return TOOLS + chronicle_tools
 
 
 class AgenticLLMActor:
@@ -147,7 +161,7 @@ class AgenticLLMActor:
                 import re
 
                 available_tools = []
-                for tool in TOOLS + self.additional_tools:
+                for tool in get_tools_for_arc(self.config, arc) + self.additional_tools:
                     tool_copy = copy.deepcopy(tool)
                     desc = tool_copy.get("description", "")
 
@@ -289,7 +303,7 @@ class AgenticLLMActor:
 
                             # Check if this tool should be persisted
                             tool_def = None
-                            for t in TOOLS + self.additional_tools:
+                            for t in get_tools_for_arc(self.config, arc) + self.additional_tools:
                                 if t["name"] == tool["name"]:
                                     tool_def = t
                                     break

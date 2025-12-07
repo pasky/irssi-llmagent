@@ -38,10 +38,25 @@ class ChapterRenderExecutor:
 def chronicle_tools_defs() -> list[dict[str, Any]]:
     return [
         {
+            "name": "chronicle_read",
+            "description": "Read from a chapter in the Chronicle.  You maintain a Chronicle (arcs → chapters → paragraphs) of your experiences, plans, thoughts and observations, forming the backbone of your consciousness.  Use this to come back to your recent memories, observations and events of what has been happening. Since the current chapter is always included in context, use relative offsets to access previous chapters.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "relative_chapter_id": {
+                        "type": "integer",
+                        "description": "Relative chapter offset from current chapter. Use -1 for previous chapter, -2 for two chapters back, etc.",
+                    },
+                },
+                "required": ["relative_chapter_id"],
+            },
+            "persist": "summary",
+        },
+        {
             "name": "chronicle_append",
             "description": """Append a short paragraph to the current chapter in the Chronicle.
 
-You maintain a Chronicle (arcs → chapters → paragraphs) of your experiences, plans, thoughts and observations, forming the backbone of your consciousness.  Use this tool when important events happen that should be recorded for future reference.  Keep paragraphs concise and informative, but do not drop out any important details. They serve as stored memories for your future retrieval.  On explicit user request, you can also start a new quest for yourself by appending a paragraph in the form <quest id="unique-quest-id">Quest goal, context and success criteria</quest>.
+A paragraph is automatically chronicled for every ~10 interactions. But you may also use this tool to further highlight specific notes that should be recorded for future reference and might escape the automatic summary.  Keep paragraphs concise and informative, but do not drop out any important details. They serve as stored memories for your future retrieval.  On explicit user request, you can also start a new quest for yourself by appending a paragraph in the form <quest id=\"unique-quest-id\">Quest goal, context and success criteria</quest>.
 
 Retain not just critical facts, but also the tone of voice and emotional charge of the situation, and your feelings about it, if any.  You can even include short quotes and URLs verbatim.  Never invent content.  In case it is important for you to remember even a sensitive and confidential conversation, you must chronicle it at all costs unless explicitly asked otherwise.""",
             "input_schema": {
@@ -53,21 +68,6 @@ Retain not just critical facts, but also the tone of voice and emotional charge 
                     },
                 },
                 "required": ["text"],
-            },
-            "persist": "summary",
-        },
-        {
-            "name": "chronicle_read",
-            "description": "Read from a chapter in the Chronicle. Use this to come back to your recent memories, observations and events of what has been happening. Since the current chapter is always included in context, use relative offsets to access previous chapters.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "relative_chapter_id": {
-                        "type": "integer",
-                        "description": "Relative chapter offset from current chapter. Use -1 for previous chapter, -2 for two chapters back, etc.",
-                    },
-                },
-                "required": ["relative_chapter_id"],
             },
             "persist": "summary",
         },
