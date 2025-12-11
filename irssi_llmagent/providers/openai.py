@@ -141,6 +141,9 @@ class BaseOpenAIClient(BaseAPIClient):
         if modalities:
             kwargs["modalities"] = modalities
 
+        if model == "gpt-5.2" and reasoning_effort == "minimal":
+            reasoning_effort = "none"
+
         if is_reasoning_model:
             kwargs["max_completion_tokens"] = max_tokens
             kwargs["reasoning_effort"] = reasoning_effort
