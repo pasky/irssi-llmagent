@@ -230,7 +230,7 @@ class AgenticLLMActor:
                         messages.append(
                             {
                                 "role": "user",
-                                "content": f"Error: {result['message']}. Please try again.",
+                                "content": f"<meta>Error: {result['message']}. Please try again.</meta>",
                             }
                         )
                         continue
