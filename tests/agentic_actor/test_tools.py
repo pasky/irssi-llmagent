@@ -422,10 +422,13 @@ class TestToolExecutors:
             file_content = artifact_file.read_text()
             assert file_content == content
 
-            # Verify UUID format (32 hex chars)
-            uuid_part = filename.replace(".txt", "")
-            assert len(uuid_part) == 32
-            assert all(c in "0123456789abcdef" for c in uuid_part)
+            # Verify base62 ID format (8 alphanumeric chars)
+            id_part = filename.replace(".txt", "")
+            assert len(id_part) == 8
+            assert all(
+                c in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+                for c in id_part
+            )
 
     @pytest.mark.asyncio
     async def test_share_artifact_executor_missing_config(self):

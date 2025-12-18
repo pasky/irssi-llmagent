@@ -3,9 +3,9 @@
 import asyncio
 import base64
 import logging
+import random
 import re
 import time
-import uuid
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -15,6 +15,12 @@ from ddgs import DDGS
 from ..chronicler.tools import ChapterAppendExecutor, ChapterRenderExecutor
 
 logger = logging.getLogger(__name__)
+
+
+def generate_artifact_id(length: int = 8) -> str:
+    """Generate a random base62 artifact ID."""
+    BASE62_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    return "".join(random.choices(BASE62_ALPHABET, k=length))
 
 
 async def fetch_image_b64(
@@ -674,7 +680,7 @@ class ArtifactStore:
             logger.error(f"Failed to create artifacts directory: {e}")
             return f"Error: Failed to create artifacts directory: {e}"
 
-        file_id = uuid.uuid4().hex
+        file_id = generate_artifact_id()
         filepath = self.artifacts_path / f"{file_id}{suffix}"
 
         try:
@@ -700,7 +706,7 @@ class ArtifactStore:
             logger.error(f"Failed to create artifacts directory: {e}")
             return f"Error: Failed to create artifacts directory: {e}"
 
-        file_id = uuid.uuid4().hex
+        file_id = generate_artifact_id()
         filepath = self.artifacts_path / f"{file_id}{suffix}"
 
         try:
