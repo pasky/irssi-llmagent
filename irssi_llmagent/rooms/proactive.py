@@ -6,6 +6,9 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
+
+from ..message_logging import MessageLoggingContext
 
 logger = logging.getLogger(__name__)
 
@@ -102,10 +105,14 @@ class ProactiveDebouncer:
                         f"Executing debounced proactive check for {chan_name}: {msg.message[:100]}..."
                     )
 
-                    # Execute with fresh context at check time
-                    await check_callback(
-                        msg.server, msg.chan_name, msg.nick, msg.message, msg.mynick
-                    )
+                    # Execute with fresh logging context for this proactive check
+                    arc = f"{msg.server}#{msg.chan_name}"
+                    with MessageLoggingContext(
+                        arc, f"proactive-{msg.nick}", msg.message, Path("logs")
+                    ):
+                        await check_callback(
+                            msg.server, msg.chan_name, msg.nick, msg.message, msg.mynick
+                        )
 
                     # Cleanup
                     del self._pending_messages[chan_name]

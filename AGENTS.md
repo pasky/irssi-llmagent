@@ -18,7 +18,7 @@
 - **Config**: JSON-based configuration in `config.json` (copy from `config.json.example`)
   - Models MUST be fully-qualified as `provider:model` (e.g., `anthropic:claude-sonnet-4`). No defaults.
   - No backwards compatibility is kept for legacy config keys; tests are aligned to the new schema.
-- **Logging**: Console output (INFO+) and debug.log file (DEBUG+), third-party libraries suppressed from console
+- **Logging**: Console output (INFO+) and logs/ files (DEBUG+), third-party libraries suppressed from console
 - **Database**: SQLite persistent chat history with configurable inference limits
 - **Continuous Chronicling**: Automatic chronicling triggered when unchronicled messages exceed `history_size` threshold. Uses `chronicler.model` to summarize conversation activity into Chronicle chapters. Messages get linked via `chapter_id` field in ChatHistory. Includes safety limits (100 message batches, 7-day lookback) and overlap for context continuity
 - **Proactive Interjecting**: Channel-based whitelist feature using claude-3-haiku to scan non-directed messages and interject in serious conversations when useful. Includes rate limiting, test mode, and channel whitelisting

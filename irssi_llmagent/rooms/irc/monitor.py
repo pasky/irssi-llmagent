@@ -5,11 +5,13 @@ import logging
 import re
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ...main import IRSSILLMAgent
 
+from ...message_logging import MessageLoggingContext
 from ...providers.perplexity import PerplexityClient
 from ...rate_limiter import RateLimiter
 from .. import ProactiveDebouncer
@@ -482,10 +484,9 @@ class IRCRoomMonitor:
                 nick = match.group(1).strip("<> ")
 
             await self.proactive_debouncer.cancel_channel(chan_name)
-            # Call history.add_message() only later in handle_command() so that
-            # various testcases etc. calling it directly don't have to worry
-            # about the context setup.
-            await self.handle_command(server, chan_name, target, nick, message, mynick)
+            arc = f"{server}#{chan_name}"
+            with MessageLoggingContext(arc, nick, message, Path("logs")):
+                await self.handle_command(server, chan_name, target, nick, message, mynick)
             return
 
         await self.agent.history.add_message(server, chan_name, message, nick, mynick)

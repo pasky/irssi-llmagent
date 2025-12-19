@@ -13,6 +13,7 @@ from .agentic_actor import AgenticLLMActor
 from .chronicler.chronicle import Chronicle
 from .chronicler.quests import QuestOperator
 from .history import ChatHistory
+from .message_logging import MessageContextHandler
 from .providers import ModelRouter
 from .rooms.irc import IRCRoomMonitor
 
@@ -27,13 +28,12 @@ console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(formatter)
 
-# File handler for DEBUG and above
-file_handler = logging.FileHandler("debug.log")
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(formatter)
+# Per-message context handler for DEBUG and above
+# Routes logs to per-message files under logs/ directory
+message_context_handler = MessageContextHandler("logs", level=logging.DEBUG)
 
 root_logger.addHandler(console_handler)
-root_logger.addHandler(file_handler)
+root_logger.addHandler(message_context_handler)
 
 # Suppress noisy third-party library messages
 logging.getLogger("aiosqlite").setLevel(logging.INFO)

@@ -26,6 +26,7 @@ services:
       - ./chat_history.db:/app/chat_history.db
       - ./chronicle.db:/app/chronicle.db
       - ./artifacts:/app/artifacts
+      - ./logs:/app/logs
       - .:/app/src  # For development - mount source code
     networks:
       - irssi-net

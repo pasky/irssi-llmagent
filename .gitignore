@@ -5,5 +5,6 @@ chronicle.db
 config.json
 *_analysis.csv
 debug.log
+logs/
 irssi-data
 artifacts

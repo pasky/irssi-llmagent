@@ -17,7 +17,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from pathlib import Path
 from typing import Any
+
+from ..message_logging import MessageLoggingContext
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +86,11 @@ class QuestOperator:
 
     async def _run_step(self, arc: str, quest_id: str, paragraph_text: str) -> None:
         """Run one quest step via Agent.run_actor and handle results."""
+        with MessageLoggingContext(arc, f"quest-{quest_id}", paragraph_text, Path("logs")):
+            await self._run_step_inner(arc, quest_id, paragraph_text)
+
+    async def _run_step_inner(self, arc: str, quest_id: str, paragraph_text: str) -> None:
+        """Inner quest step logic, called within logging context."""
         logger.debug(f"Quest step run_actor for {arc} {quest_id}: {paragraph_text}")
 
         cfg = self.agent.config["chronicler"]["quests"]
