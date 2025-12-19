@@ -199,7 +199,7 @@ TOOLS: list[Tool] = [
     },
     {
         "name": "generate_image",
-        "description": "Generate image(s) using {tools.image_gen.model} on OpenRouter. Optionally provide reference image URLs for editing/variations.",
+        "description": "Generate image(s) using {tools.image_gen.model} on OpenRouter - use for creating or editing pictures, photos, diagrams, visualizations, etc. Optionally provide reference image URLs for editing/variations.",
         "input_schema": {
             "type": "object",
             "properties": {
