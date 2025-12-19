@@ -494,7 +494,7 @@ class CodeExecutorE2B:
     def __init__(
         self,
         api_key: str | None = None,
-        timeout: int = 180,
+        timeout: int = 600,
         artifact_store: ArtifactStore | None = None,
     ):
         self.api_key = api_key
