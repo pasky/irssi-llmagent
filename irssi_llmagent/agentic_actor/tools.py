@@ -1,5 +1,7 @@
 """Tool definitions and executors for AI agent."""
 
+from __future__ import annotations
+
 import asyncio
 import base64
 import logging
@@ -111,14 +113,19 @@ TOOLS: list[Tool] = [
     },
     {
         "name": "execute_python",
-        "description": "Execute Python code in a sandbox environment and return the output. The sandbox environment is persisted to follow-up calls of this tool within this thread.",
+        "description": "Execute Python code in a sandbox environment and return the output. The sandbox environment is persisted to follow-up calls of this tool within this thread. Generated plots/images are automatically captured and uploaded. Use output_files to download additional files from the sandbox.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "code": {
                     "type": "string",
                     "description": "The Python code to execute in the sandbox.",
-                }
+                },
+                "output_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of file paths in the sandbox to download and share as artifacts (e.g., ['/tmp/report.csv']).",
+                },
             },
             "required": ["code"],
         },
@@ -478,10 +485,16 @@ class WebpageVisitorExecutor:
 class PythonExecutorE2B:
     """Python code executor using E2B sandbox."""
 
-    def __init__(self, api_key: str | None = None, timeout: int = 180):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        timeout: int = 180,
+        artifact_store: ArtifactStore | None = None,
+    ):
         self.api_key = api_key
         self.timeout = timeout
         self.sandbox = None
+        self.artifact_store = artifact_store
 
     async def _ensure_sandbox(self):
         """Ensure sandbox is created and connected."""
@@ -496,8 +509,6 @@ class PythonExecutorE2B:
             import asyncio
 
             def create_sandbox():
-                from typing import Any
-
                 sandbox_args: dict[str, Any] = {"timeout": self.timeout}
                 if self.api_key:
                     sandbox_args["api_key"] = self.api_key
@@ -507,7 +518,41 @@ class PythonExecutorE2B:
             self.sandbox = await asyncio.to_thread(create_sandbox)
             logger.info(f"Created new E2B sandbox with ID: {self.sandbox.sandbox_id}")
 
-    async def execute(self, code: str) -> str:
+    def _upload_image_data(self, data: bytes, suffix: str) -> str | None:
+        """Upload image data to artifact store, return URL or None."""
+        if not self.artifact_store:
+            return None
+        url = self.artifact_store.write_bytes(data, suffix)
+        if url.startswith("Error:"):
+            logger.warning(f"Failed to upload image artifact: {url}")
+            return None
+        return url
+
+    async def _download_sandbox_file(self, path: str) -> tuple[bytes | bytearray, str] | None:
+        """Download a file from the sandbox, return (data, filename) or None."""
+        import asyncio
+        from pathlib import PurePosixPath
+
+        assert self.sandbox is not None
+        try:
+            # E2B files.read returns str by default, use format='bytes' for binary
+            data = await asyncio.to_thread(
+                lambda: self.sandbox.files.read(path, format="bytes")  # type: ignore[union-attr]
+            )
+            filename = PurePosixPath(path).name
+            return data, filename
+        except Exception as e:
+            logger.warning(f"Failed to download sandbox file {path}: {e}")
+            return None
+
+    def _get_suffix_from_filename(self, filename: str) -> str:
+        """Extract file suffix from filename."""
+        from pathlib import PurePosixPath
+
+        suffix = PurePosixPath(filename).suffix
+        return suffix if suffix else ".bin"
+
+    async def execute(self, code: str, output_files: list[str] | None = None) -> str:
         """Execute Python code in E2B sandbox and return output."""
         try:
             await self._ensure_sandbox()
@@ -521,8 +566,8 @@ class PythonExecutorE2B:
             result = await asyncio.to_thread(self.sandbox.run_code, code)
             logger.debug(result)
 
-            # Collect output
             output_parts = []
+            artifact_urls = []
 
             # Check logs for stdout/stderr (E2B stores them in logs.stdout/stderr as lists)
             logs = getattr(result, "logs", None)
@@ -544,20 +589,59 @@ class PythonExecutorE2B:
             if text and text.strip() and not (logs and getattr(logs, "stdout", None)):
                 output_parts.append(f"**Result:**\n```\n{text.strip()}\n```")
 
-            # Check for rich results (plots, images, etc.)
+            # Check for rich results (plots, images, etc.) - auto-capture and upload
             results_list = getattr(result, "results", None)
             if results_list:
                 for res in results_list:
                     result_text = getattr(res, "text", None)
                     if result_text and result_text.strip():
                         output_parts.append(f"**Result:**\n```\n{result_text.strip()}\n```")
-                    # Check for images/plots
-                    if hasattr(res, "png") and getattr(res, "png", None):
-                        output_parts.append("**Result:** Generated plot/image (PNG data available)")
-                    if hasattr(res, "jpeg") and getattr(res, "jpeg", None):
-                        output_parts.append(
-                            "**Result:** Generated plot/image (JPEG data available)"
-                        )
+
+                    # Auto-capture PNG images
+                    png_data = getattr(res, "png", None)
+                    if png_data:
+                        img_bytes = base64.b64decode(png_data)
+                        url = self._upload_image_data(img_bytes, ".png")
+                        if url:
+                            artifact_urls.append(url)
+                            output_parts.append(f"**Generated image:** {url}")
+                        else:
+                            output_parts.append(
+                                "**Result:** Generated plot/image (PNG, artifact upload unavailable)"
+                            )
+
+                    # Auto-capture JPEG images
+                    jpeg_data = getattr(res, "jpeg", None)
+                    if jpeg_data:
+                        img_bytes = base64.b64decode(jpeg_data)
+                        url = self._upload_image_data(img_bytes, ".jpg")
+                        if url:
+                            artifact_urls.append(url)
+                            output_parts.append(f"**Generated image:** {url}")
+                        else:
+                            output_parts.append(
+                                "**Result:** Generated plot/image (JPEG, artifact upload unavailable)"
+                            )
+
+            # Download explicit output files from sandbox
+            if output_files and self.artifact_store:
+                for file_path in output_files:
+                    file_result = await self._download_sandbox_file(file_path)
+                    if file_result:
+                        data, filename = file_result
+                        suffix = self._get_suffix_from_filename(filename)
+                        url = self.artifact_store.write_bytes(data, suffix)
+                        if not url.startswith("Error:"):
+                            artifact_urls.append(url)
+                            output_parts.append(f"**Downloaded file ({filename}):** {url}")
+                        else:
+                            output_parts.append(f"**Error uploading {filename}:** {url}")
+                    else:
+                        output_parts.append(f"**Error:** Could not download {file_path}")
+            elif output_files and not self.artifact_store:
+                output_parts.append(
+                    "**Warning:** output_files requested but artifact store not configured"
+                )
 
             if not output_parts:
                 output_parts.append("Code executed successfully with no output.")
@@ -652,7 +736,7 @@ class ArtifactStore:
         self.artifacts_url = artifacts_url.rstrip("/") if artifacts_url else None
 
     @classmethod
-    def from_config(cls, config: dict) -> "ArtifactStore":
+    def from_config(cls, config: dict) -> ArtifactStore:
         """Create store from configuration."""
         artifacts_config = config.get("tools", {}).get("artifacts", {})
         return cls(
@@ -692,7 +776,7 @@ class ArtifactStore:
 
         return f"{self.artifacts_url}/{file_id}{suffix}"
 
-    def write_bytes(self, data: bytes, suffix: str) -> str:
+    def write_bytes(self, data: bytes | bytearray, suffix: str) -> str:
         """Write binary data to artifact file, return URL."""
         if err := self._ensure_configured():
             return err
@@ -726,7 +810,7 @@ class ShareArtifactExecutor:
         self.store = store
 
     @classmethod
-    def from_config(cls, config: dict) -> "ShareArtifactExecutor":
+    def from_config(cls, config: dict) -> ShareArtifactExecutor:
         """Create executor from configuration."""
         return cls(ArtifactStore.from_config(config))
 
@@ -764,7 +848,7 @@ class ImageGenExecutor:
             raise ValueError(f"image_gen.model must use openrouter provider, got: {spec.provider}")
 
     @classmethod
-    def from_config(cls, config: dict, router: Any) -> "ImageGenExecutor":
+    def from_config(cls, config: dict, router: Any) -> ImageGenExecutor:
         """Create executor from configuration."""
         return cls(router=router, config=config)
 
@@ -963,18 +1047,21 @@ def create_tool_executors(
     progress_cfg = behavior.get("progress", {}) if behavior else {}
     min_interval = int(progress_cfg.get("min_interval_seconds", 15))
 
+    # Shared artifact store for python executor and share_artifact
+    artifact_store = ArtifactStore.from_config(config or {})
+
     executors = {
         "web_search": search_executor,
         "visit_webpage": WebpageVisitorExecutor(
             progress_callback=progress_callback, api_key=jina_api_key
         ),
-        "execute_python": PythonExecutorE2B(api_key=e2b_api_key),
+        "execute_python": PythonExecutorE2B(api_key=e2b_api_key, artifact_store=artifact_store),
         "progress_report": ProgressReportExecutor(
             send_callback=progress_callback, min_interval_seconds=min_interval
         ),
         "final_answer": FinalAnswerExecutor(),
         "make_plan": MakePlanExecutor(),
-        "share_artifact": ShareArtifactExecutor.from_config(config or {}),
+        "share_artifact": ShareArtifactExecutor(store=artifact_store),
         "chronicle_append": ChapterAppendExecutor(agent=agent, arc=arc),
         "chronicle_read": ChapterRenderExecutor(chronicle=agent.chronicle, arc=arc),
     }

@@ -387,6 +387,147 @@ class TestToolExecutors:
                 assert sandbox_args_captured == {"timeout": 180}
 
     @pytest.mark.asyncio
+    async def test_python_executor_e2b_auto_capture_png(self):
+        """Test that PNG images from results are auto-captured and uploaded."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            from irssi_llmagent.agentic_actor.tools import ArtifactStore
+
+            artifacts_path = str(Path(temp_dir) / "artifacts")
+            artifacts_url = "https://example.com/artifacts"
+            store = ArtifactStore(artifacts_path=artifacts_path, artifacts_url=artifacts_url)
+            executor = PythonExecutorE2B(artifact_store=store)
+
+            # Mock result with PNG data (base64 encoded small PNG)
+            mock_result_item = MagicMock()
+            mock_result_item.text = None
+            # Minimal valid PNG (1x1 transparent pixel)
+            mock_result_item.png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+            mock_result_item.jpeg = None
+
+            mock_execution = MagicMock()
+            mock_execution.text = None
+            mock_execution.logs = MagicMock(stdout=[], stderr=[])
+            mock_execution.results = [mock_result_item]
+
+            mock_sandbox = MagicMock()
+            mock_sandbox.sandbox_id = "test-sandbox-png"
+
+            sandbox_created = False
+
+            async def mock_to_thread_impl(func, *args):
+                nonlocal sandbox_created
+                if not sandbox_created:
+                    sandbox_created = True
+                    return mock_sandbox
+                return mock_execution
+
+            with patch("e2b_code_interpreter.Sandbox"):
+                with patch("asyncio.to_thread", side_effect=mock_to_thread_impl):
+                    result = await executor.execute("import matplotlib; plt.savefig('test.png')")
+
+                    assert "**Generated image:**" in result
+                    assert "https://example.com/artifacts/" in result
+                    assert ".png" in result
+
+                    # Verify file was created
+                    artifacts_dir = Path(artifacts_path)
+                    assert artifacts_dir.exists()
+                    png_files = list(artifacts_dir.glob("*.png"))
+                    assert len(png_files) == 1
+
+    @pytest.mark.asyncio
+    async def test_python_executor_e2b_output_files_download(self):
+        """Test that explicit output_files are downloaded from sandbox and uploaded."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            from irssi_llmagent.agentic_actor.tools import ArtifactStore
+
+            artifacts_path = str(Path(temp_dir) / "artifacts")
+            artifacts_url = "https://example.com/artifacts"
+            store = ArtifactStore(artifacts_path=artifacts_path, artifacts_url=artifacts_url)
+            executor = PythonExecutorE2B(artifact_store=store)
+
+            mock_execution = MagicMock()
+            mock_execution.text = None
+            mock_execution.logs = MagicMock(stdout=["Done\n"], stderr=[])
+            mock_execution.results = []
+
+            mock_sandbox = MagicMock()
+            mock_sandbox.sandbox_id = "test-sandbox-files"
+            mock_sandbox.files = MagicMock()
+            # E2B returns bytearray, not bytes
+            mock_sandbox.files.read = MagicMock(return_value=bytearray(b"col1,col2\nval1,val2\n"))
+
+            sandbox_created = False
+            code_executed = False
+
+            async def mock_to_thread_impl(func, *args):
+                nonlocal sandbox_created, code_executed
+                if not sandbox_created:
+                    sandbox_created = True
+                    return mock_sandbox
+                # After sandbox created, next call is run_code, then file reads are lambdas
+                if not code_executed:
+                    code_executed = True
+                    return mock_execution
+                # Subsequent calls are lambdas for files.read - call them
+                return func()
+
+            with patch("e2b_code_interpreter.Sandbox"):
+                with patch("asyncio.to_thread", side_effect=mock_to_thread_impl):
+                    result = await executor.execute(
+                        "import pandas; df.to_csv('/tmp/report.csv')",
+                        output_files=["/tmp/report.csv"],
+                    )
+
+                    assert "**Output:**" in result
+                    assert "Done" in result
+                    assert "**Downloaded file (report.csv):**" in result
+                    assert "https://example.com/artifacts/" in result
+                    assert ".csv" in result
+
+                    # Verify file was created
+                    artifacts_dir = Path(artifacts_path)
+                    csv_files = list(artifacts_dir.glob("*.csv"))
+                    assert len(csv_files) == 1
+
+    @pytest.mark.asyncio
+    async def test_python_executor_e2b_output_files_no_store(self):
+        """Test that output_files warns when artifact store is not configured."""
+        executor = PythonExecutorE2B(artifact_store=None)
+
+        mock_execution = MagicMock()
+        mock_execution.text = None
+        mock_execution.logs = MagicMock(stdout=["Done\n"], stderr=[])
+        mock_execution.results = []
+
+        mock_sandbox = MagicMock()
+        mock_sandbox.sandbox_id = "test-sandbox-nostore"
+
+        sandbox_created = False
+
+        async def mock_to_thread_impl(func, *args):
+            nonlocal sandbox_created
+            if not sandbox_created:
+                sandbox_created = True
+                return mock_sandbox
+            return mock_execution
+
+        with patch("e2b_code_interpreter.Sandbox"):
+            with patch("asyncio.to_thread", side_effect=mock_to_thread_impl):
+                result = await executor.execute(
+                    "print('test')",
+                    output_files=["/tmp/report.csv"],
+                )
+
+                assert "artifact store not configured" in result
+
+    @pytest.mark.asyncio
     async def test_share_artifact_executor_success(self):
         """Test artifact sharing with valid configuration."""
         import tempfile
