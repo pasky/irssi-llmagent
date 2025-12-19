@@ -1240,7 +1240,7 @@ class TestAPIAgent:
                 "persist_type": "summary",
             },
             {
-                "tool_name": "execute_python",
+                "tool_name": "execute_code",
                 "input": {"code": "print('hello')"},
                 "output": "hello",
                 "persist_type": "artifact",
@@ -1271,7 +1271,7 @@ class TestAPIAgent:
         assert len(messages) == 1
         message_content = messages[0]["content"]
         assert "web_search" in message_content
-        assert "execute_python" in message_content
+        assert "execute_code" in message_content
         assert "https://example.com/artifacts/test.txt" in message_content
 
         # Verify progress callback was called with tool_persistence type
@@ -1334,7 +1334,7 @@ class TestAPIAgent:
             api_type,
             [
                 {"id": "tool_1", "name": "web_search", "input": {"query": "test"}},
-                {"id": "tool_2", "name": "execute_python", "input": {"code": "print('test')"}},
+                {"id": "tool_2", "name": "execute_code", "input": {"code": "print('test')"}},
             ],
         )
 
@@ -1357,7 +1357,7 @@ class TestAPIAgent:
                         {"id": "tool_1", "name": "web_search", "input": {"query": "test"}},
                         {
                             "id": "tool_2",
-                            "name": "execute_python",
+                            "name": "execute_code",
                             "input": {"code": "print('test')"},
                         },
                     ]
@@ -1414,13 +1414,13 @@ class TestAPIAgent:
                     assert web_search_call["output"] == "Search results"
                     assert web_search_call["persist_type"] == "summary"
 
-                    # Verify execute_python tool details (persist: artifact)
-                    python_call = next(
-                        call for call in persistent_calls if call["tool_name"] == "execute_python"
+                    # Verify execute_code tool details (persist: artifact)
+                    code_call = next(
+                        call for call in persistent_calls if call["tool_name"] == "execute_code"
                     )
-                    assert python_call["input"] == {"code": "print('test')"}
-                    assert python_call["output"] == "test\n"
-                    assert python_call["persist_type"] == "artifact"
+                    assert code_call["input"] == {"code": "print('test')"}
+                    assert code_call["output"] == "test\n"
+                    assert code_call["persist_type"] == "artifact"
 
     @pytest.mark.asyncio
     async def test_generate_persistence_summary_with_image_data(self, agent):

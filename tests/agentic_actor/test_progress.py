@@ -233,7 +233,7 @@ async def test_progress_callback_with_tool_persistence_type(mock_agent):
     async def mock_summary_generator(persistent_calls, progress_callback):
         # Simulate calling progress_callback with tool_persistence type
         await progress_callback(
-            "Tool calls: web_search, execute_python completed successfully.", "tool_persistence"
+            "Tool calls: web_search, execute_code completed successfully.", "tool_persistence"
         )
 
     with _patch.object(

@@ -112,14 +112,20 @@ TOOLS: list[Tool] = [
         "persist": "summary",
     },
     {
-        "name": "execute_python",
-        "description": "Execute Python code in a sandbox environment and return the output. The sandbox environment is persisted to follow-up calls of this tool within this thread. Generated plots/images are automatically captured and uploaded. Use output_files to download additional files from the sandbox.",
+        "name": "execute_code",
+        "description": "Execute code in a sandbox environment and return the output. The sandbox environment is persisted to follow-up calls of this tool within this thread. For Python, generated plots/images are automatically captured and uploaded. Use output_files to download additional files from the sandbox.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "code": {
                     "type": "string",
-                    "description": "The Python code to execute in the sandbox.",
+                    "description": "The code to execute in the sandbox.",
+                },
+                "language": {
+                    "type": "string",
+                    "enum": ["python", "bash"],
+                    "default": "python",
+                    "description": "The language to execute the code in.",
                 },
                 "output_files": {
                     "type": "array",
@@ -482,8 +488,8 @@ class WebpageVisitorExecutor:
         raise RuntimeError("This should not be reached")
 
 
-class PythonExecutorE2B:
-    """Python code executor using E2B sandbox."""
+class CodeExecutorE2B:
+    """Code executor using E2B sandbox. Supports Python and Bash."""
 
     def __init__(
         self,
@@ -552,8 +558,10 @@ class PythonExecutorE2B:
         suffix = PurePosixPath(filename).suffix
         return suffix if suffix else ".bin"
 
-    async def execute(self, code: str, output_files: list[str] | None = None) -> str:
-        """Execute Python code in E2B sandbox and return output."""
+    async def execute(
+        self, code: str, language: str = "python", output_files: list[str] | None = None
+    ) -> str:
+        """Execute code in E2B sandbox and return output."""
         try:
             await self._ensure_sandbox()
         except ImportError as e:
@@ -563,7 +571,7 @@ class PythonExecutorE2B:
             import asyncio
 
             assert self.sandbox is not None
-            result = await asyncio.to_thread(self.sandbox.run_code, code)
+            result = await asyncio.to_thread(self.sandbox.run_code, code, language=language)
             logger.debug(result)
 
             output_parts = []
@@ -647,7 +655,7 @@ class PythonExecutorE2B:
                 output_parts.append("Code executed successfully with no output.")
 
             logger.info(
-                f"Executed Python code in E2B sandbox: {code[:512]}... -> {output_parts[:512]}"
+                f"Executed {language} code in E2B sandbox: {code[:512]}... -> {output_parts[:512]}"
             )
 
             return "\n\n".join(output_parts)
@@ -1047,7 +1055,7 @@ def create_tool_executors(
     progress_cfg = behavior.get("progress", {}) if behavior else {}
     min_interval = int(progress_cfg.get("min_interval_seconds", 15))
 
-    # Shared artifact store for python executor and share_artifact
+    # Shared artifact store for code executor and share_artifact
     artifact_store = ArtifactStore.from_config(config or {})
 
     executors = {
@@ -1055,7 +1063,7 @@ def create_tool_executors(
         "visit_webpage": WebpageVisitorExecutor(
             progress_callback=progress_callback, api_key=jina_api_key
         ),
-        "execute_python": PythonExecutorE2B(api_key=e2b_api_key, artifact_store=artifact_store),
+        "execute_code": CodeExecutorE2B(api_key=e2b_api_key, artifact_store=artifact_store),
         "progress_report": ProgressReportExecutor(
             send_callback=progress_callback, min_interval_seconds=min_interval
         ),

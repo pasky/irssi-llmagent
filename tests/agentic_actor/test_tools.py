@@ -6,8 +6,8 @@ import aiohttp
 import pytest
 
 from irssi_llmagent.agentic_actor.tools import (
+    CodeExecutorE2B,
     JinaSearchExecutor,
-    PythonExecutorE2B,
     ShareArtifactExecutor,
     WebpageVisitorExecutor,
     WebSearchExecutor,
@@ -245,9 +245,9 @@ class TestToolExecutors:
                 mock_sleep.assert_has_calls([call(30), call(90)])
 
     @pytest.mark.asyncio
-    async def test_python_executor_e2b_success(self):
-        """Test Python executor with successful execution."""
-        executor = PythonExecutorE2B()
+    async def test_code_executor_e2b_success(self):
+        """Test code executor with successful execution."""
+        executor = CodeExecutorE2B()
 
         mock_execution = MagicMock()
         mock_execution.text = None
@@ -274,9 +274,9 @@ class TestToolExecutors:
                 assert "Hello, World!" in result
 
     @pytest.mark.asyncio
-    async def test_python_executor_e2b_import_error(self):
-        """Test Python executor when e2b package is not available."""
-        executor = PythonExecutorE2B()
+    async def test_code_executor_e2b_import_error(self):
+        """Test code executor when e2b package is not available."""
+        executor = CodeExecutorE2B()
 
         with patch(
             "builtins.__import__", side_effect=ImportError("No module named 'e2b_code_interpreter'")
@@ -286,9 +286,9 @@ class TestToolExecutors:
             assert "e2b-code-interpreter package not installed" in result
 
     @pytest.mark.asyncio
-    async def test_python_executor_e2b_persistence_across_calls(self):
+    async def test_code_executor_e2b_persistence_across_calls(self):
         """Test that sandbox persists state across multiple execute() calls."""
-        executor = PythonExecutorE2B()
+        executor = CodeExecutorE2B()
 
         mock_execution = MagicMock()
         mock_execution.text = None
@@ -300,7 +300,7 @@ class TestToolExecutors:
 
         sandbox_created = False
 
-        async def mock_to_thread_impl(func, *args):
+        async def mock_to_thread_impl(func, *args, **kwargs):
             nonlocal sandbox_created
             # First call is creating the sandbox
             if not sandbox_created:
@@ -322,9 +322,9 @@ class TestToolExecutors:
                 assert "result" in result2
 
     @pytest.mark.asyncio
-    async def test_python_executor_e2b_cleanup(self):
+    async def test_code_executor_e2b_cleanup(self):
         """Test that cleanup properly kills the sandbox."""
-        executor = PythonExecutorE2B()
+        executor = CodeExecutorE2B()
 
         mock_sandbox = MagicMock()
         mock_sandbox.sandbox_id = "test-sandbox-456"
@@ -340,9 +340,9 @@ class TestToolExecutors:
             assert executor.sandbox is None
 
     @pytest.mark.asyncio
-    async def test_python_executor_e2b_error_resets_sandbox(self):
+    async def test_code_executor_e2b_error_resets_sandbox(self):
         """Test that connection errors reset the sandbox."""
-        executor = PythonExecutorE2B()
+        executor = CodeExecutorE2B()
 
         mock_sandbox = MagicMock()
         mock_sandbox.sandbox_id = "test-sandbox-789"
@@ -359,9 +359,9 @@ class TestToolExecutors:
             assert executor.sandbox is None  # Should be reset
 
     @pytest.mark.asyncio
-    async def test_python_executor_e2b_timeout_parameter(self):
+    async def test_code_executor_e2b_timeout_parameter(self):
         """Test that timeout is passed to Sandbox constructor."""
-        executor = PythonExecutorE2B(timeout=180)
+        executor = CodeExecutorE2B(timeout=180)
 
         assert executor.timeout == 180
 
@@ -398,7 +398,7 @@ class TestToolExecutors:
             artifacts_path = str(Path(temp_dir) / "artifacts")
             artifacts_url = "https://example.com/artifacts"
             store = ArtifactStore(artifacts_path=artifacts_path, artifacts_url=artifacts_url)
-            executor = PythonExecutorE2B(artifact_store=store)
+            executor = CodeExecutorE2B(artifact_store=store)
 
             # Mock result with PNG data (base64 encoded small PNG)
             mock_result_item = MagicMock()
@@ -417,7 +417,7 @@ class TestToolExecutors:
 
             sandbox_created = False
 
-            async def mock_to_thread_impl(func, *args):
+            async def mock_to_thread_impl(func, *args, **kwargs):
                 nonlocal sandbox_created
                 if not sandbox_created:
                     sandbox_created = True
@@ -439,7 +439,7 @@ class TestToolExecutors:
                     assert len(png_files) == 1
 
     @pytest.mark.asyncio
-    async def test_python_executor_e2b_output_files_download(self):
+    async def test_code_executor_e2b_output_files_download(self):
         """Test that explicit output_files are downloaded from sandbox and uploaded."""
         import tempfile
         from pathlib import Path
@@ -450,7 +450,7 @@ class TestToolExecutors:
             artifacts_path = str(Path(temp_dir) / "artifacts")
             artifacts_url = "https://example.com/artifacts"
             store = ArtifactStore(artifacts_path=artifacts_path, artifacts_url=artifacts_url)
-            executor = PythonExecutorE2B(artifact_store=store)
+            executor = CodeExecutorE2B(artifact_store=store)
 
             mock_execution = MagicMock()
             mock_execution.text = None
@@ -466,7 +466,7 @@ class TestToolExecutors:
             sandbox_created = False
             code_executed = False
 
-            async def mock_to_thread_impl(func, *args):
+            async def mock_to_thread_impl(func, *args, **kwargs):
                 nonlocal sandbox_created, code_executed
                 if not sandbox_created:
                     sandbox_created = True
@@ -497,9 +497,9 @@ class TestToolExecutors:
                     assert len(csv_files) == 1
 
     @pytest.mark.asyncio
-    async def test_python_executor_e2b_output_files_no_store(self):
+    async def test_code_executor_e2b_output_files_no_store(self):
         """Test that output_files warns when artifact store is not configured."""
-        executor = PythonExecutorE2B(artifact_store=None)
+        executor = CodeExecutorE2B(artifact_store=None)
 
         mock_execution = MagicMock()
         mock_execution.text = None
@@ -511,7 +511,7 @@ class TestToolExecutors:
 
         sandbox_created = False
 
-        async def mock_to_thread_impl(func, *args):
+        async def mock_to_thread_impl(func, *args, **kwargs):
             nonlocal sandbox_created
             if not sandbox_created:
                 sandbox_created = True
@@ -629,13 +629,13 @@ class TestToolRegistry:
             mock_execute.assert_called_once_with(url="https://example.com")
 
     @pytest.mark.asyncio
-    async def test_execute_tool_python_executor(self, mock_agent):
-        """Test executing Python code tool."""
-        with patch.object(PythonExecutorE2B, "execute", new_callable=AsyncMock) as mock_execute:
+    async def test_execute_tool_code_executor(self, mock_agent):
+        """Test executing code tool."""
+        with patch.object(CodeExecutorE2B, "execute", new_callable=AsyncMock) as mock_execute:
             mock_execute.return_value = "Code output"
 
             tool_executors = create_tool_executors(agent=mock_agent, arc="test")
-            result = await execute_tool("execute_python", tool_executors, code="print('test')")
+            result = await execute_tool("execute_code", tool_executors, code="print('test')")
 
             assert result == "Code output"
             mock_execute.assert_called_once_with(code="print('test')")
@@ -679,19 +679,19 @@ class TestToolDefinitions:
 
         executors = create_tool_executors(config, agent=mock_agent, arc="test")
 
-        assert "execute_python" in executors
-        python_executor = executors["execute_python"]
-        assert isinstance(python_executor, PythonExecutorE2B)
-        assert python_executor.api_key == "test-key-123"
+        assert "execute_code" in executors
+        code_executor = executors["execute_code"]
+        assert isinstance(code_executor, CodeExecutorE2B)
+        assert code_executor.api_key == "test-key-123"
 
     def test_create_tool_executors_without_config(self, mock_agent):
         """Test that tool executors are created without configuration."""
         executors = create_tool_executors(agent=mock_agent, arc="test")
 
-        assert "execute_python" in executors
-        python_executor = executors["execute_python"]
-        assert isinstance(python_executor, PythonExecutorE2B)
-        assert python_executor.api_key is None
+        assert "execute_code" in executors
+        code_executor = executors["execute_code"]
+        assert isinstance(code_executor, CodeExecutorE2B)
+        assert code_executor.api_key is None
 
     def test_make_plan_tool_in_tools_list(self):
         """Test that make_plan tool is included in TOOLS list."""

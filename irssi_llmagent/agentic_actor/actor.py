@@ -398,8 +398,8 @@ class AgenticLLMActor:
             logger.error(f"Agent iteration failed: {str(e)}", exc_info=True)
 
         finally:
-            if "execute_python" in tool_executors:
-                await tool_executors["execute_python"].cleanup()
+            if "execute_code" in tool_executors:
+                await tool_executors["execute_code"].cleanup()
 
         # Generate persistence summary before failing
         if persistent_tool_calls and progress_callback:
