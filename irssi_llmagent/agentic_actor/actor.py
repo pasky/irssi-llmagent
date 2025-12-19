@@ -58,7 +58,7 @@ class AgenticLLMActor:
 
         # Actor configuration
         actor_cfg = self.config.get("actor", {})
-        self.max_iterations = actor_cfg.get("max_iterations", 10)
+        self.max_iterations = actor_cfg.get("max_iterations", 15)
 
         # Progress reporting config
         prog_cfg = actor_cfg.get("progress", {})

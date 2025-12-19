@@ -55,7 +55,7 @@
   },
 
   "actor": {
-    "max_iterations": 10,
+    "max_iterations": 15,
     "progress": {
       "threshold_seconds": 10,
       "min_interval_seconds": 8
