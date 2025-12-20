@@ -213,7 +213,7 @@ class TestIRCMonitor:
 
     @pytest.mark.asyncio
     async def test_help_command_with_channel_modes(self, shared_agent):
-        """Test help command shows channel-specific mode info."""
+        """Test help command shows channel-specific mode info and records to history."""
         agent = shared_agent
 
         # Set up channel modes
@@ -228,6 +228,13 @@ class TestIRCMonitor:
         )
         call_args = agent.irc_monitor.varlink_sender.send_message.call_args[0]
         assert "default is serious agentic mode" in call_args[1]
+
+        # Verify help response was added to history
+        history = await agent.history.get_context("test", "#serious-work", limit=1)
+        assert len(history) == 1
+        assert "default is serious agentic mode" in history[0]["content"]
+        assert "<mybot>" in history[0]["content"]
+        assert history[0]["role"] == "assistant"
 
         # Test help in sarcastic channel
         agent.irc_monitor.varlink_sender.reset_mock()

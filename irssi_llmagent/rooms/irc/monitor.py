@@ -590,6 +590,7 @@ class IRCRoomMonitor:
 
             help_msg = f"default is {default_desc}, !p is Perplexity (prefer English!), !c disables context"
             await self.varlink_sender.send_message(target, help_msg, server)
+            await self.agent.history.add_message(server, chan_name, help_msg, mynick, mynick, True)
             return
 
         if cleaned_msg.startswith("!p ") or cleaned_msg == "!p":
