@@ -450,47 +450,45 @@ class TestIRCMonitor:
         agent.irc_monitor.proactive_debouncer.cancel_channel.assert_called_once_with("#test")
 
     @pytest.mark.asyncio
-    async def test_progress_callback_handles_tool_persistence(self, temp_config_file):
-        """Test that IRC monitor progress callback handles tool_persistence type correctly."""
+    async def test_separate_progress_and_persistence_callbacks(self, temp_config_file):
+        """Test that IRC monitor uses separate callbacks for progress and persistence."""
         agent = IRSSILLMAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
 
-        # Create a progress callback function like the one in handle_command
+        # Create separate callbacks like the ones in handle_command
         server, chan_name, target, mynick = "test", "#test", "#test", "mybot"
 
-        async def progress_cb(text: str, type: str = "progress") -> None:
-            if type == "tool_persistence":
-                # Store tool persistence summary as assistant_silent role
-                await agent.history.add_message(
-                    server, chan_name, text, mynick, mynick, False, content_template="{message}"
-                )
-            else:
-                # Regular progress message - send to channel
-                await agent.irc_monitor.varlink_sender.send_message(target, text, server)
-                await agent.history.add_message(server, chan_name, text, mynick, mynick, True)
+        async def progress_cb(text: str) -> None:
+            """Send progress updates to IRC channel."""
+            await agent.irc_monitor.varlink_sender.send_message(target, text, server)
+            await agent.history.add_message(server, chan_name, text, mynick, mynick, True)
 
-        # Test regular progress callback
-        await progress_cb("Working on your request...", "progress")
+        async def persistence_cb(text: str) -> None:
+            """Store tool persistence summary for future context."""
+            await agent.history.add_message(
+                server, chan_name, text, mynick, mynick, False, content_template="{message}"
+            )
 
-        # Verify regular progress was sent via IRC
+        # Test progress callback (sends to IRC)
+        await progress_cb("Working on your request...")
+
+        # Verify progress was sent via IRC
         agent.irc_monitor.varlink_sender.send_message.assert_called_with(
             target, "Working on your request...", server
         )
 
-        # Reset mock to test tool persistence
+        # Reset mock to test persistence
         agent.irc_monitor.varlink_sender.reset_mock()
+        agent.history.reset_mock()
 
-        # Test tool persistence callback (should store in history, not send to IRC)
-        await progress_cb(
-            "Tool summary: Performed web search and found 5 results about Python",
-            "tool_persistence",
-        )
+        # Test persistence callback (stores in history, does NOT send to IRC)
+        await persistence_cb("Tool summary: Performed web search and found 5 results about Python")
 
-        # Verify no message was sent to IRC for tool persistence
+        # Verify no message was sent to IRC for persistence
         agent.irc_monitor.varlink_sender.send_message.assert_not_called()
 
-        # Verify message was stored in history with plain content template
+        # Verify message was stored in history
         agent.history.add_message.assert_called_with(
             server,
             chan_name,

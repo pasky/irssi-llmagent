@@ -28,7 +28,9 @@ async def test_quest_operator_triggers_and_announces(shared_agent):
         def __init__(self, *args, **kwargs):
             pass
 
-        async def run_agent(self, context, *, progress_callback=None, arc: str):
+        async def run_agent(
+            self, context, *, progress_callback=None, persistence_callback=None, arc: str
+        ):
             call_counter["count"] += 1
             if call_counter["count"] == 2:
                 finished_event.set()
@@ -95,7 +97,9 @@ async def test_scan_and_trigger_open_quests(shared_agent):
         def __init__(self, *args, **kwargs):
             pass
 
-        async def run_agent(self, context, *, progress_callback=None, arc: str):
+        async def run_agent(
+            self, context, *, progress_callback=None, persistence_callback=None, arc: str
+        ):
             return next_para
 
     with patch("irssi_llmagent.main.AgenticLLMActor", new=DummyActor2):
@@ -129,7 +133,9 @@ async def test_chapter_rollover_copies_unresolved_quests(shared_agent):
         def __init__(self, *args, **kwargs):
             pass
 
-        async def run_agent(self, context, *, progress_callback=None, arc: str):
+        async def run_agent(
+            self, context, *, progress_callback=None, persistence_callback=None, arc: str
+        ):
             actor_call_count["n"] += 1
             return None
 

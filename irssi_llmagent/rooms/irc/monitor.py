@@ -671,23 +671,23 @@ class IRCRoomMonitor:
                 mode = await self.classify_mode(context)
                 logger.debug(f"Auto-classified message as {mode} mode")
 
-        # Create progress callback for command mode
-        async def progress_cb(text: str, type: str = "progress") -> None:
-            if type == "tool_persistence":
-                # Store tool persistence summary as assistant_silent role
-                await self.agent.history.add_message(
-                    server,
-                    chan_name,
-                    text,
-                    mynick,
-                    mynick,
-                    False,
-                    content_template="[internal monologue] {message}",
-                )
-            else:
-                # Regular progress message - send to channel
-                await self.varlink_sender.send_message(target, text, server)
-                await self.agent.history.add_message(server, chan_name, text, mynick, mynick, True)
+        # Create separate callbacks for progress and persistence
+        async def progress_cb(text: str) -> None:
+            """Send progress updates to IRC channel."""
+            await self.varlink_sender.send_message(target, text, server)
+            await self.agent.history.add_message(server, chan_name, text, mynick, mynick, True)
+
+        async def persistence_cb(text: str) -> None:
+            """Store tool persistence summary for future context."""
+            await self.agent.history.add_message(
+                server,
+                chan_name,
+                text,
+                mynick,
+                mynick,
+                False,
+                content_template="[internal monologue] {message}",
+            )
 
         if mode == "SARCASTIC":
             response = await self._run_actor(
@@ -697,6 +697,7 @@ class IRCRoomMonitor:
                 reasoning_effort=reasoning_effort,
                 allowed_tools=[],
                 progress_callback=progress_cb,
+                persistence_callback=persistence_cb,
                 arc=f"{server}#{chan_name}",
                 no_context=no_context,
                 model=model_override,
@@ -718,6 +719,7 @@ class IRCRoomMonitor:
                     else None
                 ),
                 progress_callback=progress_cb,
+                persistence_callback=persistence_cb,
                 arc=f"{server}#{chan_name}",
                 no_context=no_context,
             )
@@ -728,6 +730,7 @@ class IRCRoomMonitor:
                 mode="unsafe",
                 reasoning_effort="low",
                 progress_callback=progress_cb,
+                persistence_callback=persistence_cb,
                 arc=f"{server}#{chan_name}",
                 model=model_override,
                 no_context=no_context,

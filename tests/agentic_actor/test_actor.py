@@ -1212,11 +1212,11 @@ class TestAPIAgent:
     @pytest.mark.asyncio
     async def test_generate_and_store_persistence_summary(self, agent):
         """Test persistence summary generation and storage."""
-        # Mock progress callback
-        progress_calls = []
+        # Mock persistence callback
+        persistence_calls = []
 
-        async def mock_progress_callback(text: str, type: str = "progress"):
-            progress_calls.append({"text": text, "type": type})
+        async def mock_persistence_callback(text: str):
+            persistence_calls.append(text)
 
         # Mock model router response
         mock_response = {
@@ -1249,7 +1249,7 @@ class TestAPIAgent:
         ]
 
         await agent._generate_and_store_persistence_summary(
-            persistent_tool_calls, mock_progress_callback
+            persistent_tool_calls, mock_persistence_callback
         )
 
         # Verify model router was called
@@ -1274,37 +1274,35 @@ class TestAPIAgent:
         assert "execute_code" in message_content
         assert "https://example.com/artifacts/test.txt" in message_content
 
-        # Verify progress callback was called with tool_persistence type
-        assert len(progress_calls) == 1
-        assert progress_calls[0]["type"] == "tool_persistence"
+        # Verify persistence callback was called
+        assert len(persistence_calls) == 1
         assert (
-            progress_calls[0]["text"]
-            == "Summary: Performed web search and code execution successfully."
+            persistence_calls[0] == "Summary: Performed web search and code execution successfully."
         )
 
     @pytest.mark.asyncio
     async def test_generate_and_store_persistence_summary_empty_list(self, agent):
         """Test persistence summary with empty tool calls list."""
-        progress_calls = []
+        persistence_calls = []
 
-        async def mock_progress_callback(text: str, type: str = "progress"):
-            progress_calls.append({"text": text, "type": type})
+        async def mock_persistence_callback(text: str):
+            persistence_calls.append(text)
 
         agent.model_router = AsyncMock()
 
-        await agent._generate_and_store_persistence_summary([], mock_progress_callback)
+        await agent._generate_and_store_persistence_summary([], mock_persistence_callback)
 
-        # Verify no model calls or progress callbacks were made
+        # Verify no model calls or persistence callbacks were made
         agent.model_router.call_raw_with_model.assert_not_called()
-        assert len(progress_calls) == 0
+        assert len(persistence_calls) == 0
 
     @pytest.mark.asyncio
     async def test_generate_and_store_persistence_summary_model_error(self, agent):
         """Test persistence summary when model call fails."""
-        progress_calls = []
+        persistence_calls = []
 
-        async def mock_progress_callback(text: str, type: str = "progress"):
-            progress_calls.append({"text": text, "type": type})
+        async def mock_persistence_callback(text: str):
+            persistence_calls.append(text)
 
         agent.model_router = AsyncMock()
         agent.model_router.call_raw_with_model = AsyncMock(side_effect=Exception("API Error"))
@@ -1320,11 +1318,11 @@ class TestAPIAgent:
 
         # Should not raise exception, just log error
         await agent._generate_and_store_persistence_summary(
-            persistent_tool_calls, mock_progress_callback
+            persistent_tool_calls, mock_persistence_callback
         )
 
-        # Verify no progress callback was made due to error
-        assert len(progress_calls) == 0
+        # Verify no persistence callback was made due to error
+        assert len(persistence_calls) == 0
 
     @pytest.mark.asyncio
     async def test_tool_persistence_collection_during_execution(self, agent, api_type):
@@ -1425,11 +1423,11 @@ class TestAPIAgent:
     @pytest.mark.asyncio
     async def test_generate_persistence_summary_with_image_data(self, agent):
         """Test that image data is replaced with placeholders in persistence summaries."""
-        # Mock progress callback
-        progress_calls = []
+        # Mock persistence callback
+        persistence_calls = []
 
-        async def mock_progress_callback(text: str, type: str = "progress"):
-            progress_calls.append({"text": text, "type": type})
+        async def mock_persistence_callback(text: str):
+            persistence_calls.append(text)
 
         # Mock model router response
         mock_response = {
@@ -1480,7 +1478,7 @@ class TestAPIAgent:
 
         # Execute the method
         await agent._generate_and_store_persistence_summary(
-            persistent_tool_calls, mock_progress_callback
+            persistent_tool_calls, mock_persistence_callback
         )
 
         # Verify model was called
@@ -1496,7 +1494,6 @@ class TestAPIAgent:
         assert "[image: image/png]" in user_message_content
         assert "Regular text output" in user_message_content  # Regular text should remain
 
-        # Verify progress callback was called with the summary
-        assert len(progress_calls) == 1
-        assert progress_calls[0]["type"] == "tool_persistence"
-        assert progress_calls[0]["text"] == "Summary: Successfully visited image and web page."
+        # Verify persistence callback was called with the summary
+        assert len(persistence_calls) == 1
+        assert persistence_calls[0] == "Summary: Successfully visited image and web page."

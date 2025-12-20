@@ -75,6 +75,7 @@ class IRSSILLMAgent:
         system_prompt: str,
         arc: str = "",
         progress_callback=None,
+        persistence_callback=None,
         model: str | list[str] | None = None,
         **actor_kwargs,
     ) -> str | None:
@@ -95,6 +96,7 @@ class IRSSILLMAgent:
         response = await actor.run_agent(
             context,
             progress_callback=progress_callback,
+            persistence_callback=persistence_callback,
             arc=arc,
         )
 

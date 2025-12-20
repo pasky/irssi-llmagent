@@ -162,13 +162,13 @@ async def test_progress_report_tool_emits_callback(monkeypatch, mock_agent):
 
 
 @pytest.mark.asyncio
-async def test_progress_callback_with_tool_persistence_type(mock_agent):
-    """Test that progress callback handles tool_persistence type correctly."""
-    # Progress callback tracker
-    sent = []
+async def test_persistence_callback_receives_tool_summary(mock_agent):
+    """Test that persistence_callback receives tool summaries."""
+    # Persistence callback tracker
+    persistence_calls = []
 
-    async def progress_cb(text: str, type: str = "progress"):
-        sent.append({"text": text, "type": type})
+    async def persistence_cb(text: str):
+        persistence_calls.append(text)
 
     config = {
         "default_provider": "anthropic",
@@ -210,31 +210,12 @@ async def test_progress_callback_with_tool_persistence_type(mock_agent):
         agent=mock_agent,
     )
 
-    # Create a proper mock client
-    class MockClient:
-        def extract_text_from_response(self, response):
-            return "Final answer"
-
-        def has_tool_calls(self, response):
-            return False
-
-        def extract_tool_calls(self, response):
-            return None
-
-        def format_assistant_message(self, response):
-            return {"role": "assistant", "content": "Final answer"}
-
-        def format_tool_results(self, tool_results):
-            return {"role": "user", "content": "Tool results"}
-
-    # Mock client and response for testing (not used directly in this test)
-
-    # Mock the _generate_and_store_persistence_summary method to call progress_callback
-    async def mock_summary_generator(persistent_calls, progress_callback):
-        # Simulate calling progress_callback with tool_persistence type
-        await progress_callback(
-            "Tool calls: web_search, execute_code completed successfully.", "tool_persistence"
-        )
+    # Mock the _generate_and_store_persistence_summary method to call persistence_callback
+    async def mock_summary_generator(persistent_calls, persistence_callback):
+        if persistence_callback:
+            await persistence_callback(
+                "Tool calls: web_search, execute_code completed successfully."
+            )
 
     with _patch.object(
         agent, "_generate_and_store_persistence_summary", new_callable=_AsyncMock
@@ -253,10 +234,10 @@ async def test_progress_callback_with_tool_persistence_type(mock_agent):
                 }
             ]
 
-            # Get the progress callback from kwargs
-            progress_callback = kwargs.get("progress_callback")
-            if progress_callback:
-                await mock_summary_generator(persistent_tool_calls, progress_callback)
+            # Get the persistence callback from kwargs
+            persistence_callback = kwargs.get("persistence_callback")
+            if persistence_callback:
+                await mock_summary_generator(persistent_tool_calls, persistence_callback)
 
             return "Final answer"
 
@@ -264,14 +245,15 @@ async def test_progress_callback_with_tool_persistence_type(mock_agent):
             mock_run.side_effect = mock_run_agent_with_persistence
 
             result = await agent.run_agent(
-                [{"role": "user", "content": "test"}], progress_callback=progress_cb, arc="test-arc"
+                [{"role": "user", "content": "test"}],
+                persistence_callback=persistence_cb,
+                arc="test-arc",
             )
 
     # Verify the agent completed successfully
     assert result == "Final answer"
 
-    # Verify progress callback was called with tool_persistence type
-    assert len(sent) == 1
-    assert sent[0]["type"] == "tool_persistence"
-    assert "Tool calls" in sent[0]["text"]
-    assert "completed successfully" in sent[0]["text"]
+    # Verify persistence callback was called with the summary
+    assert len(persistence_calls) == 1
+    assert "Tool calls" in persistence_calls[0]
+    assert "completed successfully" in persistence_calls[0]

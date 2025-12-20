@@ -8,6 +8,7 @@ import logging
 import random
 import re
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -415,7 +416,7 @@ class WebpageVisitorExecutor:
         max_image_size: int = 3_500_000,
         progress_callback: Any | None = None,
         api_key: str | None = None,
-        artifact_store: "ArtifactStore | None" = None,
+        artifact_store: ArtifactStore | None = None,
     ):
         self.max_content_length = max_content_length
         self.timeout = timeout
@@ -756,7 +757,7 @@ class ProgressReportExecutor:
 
     def __init__(
         self,
-        send_callback: Any | None = None,
+        send_callback: Callable[[str], Awaitable[None]] | None = None,
         min_interval_seconds: int = 15,
     ):
         self.send_callback = send_callback
@@ -780,7 +781,7 @@ class ProgressReportExecutor:
 
         # Send update
         try:
-            await self.send_callback(clean, "progress")
+            await self.send_callback(clean)
             self._last_sent = now
         except Exception as e:
             logger.warning(f"progress_report send failed: {e}")
@@ -909,7 +910,7 @@ class EditArtifactExecutor:
     @classmethod
     def from_config(
         cls, config: dict, webpage_visitor: WebpageVisitorExecutor
-    ) -> "EditArtifactExecutor":
+    ) -> EditArtifactExecutor:
         """Create executor from configuration."""
         return cls(ArtifactStore.from_config(config), webpage_visitor)
 
@@ -1135,7 +1136,7 @@ class ImageGenExecutor:
 def create_tool_executors(
     config: dict | None = None,
     *,
-    progress_callback: Any | None = None,
+    progress_callback: Callable[[str], Awaitable[None]] | None = None,
     agent: Any,
     arc: str,
     router: Any = None,

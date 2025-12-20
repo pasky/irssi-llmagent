@@ -71,10 +71,18 @@ class AgenticLLMActor:
         self,
         context: list[dict],
         *,
-        progress_callback: Callable[[str, str], Awaitable[None]] | None = None,
+        progress_callback: Callable[[str], Awaitable[None]] | None = None,
+        persistence_callback: Callable[[str], Awaitable[None]] | None = None,
         arc: str,
     ) -> str:
-        """Run the agent with tool-calling loop."""
+        """Run the agent with tool-calling loop.
+
+        Args:
+            context: The conversation context messages.
+            progress_callback: Called with progress updates to send to IRC.
+            persistence_callback: Called with tool summaries to store for future context.
+            arc: The arc identifier (e.g., "server#channel").
+        """
         messages: list[dict[str, Any]] = copy.deepcopy(self.prepended_context) + copy.deepcopy(
             context
         )
@@ -89,7 +97,7 @@ class AgenticLLMActor:
         )
         tool_executors = {**base_executors, **self.additional_tool_executors}
 
-        # Initialize progress tracking
+        # Initialize progress tracking (only if progress_callback is set)
         progress_start_time = None
         if progress_callback is not None:
             from time import time as _now
@@ -233,7 +241,7 @@ class AgenticLLMActor:
                         )
                         logger.warning(msg)
                         if progress_callback:
-                            await progress_callback(msg, "error")
+                            await progress_callback(msg)
 
                         messages.append(
                             {
@@ -247,10 +255,9 @@ class AgenticLLMActor:
                     return f"Error: {result['message']}"
                 elif result["type"] == "final_text":
                     # Generate persistence summary before returning
-                    if persistent_tool_calls and progress_callback:
-                        await self._generate_and_store_persistence_summary(
-                            persistent_tool_calls, progress_callback
-                        )
+                    await self._generate_and_store_persistence_summary(
+                        persistent_tool_calls, persistence_callback
+                    )
                     return f"{result['text']}{result_suffix}"
                 elif result["type"] == "truncated_tool_retry":
                     # Add assistant's truncated tool request to conversation
@@ -365,10 +372,9 @@ class AgenticLLMActor:
                                     )
                                 else:
                                     # Generate persistence summary before returning
-                                    if persistent_tool_calls and progress_callback:
-                                        await self._generate_and_store_persistence_summary(
-                                            persistent_tool_calls, progress_callback
-                                        )
+                                    await self._generate_and_store_persistence_summary(
+                                        persistent_tool_calls, persistence_callback
+                                    )
                                     return f"{cleaned_result}{result_suffix}"
 
                         except Exception as e:
@@ -410,10 +416,9 @@ class AgenticLLMActor:
                 await tool_executors["execute_code"].cleanup()
 
         # Generate persistence summary before failing
-        if persistent_tool_calls and progress_callback:
-            await self._generate_and_store_persistence_summary(
-                persistent_tool_calls, progress_callback
-            )
+        await self._generate_and_store_persistence_summary(
+            persistent_tool_calls, persistence_callback
+        )
 
         raise StopIteration("Agent took too many turns to research")
 
@@ -510,10 +515,10 @@ class AgenticLLMActor:
             return None
 
     async def _generate_and_store_persistence_summary(
-        self, persistent_tool_calls: list[dict], progress_callback
+        self, persistent_tool_calls: list[dict], persistence_callback
     ):
         """Generate a single summary for all persistent tool calls and store it."""
-        if not persistent_tool_calls:
+        if not persistent_tool_calls or not persistence_callback:
             return
 
         try:
@@ -582,8 +587,7 @@ class AgenticLLMActor:
                     summary_text = summary_response
 
                 if summary_text:
-                    # Call progress callback with assistant_silent type
-                    await progress_callback(summary_text.strip(), "tool_persistence")
+                    await persistence_callback(summary_text.strip())
 
         except Exception as e:
             logger.error(f"Failed to generate tool persistence summary: {e}", exc_info=True)

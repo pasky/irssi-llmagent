@@ -117,18 +117,17 @@ class QuestOperator:
 
         system_prompt = self.agent.irc_monitor.build_system_prompt("serious", mynick)
 
-        # Create progress callback that stores only tool_persistence updates
-        async def progress_cb(text: str, type: str = "progress") -> None:
-            if type == "tool_persistence":
-                await self.agent.history.add_message(
-                    server,
-                    channel,
-                    text,
-                    mynick,
-                    mynick,
-                    False,
-                    role="assistant_silent",
-                )
+        # Create persistence callback (no progress callback - quests don't send IRC updates)
+        async def persistence_cb(text: str) -> None:
+            await self.agent.history.add_message(
+                server,
+                channel,
+                text,
+                mynick,
+                mynick,
+                False,
+                role="assistant_silent",
+            )
 
         try:
             response = await self.agent.run_actor(
@@ -136,7 +135,7 @@ class QuestOperator:
                 mode_cfg=mode_cfg,
                 system_prompt=system_prompt,
                 arc=arc,
-                progress_callback=progress_cb,
+                persistence_callback=persistence_cb,
             )
         except Exception as e:
             logger.error(f"Quest step run_actor failed for {arc} {quest_id}: {e}")
