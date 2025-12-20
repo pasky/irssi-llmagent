@@ -28,12 +28,19 @@ console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(formatter)
 
+root_logger.addHandler(console_handler)
+
 # Per-message context handler for DEBUG and above
 # Routes logs to per-message files under logs/ directory
-message_context_handler = MessageContextHandler("logs", level=logging.DEBUG)
-
-root_logger.addHandler(console_handler)
-root_logger.addHandler(message_context_handler)
+# Skip file logging during tests - just use stderr for DEBUG logs
+if "pytest" not in sys.modules:
+    message_context_handler = MessageContextHandler("logs", level=logging.DEBUG)
+    root_logger.addHandler(message_context_handler)
+else:
+    stderr_debug_handler = logging.StreamHandler(sys.stderr)
+    stderr_debug_handler.setLevel(logging.DEBUG)
+    stderr_debug_handler.setFormatter(formatter)
+    root_logger.addHandler(stderr_debug_handler)
 
 # Suppress noisy third-party library messages
 logging.getLogger("aiosqlite").setLevel(logging.INFO)

@@ -51,8 +51,6 @@ class MessageContext:
 
         # Build path: logs/YYYY-MM-DD/arc/HH-MM-SS-nick-preview.log
         log_dir = logs_dir / date_str / arc_safe
-        log_dir.mkdir(parents=True, exist_ok=True)
-
         log_filename = f"{time_str}-{nick}-{preview}.log"
         log_path = log_dir / log_filename
 
@@ -85,7 +83,6 @@ class MessageContextHandler(logging.Handler):
     def __init__(self, logs_dir: str | Path, level: int = logging.DEBUG):
         super().__init__(level)
         self.logs_dir = Path(logs_dir)
-        self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.system_log_path = self.logs_dir / "system.log"
 
         # Cache of open file handles to avoid reopening constantly
@@ -97,6 +94,7 @@ class MessageContextHandler(logging.Handler):
     def _get_handler_for_path(self, path: Path) -> logging.FileHandler:
         """Get or create a file handler for the given path."""
         if path not in self._file_handles:
+            path.parent.mkdir(parents=True, exist_ok=True)
             handler = logging.FileHandler(path, encoding="utf-8")
             handler.setFormatter(self._formatter)
             self._file_handles[path] = handler
