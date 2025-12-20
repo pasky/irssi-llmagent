@@ -394,8 +394,10 @@ class IRCRoomMonitor:
             logger.error(f"Error during agent execution: {e}", exc_info=True)
             return f"Error: {e}"
 
-        if response and len(response) > 800:
-            logger.info(f"Response too long ({len(response)} chars), creating artifact")
+        if response and len(response.encode("utf-8")) > 800:
+            logger.info(
+                f"Response too long ({len(response.encode('utf-8'))} bytes), creating artifact"
+            )
             response = await self._create_artifact_for_long_response(response)
         if response:
             response = response.replace("\n", "; ").strip()
