@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import irssi_llmagent
+
 if TYPE_CHECKING:
     from ...main import IRSSILLMAgent
 
@@ -794,11 +796,7 @@ class IRCRoomMonitor:
                     if "parameters" in response and "event" in response["parameters"]:
                         event = response["parameters"]["event"]
                         # Process events concurrently
-                        task = asyncio.create_task(self.process_message_event(event))
-                        task.add_done_callback(
-                            lambda t: t.exception()
-                            and logger.error(f"Event processing task failed: {t.exception()}")
-                        )
+                        irssi_llmagent.spawn(self.process_message_event(event))
                     elif "error" in response:
                         logger.error(f"Varlink error: {response['error']}")
                         break

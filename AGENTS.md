@@ -35,6 +35,7 @@
 ## Code Style
 - **Language**: Python 3.11+ with modern type hints (`dict`, `list`, ...), following PEP8
 - **Async**: Full async/await support for non-blocking message processing
+- **Background Tasks**: Use `irssi_llmagent.spawn(coro)` for fire-and-forget tasks (not bare `asyncio.create_task`) to prevent GC of unreferenced tasks
 - **Imports**: Standard library first, then third-party (`aiohttp`, `aiosqlite`), local modules
 - **Naming**: snake_case for functions/variables, PascalCase for classes
 - **Docstrings**: Brief docstrings for classes and key methods

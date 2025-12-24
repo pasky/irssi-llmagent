@@ -20,6 +20,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+import irssi_llmagent
+
 from ..message_logging import MessageLoggingContext
 
 logger = logging.getLogger(__name__)
@@ -70,7 +72,7 @@ class QuestOperator:
             return
 
         logger.debug(f"Quest {quest_id} triggered: {paragraph_text}")
-        asyncio.create_task(self._run_step(arc, quest_id, paragraph_text))
+        irssi_llmagent.spawn(self._run_step(arc, quest_id, paragraph_text))
 
     async def _maybe_resume_parent(self, arc: str, finished_quest_id: str) -> None:
         """If a sub-quest finished, find and resume the parent quest."""
@@ -87,7 +89,7 @@ class QuestOperator:
             logger.warning(f"Could not find parent quest {parent_id} to resume")
             return
 
-        asyncio.create_task(self._run_step(arc, parent_id, parent_paragraph))
+        irssi_llmagent.spawn(self._run_step(arc, parent_id, parent_paragraph))
 
     async def _find_latest_quest_paragraph(self, arc: str, quest_id: str) -> str | None:
         """Find the latest paragraph for a given quest ID, searching back through all chapters."""
@@ -126,7 +128,7 @@ class QuestOperator:
             for qid, (para, is_finished) in latest_by_id.items():
                 if not is_finished:
                     logger.debug(f"Quest {qid} triggered: {para}")
-                    asyncio.create_task(self._run_step(arc, qid, para))
+                    irssi_llmagent.spawn(self._run_step(arc, qid, para))
 
     async def _run_step(self, arc: str, quest_id: str, paragraph_text: str) -> None:
         """Run one quest step via Agent.run_actor and handle results."""
