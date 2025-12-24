@@ -232,13 +232,16 @@ class QuestOperator:
         response = re.sub(r'<quest(_finished)?(\s*id=".*?")?\s*>', _ensure_id, response)
         response = response.replace("\n", "; ").strip()
 
-        # Mirror to IRC and ChatHistory
+        # Mirror full response to IRC and ChatHistory
         logger.debug(f"Quest step run_actor for {arc} {quest_id} output: {response}")
         await self.agent.irc_monitor.varlink_sender.send_message(channel, response, server)
         await self.agent.history.add_message(server, channel, response, mynick, mynick, True)
 
-        # Appending via chapter management triggers next quest step implicitly
-        # (on_chronicle_append will be called which updates DB and may trigger next step)
+        # Append only quest XML to chronicle (triggers next quest step implicitly)
         from .chapters import chapter_append_paragraph
 
-        await chapter_append_paragraph(arc, response, self.agent)
+        quest_match = re.search(
+            r"<quest(?:_finished)?[^>]*>.*?</quest(?:_finished)?>", response, re.DOTALL
+        )
+        quest_text = quest_match.group(0) if quest_match else response
+        await chapter_append_paragraph(arc, quest_text, self.agent)
