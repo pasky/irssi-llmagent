@@ -647,6 +647,11 @@ class CodeExecutorE2B:
             output_parts = []
             artifact_urls = []
 
+            # Check for execution error first (e.g., ModuleNotFoundError)
+            error = getattr(result, "error", None)
+            if error:
+                output_parts.append(f"**Execution error:** {error}")
+
             # Check logs for stdout/stderr (E2B stores them in logs.stdout/stderr as lists)
             logs = getattr(result, "logs", None)
             if logs:
