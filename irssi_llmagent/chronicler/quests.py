@@ -79,35 +79,20 @@ class QuestOperator:
         # Check if quest exists in DB
         existing = await self.agent.chronicle.quest_get(quest_id)
 
-        if is_finished:
-            # Mark quest as finished in DB
-            if existing:
-                await self.agent.chronicle.quest_finish(quest_id, paragraph_id)
-            # Resume parent if this is a hierarchical quest
-            await self._maybe_resume_parent(arc, quest_id)
-            return
-
         if existing:
-            # Update existing quest
-            await self.agent.chronicle.quest_update(quest_id, paragraph_text, paragraph_id)
-            logger.debug(f"Quest {quest_id} updated, will continue on next heartbeat")
+            if is_finished:
+                await self.agent.chronicle.quest_finish(quest_id, paragraph_id)
+                logger.debug(f"Quest {quest_id} finished")
+            else:
+                await self.agent.chronicle.quest_update(quest_id, paragraph_text, paragraph_id)
+                logger.debug(f"Quest {quest_id} updated, will continue on next heartbeat")
         else:
-            # Create new quest — heartbeat will pick it up
+            assert not is_finished
             parent_id = self._extract_parent_id(quest_id)
             await self.agent.chronicle.quest_start(
                 quest_id, arc, paragraph_id, paragraph_text, parent_id
             )
             logger.debug(f"Quest {quest_id} created, will start on next heartbeat")
-
-    async def _maybe_resume_parent(self, arc: str, finished_quest_id: str) -> None:
-        """Log when a sub-quest finishes. Parent resumption is handled by heartbeat."""
-        parent_id = self._extract_parent_id(finished_quest_id)
-        if not parent_id:
-            logger.debug(f"Quest {finished_quest_id} finished (no parent)")
-            return
-        logger.info(
-            f"Sub-quest {finished_quest_id} finished; parent {parent_id} will resume on next heartbeat"
-        )
 
     async def start_heartbeat(self) -> None:
         """Start the heartbeat task that periodically prods ongoing quests."""
