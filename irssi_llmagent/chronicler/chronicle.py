@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import aiosqlite
+
+from . import QuestStatus
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -66,6 +71,26 @@ class Chronicle:
 
                 CREATE INDEX IF NOT EXISTS idx_chapters_arc_opened
                 ON chapters(arc_id, opened_at);
+
+                CREATE TABLE IF NOT EXISTS quests (
+                  id TEXT PRIMARY KEY,
+                  arc_id INTEGER NOT NULL,
+                  parent_id TEXT,
+                  status TEXT NOT NULL CHECK(status IN ('ongoing', 'in_step', 'finished')),
+                  last_state TEXT,
+                  created_by_paragraph_id INTEGER,
+                  last_updated_by_paragraph_id INTEGER,
+                  FOREIGN KEY (arc_id) REFERENCES arcs(id),
+                  FOREIGN KEY (parent_id) REFERENCES quests(id),
+                  FOREIGN KEY (created_by_paragraph_id) REFERENCES paragraphs(id),
+                  FOREIGN KEY (last_updated_by_paragraph_id) REFERENCES paragraphs(id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_quests_arc_status
+                ON quests(arc_id, status);
+
+                CREATE INDEX IF NOT EXISTS idx_quests_parent
+                ON quests(parent_id);
                 """
             )
             await db.commit()
@@ -336,3 +361,156 @@ class Chronicle:
         if len(rows_list) == 0:
             lines.append("(No paragraphs)")
         return "\n".join(lines)
+
+    # --- Quest management methods ---
+
+    async def quest_start(
+        self,
+        quest_id: str,
+        arc: str,
+        paragraph_id: int,
+        state_text: str,
+        parent_id: str | None = None,
+    ) -> None:
+        """Create a new quest with status=ONGOING."""
+        arc_id, _ = await self._get_or_create_arc(arc)
+        async with self._lock, aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """INSERT INTO quests
+                   (id, arc_id, parent_id, status, last_state,
+                    created_by_paragraph_id, last_updated_by_paragraph_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    quest_id,
+                    arc_id,
+                    parent_id,
+                    QuestStatus.ONGOING.value,
+                    state_text,
+                    paragraph_id,
+                    paragraph_id,
+                ),
+            )
+            await db.commit()
+        logger.debug(f"Quest started: {quest_id} (parent={parent_id})")
+
+    async def quest_update(self, quest_id: str, state_text: str, paragraph_id: int) -> None:
+        """Update last_state and last_updated_by_paragraph_id for a quest."""
+        async with self._lock, aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """UPDATE quests
+                   SET last_state = ?, last_updated_by_paragraph_id = ?
+                   WHERE id = ?""",
+                (state_text, paragraph_id, quest_id),
+            )
+            await db.commit()
+        logger.debug(f"Quest updated: {quest_id}")
+
+    async def quest_finish(self, quest_id: str, paragraph_id: int) -> None:
+        """Set quest status to FINISHED."""
+        async with self._lock, aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """UPDATE quests
+                   SET status = ?, last_updated_by_paragraph_id = ?
+                   WHERE id = ?""",
+                (QuestStatus.FINISHED.value, paragraph_id, quest_id),
+            )
+            await db.commit()
+        logger.debug(f"Quest finished: {quest_id}")
+
+    async def quest_set_status(self, quest_id: str, status: QuestStatus) -> None:
+        """Set quest status directly (for ONGOING <-> IN_STEP transitions)."""
+        async with self._lock, aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE quests SET status = ? WHERE id = ?",
+                (status.value, quest_id),
+            )
+            await db.commit()
+        logger.debug(f"Quest {quest_id} status set to {status.value}")
+
+    async def quest_try_transition(
+        self, quest_id: str, from_status: QuestStatus, to_status: QuestStatus
+    ) -> bool:
+        """Atomically transition quest status if current status matches.
+
+        Returns True if successful, False if quest was not in expected status.
+        """
+        async with self._lock, aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "UPDATE quests SET status = ? WHERE id = ? AND status = ?",
+                (to_status.value, quest_id, from_status.value),
+            )
+            await db.commit()
+            if cursor.rowcount > 0:
+                logger.debug(
+                    f"Quest {quest_id} transitioned {from_status.value} -> {to_status.value}"
+                )
+                return True
+            logger.debug(f"Quest {quest_id} not transitioned (not {from_status.value})")
+            return False
+
+    async def quest_get(self, quest_id: str) -> dict[str, Any] | None:
+        """Return quest row as dict, or None if not found."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """SELECT id, arc_id, parent_id, status, last_state,
+                          created_by_paragraph_id, last_updated_by_paragraph_id
+                   FROM quests WHERE id = ?""",
+                (quest_id,),
+            ) as cur:
+                row = await cur.fetchone()
+                if not row:
+                    return None
+                return dict(row)
+
+    async def quests_ready_for_heartbeat(
+        self, arc: str, cooldown_seconds: float
+    ) -> list[dict[str, Any]]:
+        """Return ONGOING quests ready for heartbeat trigger.
+
+        A quest is ready if:
+        - status is ONGOING
+        - last_updated paragraph.ts + cooldown < now
+        - no children with status in (ONGOING, IN_STEP)
+
+        Also logs warnings for any orphaned quests (ONGOING with no active children
+        but parent has active children that don't include this quest).
+        """
+        arc_id, _ = await self._get_or_create_arc(arc)
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """SELECT q.id, q.arc_id, q.parent_id, q.status, q.last_state,
+                          q.created_by_paragraph_id, q.last_updated_by_paragraph_id
+                   FROM quests q
+                   JOIN paragraphs p ON q.last_updated_by_paragraph_id = p.id
+                   WHERE q.arc_id = ?
+                     AND q.status = ?
+                     AND datetime(p.ts, '+' || ? || ' seconds') <= datetime('now')
+                     AND NOT EXISTS (
+                       SELECT 1 FROM quests c
+                       WHERE c.parent_id = q.id AND c.status IN (?, ?)
+                     )""",
+                (
+                    arc_id,
+                    QuestStatus.ONGOING.value,
+                    int(cooldown_seconds),
+                    QuestStatus.ONGOING.value,
+                    QuestStatus.IN_STEP.value,
+                ),
+            ) as cur:
+                rows = await cur.fetchall()
+                return [dict(row) for row in rows]
+
+    async def quests_count_unfinished(self, arc: str) -> int:
+        """Count quests with status != finished for an arc."""
+        arc_id, _ = await self._get_or_create_arc(arc)
+        async with (
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                "SELECT COUNT(*) FROM quests WHERE arc_id = ? AND status != ?",
+                (arc_id, QuestStatus.FINISHED.value),
+            ) as cur,
+        ):
+            row = await cur.fetchone()
+            return int(row[0]) if row else 0

@@ -152,8 +152,9 @@ async def chapter_append_paragraph(arc: str, paragraph_text: str, agent: Any) ->
 
         # Append the original paragraph (either to current chapter or new chapter)
         result = await agent.chronicle.append_paragraph(arc, paragraph_text)
+        paragraph_id = result["id"]
 
         # Trigger quests operator if available
-        await agent.quests.on_chronicle_append(arc, paragraph_text)
+        await agent.quests.on_chronicle_append(arc, paragraph_text, paragraph_id)
 
         return result

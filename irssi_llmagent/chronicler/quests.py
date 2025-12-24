@@ -5,16 +5,18 @@ Minimal MVP that:
 - Runs a background step using IRCRoomMonitor._run_actor with serious mode
 - Appends the next <quest> or <quest_finished> paragraph
 - Mirrors the paragraph to IRC and ChatHistory
-- On startup can scan current chapters for unresolved quests and trigger them
+- Heartbeat mechanism to prod ongoing quests periodically
 
 Configuration (config.json):
 - chronicler.quests.arcs: list of arc names (e.g. ["server#channel"]) to operate in
 - chronicler.quests.instructions: instruction string appended to system prompt
+- chronicler.quests.cooldown: seconds between quest steps (also used for heartbeat)
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 from pathlib import Path
@@ -23,6 +25,7 @@ from typing import Any
 import irssi_llmagent
 
 from ..message_logging import MessageLoggingContext
+from . import QuestStatus
 
 logger = logging.getLogger(__name__)
 
@@ -36,14 +39,12 @@ class QuestOperator:
 
     Integration points:
     - chapters.chapter_append_paragraph should call on_chronicle_append()
-    - On agent start, call scan_and_trigger_open_quests()
+    - On agent start, call start_heartbeat() to begin periodic quest prodding
     """
 
     def __init__(self, agent: Any):
         self.agent = agent
-
-        # Use dynamic config lookups so test-time config changes are picked up
-        # (no local caches of arcs/instructions).
+        self._heartbeat_task: asyncio.Task[None] | None = None
 
     def _parse_quest(self, text: str) -> tuple[str | None, bool]:
         """Return (quest_id, is_finished_tag) if paragraph contains a quest tag, else (None, False)."""
@@ -55,8 +56,17 @@ class QuestOperator:
             return m_open.group(1), False
         return None, False
 
-    async def on_chronicle_append(self, arc: str, paragraph_text: str) -> None:
-        """Hook to be called after a paragraph is appended to the chronicle."""
+    def _extract_parent_id(self, quest_id: str) -> str | None:
+        """Extract parent ID from dot-separated quest ID."""
+        if "." not in quest_id:
+            return None
+        return quest_id.rsplit(".", 1)[0]
+
+    async def on_chronicle_append(self, arc: str, paragraph_text: str, paragraph_id: int) -> None:
+        """Hook to be called after a paragraph is appended to the chronicle.
+
+        Updates the quests table and triggers quest steps as needed.
+        """
         cfg = self.agent.config["chronicler"]["quests"]
         quest_id, is_finished = self._parse_quest(paragraph_text)
         if not quest_id:
@@ -66,74 +76,96 @@ class QuestOperator:
             logger.debug(f"Quest {quest_id} not in allowed: {allowed_arcs}")
             return
 
+        # Check if quest exists in DB
+        existing = await self.agent.chronicle.quest_get(quest_id)
+
         if is_finished:
-            # Sub-quest finished: resume parent if this is a hierarchical quest
+            # Mark quest as finished in DB
+            if existing:
+                await self.agent.chronicle.quest_finish(quest_id, paragraph_id)
+            # Resume parent if this is a hierarchical quest
             await self._maybe_resume_parent(arc, quest_id)
             return
 
-        logger.debug(f"Quest {quest_id} triggered: {paragraph_text}")
-        irssi_llmagent.spawn(self._run_step(arc, quest_id, paragraph_text))
+        if existing:
+            # Update existing quest
+            await self.agent.chronicle.quest_update(quest_id, paragraph_text, paragraph_id)
+            logger.debug(f"Quest {quest_id} updated, will continue on next heartbeat")
+        else:
+            # Create new quest — heartbeat will pick it up
+            parent_id = self._extract_parent_id(quest_id)
+            await self.agent.chronicle.quest_start(
+                quest_id, arc, paragraph_id, paragraph_text, parent_id
+            )
+            logger.debug(f"Quest {quest_id} created, will start on next heartbeat")
 
     async def _maybe_resume_parent(self, arc: str, finished_quest_id: str) -> None:
-        """If a sub-quest finished, find and resume the parent quest."""
-        if "." not in finished_quest_id:
-            logger.debug(f"Quest {finished_quest_id} finished (no parent to resume)")
+        """Log when a sub-quest finishes. Parent resumption is handled by heartbeat."""
+        parent_id = self._extract_parent_id(finished_quest_id)
+        if not parent_id:
+            logger.debug(f"Quest {finished_quest_id} finished (no parent)")
             return
+        logger.info(
+            f"Sub-quest {finished_quest_id} finished; parent {parent_id} will resume on next heartbeat"
+        )
 
-        parent_id = finished_quest_id.rsplit(".", 1)[0]
-        logger.info(f"Sub-quest {finished_quest_id} finished, resuming parent: {parent_id}")
-
-        # Find the latest paragraph for the parent quest
-        parent_paragraph = await self._find_latest_quest_paragraph(arc, parent_id)
-        if not parent_paragraph:
-            logger.warning(f"Could not find parent quest {parent_id} to resume")
+    async def start_heartbeat(self) -> None:
+        """Start the heartbeat task that periodically prods ongoing quests."""
+        if self._heartbeat_task is not None:
             return
+        self._heartbeat_task = irssi_llmagent.spawn(self._heartbeat_loop())
+        logger.info("Quest heartbeat started")
 
-        irssi_llmagent.spawn(self._run_step(arc, parent_id, parent_paragraph))
+    async def stop_heartbeat(self) -> None:
+        """Stop the heartbeat task."""
+        if self._heartbeat_task is not None:
+            self._heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._heartbeat_task
+            self._heartbeat_task = None
+            logger.info("Quest heartbeat stopped")
 
-    async def _find_latest_quest_paragraph(self, arc: str, quest_id: str) -> str | None:
-        """Find the latest paragraph for a given quest ID, searching back through all chapters."""
-        # Search current chapter first, then progressively older chapters
-        relative_offset = 0
-        while True:
-            chap_id, chap = await self.agent.chronicle._resolve_relative_chapter_id(
-                arc, relative_offset
-            )
-            if chap_id is None:
-                break
-
-            paragraphs = await self.agent.chronicle.read_chapter(chap_id)
-            # Search in reverse order to find the latest occurrence
-            for p in reversed(paragraphs):
-                qid, is_finished = self._parse_quest(p)
-                if qid == quest_id and not is_finished:
-                    return p
-
-            relative_offset -= 1
-
-        return None
-
-    async def scan_and_trigger_open_quests(self) -> None:
-        """Scan current chapters of allowed arcs for unresolved quests and trigger them."""
+    async def _heartbeat_loop(self) -> None:
+        """Periodically check for quests that need prodding."""
         cfg = self.agent.config["chronicler"]["quests"]
+        cooldown = float(cfg["cooldown"])
+
+        while True:
+            await asyncio.sleep(cooldown)
+            try:
+                await self._heartbeat_tick()
+            except Exception as e:
+                logger.error(f"Heartbeat tick failed: {e}")
+
+    async def _heartbeat_tick(self) -> None:
+        """Single heartbeat tick: find and prod ready quests."""
+        cfg = self.agent.config["chronicler"]["quests"]
+        cooldown = float(cfg["cooldown"])
+
         for arc in set(cfg["arcs"]):
-            current_chapter = await self.agent.chronicle.get_or_open_current_chapter(arc)
-            chapter_id = int(current_chapter["id"])
-            paragraphs = await self.agent.chronicle.read_chapter(chapter_id)
-            latest_by_id: dict[str, tuple[str, bool]] = {}
-            for p in paragraphs:
-                qid, is_finished = self._parse_quest(p)
-                if qid:
-                    latest_by_id[qid] = (p, is_finished)
-            for qid, (para, is_finished) in latest_by_id.items():
-                if not is_finished:
-                    logger.debug(f"Quest {qid} triggered: {para}")
-                    irssi_llmagent.spawn(self._run_step(arc, qid, para))
+            ready_quests = await self.agent.chronicle.quests_ready_for_heartbeat(arc, cooldown)
+            for quest in ready_quests:
+                quest_id = quest["id"]
+                last_state = quest["last_state"]
+                logger.info(f"Heartbeat prodding quest {quest_id}")
+                irssi_llmagent.spawn(self._run_step(arc, quest_id, last_state))
 
     async def _run_step(self, arc: str, quest_id: str, paragraph_text: str) -> None:
         """Run one quest step via Agent.run_actor and handle results."""
-        with MessageLoggingContext(arc, f"quest-{quest_id}", paragraph_text, Path("logs")):
-            await self._run_step_inner(arc, quest_id, paragraph_text)
+        # Atomically claim the quest (ONGOING -> IN_STEP)
+        if not await self.agent.chronicle.quest_try_transition(
+            quest_id, QuestStatus.ONGOING, QuestStatus.IN_STEP
+        ):
+            return  # Already claimed by another runner
+
+        try:
+            with MessageLoggingContext(arc, f"quest-{quest_id}", paragraph_text, Path("logs")):
+                await self._run_step_inner(arc, quest_id, paragraph_text)
+        finally:
+            # Atomically release (IN_STEP -> ONGOING) if not finished during step
+            await self.agent.chronicle.quest_try_transition(
+                quest_id, QuestStatus.IN_STEP, QuestStatus.ONGOING
+            )
 
     async def _run_step_inner(self, arc: str, quest_id: str, paragraph_text: str) -> None:
         """Inner quest step logic, called within logging context."""
@@ -221,6 +253,7 @@ class QuestOperator:
         await self.agent.history.add_message(server, channel, response, mynick, mynick, True)
 
         # Appending via chapter management triggers next quest step implicitly
+        # (on_chronicle_append will be called which updates DB and may trigger next step)
         from .chapters import chapter_append_paragraph
 
         await chapter_append_paragraph(arc, response, self.agent)

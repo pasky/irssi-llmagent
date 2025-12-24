@@ -9,12 +9,13 @@ from irssi_llmagent.chronicler.tools import ChapterAppendExecutor
 
 @pytest.mark.asyncio
 async def test_quest_operator_triggers_and_announces(shared_agent):
+    """Test that quests are triggered via heartbeat and run to completion."""
     agent = shared_agent
     # Configure quests operator
     arc = "testserver#testchan"
     agent.config.setdefault("chronicler", {}).setdefault("quests", {})["arcs"] = [arc]
     agent.config["chronicler"]["quests"]["prompt_reminder"] = "Quest instructions here"
-    agent.config.setdefault("chronicler", {}).setdefault("quests", {})["cooldown"] = 0.1
+    agent.config.setdefault("chronicler", {}).setdefault("quests", {})["cooldown"] = 0.01
     agent.config.setdefault("actor", {}).setdefault("quests", {})["cooldown"] = 0.01
 
     # Mock AgenticLLMActor to return an intermediate quest step, then finished
@@ -50,12 +51,17 @@ async def test_quest_operator_triggers_and_announces(shared_agent):
         agent.irc_monitor.varlink_sender = AsyncMock()
         agent.irc_monitor.get_mynick = AsyncMock(return_value="botnick")
 
-        # Append initial quest paragraph
+        # Append initial quest paragraph (creates quest in DB, heartbeat will trigger)
         initial_para = '<quest id="abc">Start the mission</quest>'
         await chapter_append_paragraph(arc, initial_para, agent)
 
-        # Wait deterministically for exactly two model runs and two announcements or timeout
-        await asyncio.wait_for(finished_event.wait(), timeout=1.0)
+        # Keep triggering heartbeat until quest finishes (or timeout)
+        async def heartbeat_until_done():
+            while not finished_event.is_set():
+                await agent.quests._heartbeat_tick()
+                await asyncio.sleep(0.02)
+
+        await asyncio.wait_for(heartbeat_until_done(), timeout=2.0)
         for _ in range(100):
             if agent.irc_monitor.varlink_sender.send_message.await_count == 2:
                 break
@@ -65,7 +71,6 @@ async def test_quest_operator_triggers_and_announces(shared_agent):
         assert agent.irc_monitor.varlink_sender.send_message.await_count == 2
 
         # Verify both intermediate and finished paragraphs were appended and announced
-        # Allow DB append to materialize; poll briefly without flakiness
         content = ""
         for _ in range(50):
             content = await agent.chronicle.render_chapter(arc)
@@ -86,7 +91,10 @@ async def test_quest_operator_triggers_and_announces(shared_agent):
 
 
 @pytest.mark.asyncio
-async def test_scan_and_trigger_open_quests(shared_agent):
+async def test_heartbeat_triggers_open_quests(shared_agent):
+    """Test that heartbeat tick finds and prods ongoing quests."""
+    from irssi_llmagent.chronicler import QuestStatus
+
     agent = shared_agent
     arc = "srv#chan"
     agent.config.setdefault("chronicler", {}).setdefault("quests", {})["arcs"] = [arc]
@@ -94,10 +102,7 @@ async def test_scan_and_trigger_open_quests(shared_agent):
     agent.config.setdefault("chronicler", {}).setdefault("quests", {})["cooldown"] = 0.01
     agent.config.setdefault("actor", {}).setdefault("quests", {})["cooldown"] = 0.01
 
-    # Seed a quest paragraph
-    await chapter_append_paragraph(arc, '<quest id="q1">Do X</quest>', agent)
-
-    # Mock AgenticLLMActor and mynick
+    # Mock AgenticLLMActor and mynick before seeding to prevent uncontrolled runs
     next_para = '<quest_finished id="q1">Done X. CONFIRMED ACHIEVED</quest_finished>'
 
     class DummyActor2:
@@ -119,8 +124,20 @@ async def test_scan_and_trigger_open_quests(shared_agent):
         agent.irc_monitor.varlink_sender = AsyncMock()
         agent.irc_monitor.get_mynick = AsyncMock(return_value="botnick")
 
-        await agent.quests.scan_and_trigger_open_quests()
+        # Seed a quest paragraph (this creates the quest in DB via on_chronicle_append)
+        await chapter_append_paragraph(arc, '<quest id="q1">Do X</quest>', agent)
+
+        # Wait for initial trigger to complete
         await asyncio.sleep(0.05)
+
+        # Reset to ONGOING so heartbeat can find it (initial run may have finished it)
+        quest = await agent.chronicle.quest_get("q1")
+        if quest and quest["status"] != QuestStatus.FINISHED.value:
+            await agent.chronicle.quest_set_status("q1", QuestStatus.ONGOING)
+
+            # Heartbeat tick should find the ongoing quest and prod it
+            await agent.quests._heartbeat_tick()
+            await asyncio.sleep(0.05)
 
         content = await agent.chronicle.render_chapter(arc)
         assert "Do X" in content
@@ -185,16 +202,16 @@ async def test_chapter_rollover_copies_unresolved_quests(shared_agent):
         chapter_id_after = current_chapter_after["id"]
         assert chapter_id_after != chapter_id_before, "Rollover should have created a new chapter"
 
-        # Allow time for background quest tasks to complete
-        await asyncio.sleep(0.15)
-
         # Read the new chapter that was created during rollover (chapter_id_after)
         content = await agent.chronicle.render_chapter(arc, chapter_id=chapter_id_after)
         assert "Previous chapter recap:" in content
         assert "Carry over me" in content
 
-        # With fast execution, quest result gets added and triggers another quest
-        # This is different from original slow test behavior but is correct
+        # Trigger heartbeat to run the quest
+        await agent.quests._heartbeat_tick()
+        await asyncio.sleep(0.05)
+
+        # Quest should have been triggered via heartbeat
         assert actor_call_count["n"] >= 1  # at least initial quest triggered operator
         assert (
             agent.irc_monitor.varlink_sender.send_message.await_count >= 1
@@ -243,7 +260,7 @@ def test_chapter_append_executor_no_rewrite_without_current_quest():
 
 @pytest.mark.asyncio
 async def test_subquest_finish_resumes_parent(shared_agent):
-    """When a sub-quest finishes, the parent quest should be resumed."""
+    """When a sub-quest finishes, parent resumes on next heartbeat."""
     agent = shared_agent
     arc = "srv#chan"
     agent.config.setdefault("chronicler", {}).setdefault("quests", {})["arcs"] = [arc]
@@ -278,16 +295,25 @@ async def test_subquest_finish_resumes_parent(shared_agent):
 
         # Start with parent quest
         await chapter_append_paragraph(arc, '<quest id="parent">Main goal</quest>', agent)
+
+        # Trigger parent via heartbeat
+        await agent.quests._heartbeat_tick()
+        await asyncio.sleep(0.05)
+        assert "parent" in triggered_quest_ids
+
+        # Create sub-quest
+        await chapter_append_paragraph(arc, '<quest id="parent.child">Sub-task</quest>', agent)
+
+        # Trigger child via heartbeat - child will finish and update DB
+        await agent.quests._heartbeat_tick()
+        await asyncio.sleep(0.05)
+        assert "parent.child" in triggered_quest_ids
+
+        # Parent should now be ONGOING again (child finished), heartbeat resumes it
+        await agent.quests._heartbeat_tick()
         await asyncio.sleep(0.05)
 
-        # Simulate sub-quest being started (would normally happen via actor)
-        await chapter_append_paragraph(arc, '<quest id="parent.child">Sub-task</quest>', agent)
-        await asyncio.sleep(0.1)
-
-        # Verify: parent triggered first, then child, then parent resumed after child finished
-        assert "parent" in triggered_quest_ids
-        assert "parent.child" in triggered_quest_ids
-        # After child finishes, parent should be resumed
+        # Verify parent was triggered again after child finished
         parent_triggers = [q for q in triggered_quest_ids if q == "parent"]
         assert len(parent_triggers) >= 2, (
             f"Parent should be triggered at least twice (initial + resume): {triggered_quest_ids}"

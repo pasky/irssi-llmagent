@@ -144,13 +144,14 @@ class IRSSILLMAgent:
         # Initialize shared resources
         await self.history.initialize()
         await self.chronicle.initialize()
-        # Scan and resume any open quests for whitelisted arcs
-        await self.quests.scan_and_trigger_open_quests()
+        # Start quest heartbeat (will periodically prod ongoing quests)
+        await self.quests.start_heartbeat()
 
         try:
             await self.irc_monitor.run()
         finally:
             # Clean up shared resources
+            await self.quests.stop_heartbeat()
             await self.history.close()
             # Chronicle doesn't need explicit cleanup
 
