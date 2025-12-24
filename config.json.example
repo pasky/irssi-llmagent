@@ -27,7 +27,7 @@
   },
 
   "router": {
-    "refusal_fallback_model": "openrouter:z-ai/glm-4.6#z-ai"
+    "refusal_fallback_model": "deepseek:deepseek-reasoner"
   },
 
   "tools": {
