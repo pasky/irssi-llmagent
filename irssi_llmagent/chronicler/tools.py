@@ -143,7 +143,7 @@ def quest_tools_defs(current_quest_id: str | None = None) -> list[dict[str, Any]
     """Return quest tools based on current context.
 
     - quest_start: only when no active quest (starting a top-level quest)
-    - subquest_start: only when inside a quest (decomposing into subtask)
+    - subquest_start: only when inside a top-level quest (no dots in ID)
 
     Quest finish is handled via "CONFIRMED ACHIEVED" phrase detection at final_answer time.
     """
@@ -175,7 +175,8 @@ def quest_tools_defs(current_quest_id: str | None = None) -> list[dict[str, Any]
                 "persist": "summary",
             }
         )
-    else:
+    elif "." not in current_quest_id:
+        # Only allow subquest_start for top-level quests (no dots in ID)
         tools.append(
             {
                 "name": "subquest_start",
