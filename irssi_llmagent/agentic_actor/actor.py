@@ -5,7 +5,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from ..chronicler.tools import chronicle_tools_defs
+from ..chronicler.tools import chronicle_tools_defs, quest_tools_defs
 from ..providers import ModelRouter
 from .tools import TOOLS, create_tool_executors, execute_tool
 
@@ -13,16 +13,19 @@ logger = logging.getLogger(__name__)
 
 
 def get_tools_for_arc(config: dict | None, arc: str, current_quest_id: str | None = None) -> list:
-    """Get the full tools list including chronicle tools configured for the arc.
+    """Get the full tools list including chronicle and quest tools configured for the arc.
 
-    chronicle_append is only available on channels where quests are enabled.
+    chronicle_append and quest tools are only available on channels where quests are enabled.
     chronicle_read is always available.
     """
     quests_arcs = config.get("chronicler", {}).get("quests", {}).get("arcs", []) if config else []
-    chronicle_tools = chronicle_tools_defs(current_quest_id=current_quest_id)
+    chronicle_tools = chronicle_tools_defs()
     if arc not in quests_arcs:
         chronicle_tools = [t for t in chronicle_tools if t["name"] != "chronicle_append"]
-    return TOOLS + chronicle_tools
+        return TOOLS + chronicle_tools
+    # Arc has quests enabled: add quest tools based on current context
+    quest_tools = quest_tools_defs(current_quest_id=current_quest_id)
+    return TOOLS + chronicle_tools + quest_tools
 
 
 class AgenticLLMActor:

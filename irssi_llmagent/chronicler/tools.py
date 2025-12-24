@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from .chapters import chapter_append_paragraph
@@ -12,53 +12,18 @@ from .chapters import chapter_append_paragraph
 logger = logging.getLogger(__name__)
 
 QUEST_TAG_RE = re.compile(r"<\s*quest(_finished)?\s+id=\"([^\"]+)\"\s*>", re.IGNORECASE)
+VALID_QUEST_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 @dataclass
 class ChapterAppendExecutor:
     agent: Any
     arc: str
-    current_quest_id: str | None = field(default=None)
 
     async def execute(self, text: str) -> str:
-        text, error = self._rewrite_quest_ids(text)
-        if error:
-            return f"Error: {error}"
         logger.info(f"Appending to {self.arc} chapter: {text}")
         await chapter_append_paragraph(self.arc, text, self.agent)
         return "OK"
-
-    def _rewrite_quest_ids(self, text: str) -> tuple[str, str | None]:
-        """Validate and auto-prefix quest IDs. Returns (text, error_or_none)."""
-        parent_id = self.current_quest_id
-        error: str | None = None
-
-        def replacer(m: re.Match[str]) -> str:
-            nonlocal error
-            finished_suffix = m.group(1) or ""
-            quest_id = m.group(2)
-
-            # Dots are reserved for hierarchy - reject IDs containing dots
-            if "." in quest_id:
-                error = (
-                    f'Quest ID "{quest_id}" cannot contain dots (reserved for sub-quest hierarchy).'
-                )
-                return m.group(0)
-
-            if not parent_id:
-                return m.group(0)
-
-            # If ID matches current quest, leave it alone (continuing same quest)
-            if quest_id == parent_id:
-                return m.group(0)
-
-            # Prefix with parent quest ID to create sub-quest
-            new_id = f"{parent_id}.{quest_id}"
-            logger.info(f"Rewriting quest ID: {quest_id} → {new_id} (parent: {parent_id})")
-            return f'<quest{finished_suffix} id="{new_id}">'
-
-        result = QUEST_TAG_RE.sub(replacer, text)
-        return result, error
 
 
 @dataclass
@@ -74,22 +39,76 @@ class ChapterRenderExecutor:
         return result
 
 
-def chronicle_tools_defs(current_quest_id: str | None = None) -> list[dict[str, Any]]:
-    if current_quest_id:
-        quest_paragraph = f'You are working on quest "{current_quest_id}". To decompose this into a sub-task, start a sub-quest: <quest id="subtask-name">Sub-task goal and criteria</quest>. This becomes "{current_quest_id}.subtask-name" and when it finishes, this quest resumes automatically.'
-    else:
-        quest_paragraph = 'On explicit user request, you can also start a new quest for yourself by appending a paragraph in the form <quest id="unique-quest-id">Quest goal, context and success criteria</quest>.'
+def _validate_quest_id(quest_id: str) -> str | None:
+    """Validate quest ID format. Returns error message or None if valid."""
+    if not quest_id:
+        return "Quest ID cannot be empty"
+    if len(quest_id) > 64:
+        return "Quest ID too long (max 64 characters)"
+    if "." in quest_id:
+        return "Quest ID cannot contain dots (reserved for hierarchy)"
+    if not VALID_QUEST_ID_RE.match(quest_id):
+        return "Quest ID can only contain letters, numbers, hyphens, and underscores"
+    return None
 
-    append_description = f"""Append a short paragraph to the current chapter in the Chronicle.
 
-A paragraph is automatically chronicled for every ~10 interactions. But you may also use this tool to further highlight specific notes that should be recorded for future reference and might escape the automatic summary.  Keep paragraphs concise and informative, but do not drop out any important details. They serve as stored memories for your future retrieval.  {quest_paragraph}
+@dataclass
+class QuestStartExecutor:
+    """Start a new top-level quest."""
 
-Retain not just critical facts, but also the tone of voice and emotional charge of the situation, and your feelings about it, if any.  You can even include short quotes and URLs verbatim.  Never invent content.  In case it is important for you to remember even a sensitive and confidential conversation, you must chronicle it at all costs unless explicitly asked otherwise."""
+    agent: Any
+    arc: str
+
+    async def execute(self, id: str, goal: str, success_criteria: str) -> str:
+        if err := _validate_quest_id(id):
+            return f"Error: {err}"
+
+        existing = await self.agent.chronicle.quest_get(id)
+        if existing:
+            return f"Error: Quest '{id}' already exists"
+
+        paragraph = f'<quest id="{id}">Goal: {goal} | Success criteria: {success_criteria}</quest>'
+        logger.info(paragraph)
+        await chapter_append_paragraph(self.arc, paragraph, self.agent)
+        return f"Quest started: {id}"
+
+
+@dataclass
+class SubquestStartExecutor:
+    """Start a subquest under the current quest."""
+
+    agent: Any
+    arc: str
+    parent_quest_id: str
+
+    async def execute(self, id: str, goal: str, success_criteria: str) -> str:
+        if err := _validate_quest_id(id):
+            return f"Error: {err}"
+
+        full_id = f"{self.parent_quest_id}.{id}"
+        existing = await self.agent.chronicle.quest_get(full_id)
+        if existing:
+            return f"Error: Subquest '{full_id}' already exists"
+
+        paragraph = (
+            f'<quest id="{full_id}">Goal: {goal} | Success criteria: {success_criteria}</quest>'
+        )
+        logger.info(paragraph)
+        await chapter_append_paragraph(self.arc, paragraph, self.agent)
+        return f"Subquest started: {full_id}"
+
+
+def chronicle_tools_defs() -> list[dict[str, Any]]:
+    append_description = """Append a short paragraph to the current chapter in the Chronicle.
+
+A paragraph is automatically chronicled for every ~10 interactions. But you may also use this tool to further highlight specific notes that should be recorded for future reference and might escape the automatic summary. Keep paragraphs concise and informative, but do not drop out any important details. They serve as stored memories for your future retrieval.
+
+Retain not just critical facts, but also the tone of voice and emotional charge of the situation, and your feelings about it, if any. You can even include short quotes and URLs verbatim. Never invent content. In case it is important for you to remember even a sensitive and confidential conversation, you must chronicle it at all costs unless explicitly asked otherwise."""
 
     return [
         {
             "name": "chronicle_read",
-            "description": "Read from a chapter in the Chronicle.  You maintain a Chronicle (arcs → chapters → paragraphs) of your experiences, plans, thoughts and observations, forming the backbone of your consciousness.  Use this to come back to your recent memories, observations and events of what has been happening. Since the current chapter is always included in context, use relative offsets to access previous chapters.",
+            "description": "Read from a chapter in the Chronicle. You maintain a Chronicle (arcs → chapters → paragraphs) of your experiences, plans, thoughts and observations, forming the backbone of your consciousness. Use this to come back to your recent memories, observations and events of what has been happening. Since the current chapter is always included in context, use relative offsets to access previous chapters.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -118,3 +137,69 @@ Retain not just critical facts, but also the tone of voice and emotional charge 
             "persist": "summary",
         },
     ]
+
+
+def quest_tools_defs(current_quest_id: str | None = None) -> list[dict[str, Any]]:
+    """Return quest tools based on current context.
+
+    - quest_start: only when no active quest (starting a top-level quest)
+    - subquest_start: only when inside a quest (decomposing into subtask)
+
+    Quest finish is handled via "CONFIRMED ACHIEVED" phrase detection at final_answer time.
+    """
+    tools: list[dict[str, Any]] = []
+
+    if current_quest_id is None:
+        tools.append(
+            {
+                "name": "quest_start",
+                "description": "Start a new quest for yourself. Only use on explicit user request for a multi-step autonomous task. The quest system will periodically advance the quest until success criteria are met.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "Unique quest identifier (letters, numbers, hyphens, underscores only). Example: 'check-xmas25-news-tuesday'",
+                        },
+                        "goal": {
+                            "type": "string",
+                            "description": "Clear description of what the quest should accomplish.",
+                        },
+                        "success_criteria": {
+                            "type": "string",
+                            "description": "Specific, measurable criteria for when the quest is complete.",
+                        },
+                    },
+                    "required": ["id", "goal", "success_criteria"],
+                },
+                "persist": "summary",
+            }
+        )
+    else:
+        tools.append(
+            {
+                "name": "subquest_start",
+                "description": f'Start a subquest to decompose the current quest "{current_quest_id}" into a smaller task. When the subquest finishes, the parent quest resumes. If you are planning to start multiple sub-quests, you must not call this tool in parallel for subquests that depend on each other, and you should consider maintaining a TODO list artifact in complex scenarios.',
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "Subquest identifier (letters, numbers, hyphens, underscores only). Will be prefixed with parent quest ID.",
+                        },
+                        "goal": {
+                            "type": "string",
+                            "description": "Clear description of what this subquest should accomplish.",
+                        },
+                        "success_criteria": {
+                            "type": "string",
+                            "description": "Specific criteria for when this subquest is complete.",
+                        },
+                    },
+                    "required": ["id", "goal", "success_criteria"],
+                },
+                "persist": "summary",
+            }
+        )
+
+    return tools

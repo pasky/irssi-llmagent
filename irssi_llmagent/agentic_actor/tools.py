@@ -15,7 +15,12 @@ from typing import Any, TypedDict
 import aiohttp
 from ddgs import DDGS
 
-from ..chronicler.tools import ChapterAppendExecutor, ChapterRenderExecutor
+from ..chronicler.tools import (
+    ChapterAppendExecutor,
+    ChapterRenderExecutor,
+    QuestStartExecutor,
+    SubquestStartExecutor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1207,11 +1212,17 @@ def create_tool_executors(
         "edit_artifact": EditArtifactExecutor(
             store=artifact_store, webpage_visitor=webpage_visitor
         ),
-        "chronicle_append": ChapterAppendExecutor(
-            agent=agent, arc=arc, current_quest_id=current_quest_id
-        ),
+        "chronicle_append": ChapterAppendExecutor(agent=agent, arc=arc),
         "chronicle_read": ChapterRenderExecutor(chronicle=agent.chronicle, arc=arc),
     }
+
+    # Add quest tools conditionally based on current_quest_id
+    if current_quest_id is None:
+        executors["quest_start"] = QuestStartExecutor(agent=agent, arc=arc)
+    else:
+        executors["subquest_start"] = SubquestStartExecutor(
+            agent=agent, arc=arc, parent_quest_id=current_quest_id
+        )
 
     # Add generate_image only if router is available
     if router:

@@ -4,7 +4,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from irssi_llmagent.chronicler.chapters import chapter_append_paragraph
-from irssi_llmagent.chronicler.tools import ChapterAppendExecutor
+from irssi_llmagent.chronicler.tools import (
+    QuestStartExecutor,
+    SubquestStartExecutor,
+    _validate_quest_id,
+)
 
 
 @pytest.mark.asyncio
@@ -19,8 +23,11 @@ async def test_quest_operator_triggers_and_announces(shared_agent):
     agent.config.setdefault("actor", {}).setdefault("quests", {})["cooldown"] = 0.01
 
     # Mock AgenticLLMActor to return an intermediate quest step, then finished
-    intermediate_para = '<quest id="abc">Intermediate step</quest>'
-    finished_para = "All done. CONFIRMED ACHIEVED"
+    # Include extra text around quest tags to verify extraction works
+    intermediate_para = (
+        'Here is my response: <quest id="abc">Intermediate step</quest> Hope that helps!'
+    )
+    finished_para = "Let me wrap up. <quest>All done. CONFIRMED ACHIEVED</quest> That concludes it."
 
     call_counter = {"count": 0}
     finished_event = asyncio.Event()
@@ -84,6 +91,16 @@ async def test_quest_operator_triggers_and_announces(shared_agent):
         calls = agent.irc_monitor.varlink_sender.send_message.await_args_list
         assert any("Intermediate step" in c[0][1] for c in calls)
         assert any("CONFIRMED ACHIEVED" in c[0][1] for c in calls)
+
+        # Verify full response (including extra text) was sent to IRC
+        assert any("Here is my response" in c[0][1] for c in calls)
+        assert any("That concludes it" in c[0][1] for c in calls)
+
+        # But chronicle should only have quest XML, not the extra text
+        assert "Here is my response" not in content
+        assert "Hope that helps" not in content
+        assert "Let me wrap up" not in content
+        assert "That concludes it" not in content
 
         # Ensure no further quest steps are scheduled after finished
         await asyncio.sleep(0.05)
@@ -218,44 +235,59 @@ async def test_chapter_rollover_copies_unresolved_quests(shared_agent):
         )  # at least one announcement
 
 
-def test_chapter_append_executor_rewrites_quest_ids_for_subquests():
-    """When inside a quest, new quest IDs should be auto-prefixed with parent ID."""
-    executor = ChapterAppendExecutor(agent=MagicMock(), arc="test#arc", current_quest_id="parent")
+def test_validate_quest_id():
+    """Quest ID validation rejects invalid formats."""
+    assert _validate_quest_id("valid-id") is None
+    assert _validate_quest_id("valid_id_123") is None
 
-    # New quest should get prefixed
-    result, error = executor._rewrite_quest_ids('<quest id="child">Do something</quest>')
-    assert error is None
-    assert 'id="parent.child"' in result
+    err = _validate_quest_id("")
+    assert err is not None and "empty" in err
 
-    # Quest with same ID as parent should not be double-prefixed
-    result, error = executor._rewrite_quest_ids('<quest id="parent">Continue parent</quest>')
-    assert error is None
-    assert 'id="parent"' in result
-    assert 'id="parent.parent"' not in result
+    err = _validate_quest_id("a" * 100)
+    assert err is not None and "too long" in err
 
-    # Quest with dot in ID should be rejected
-    result, error = executor._rewrite_quest_ids('<quest id="bad.id">Rejected</quest>')
-    assert error is not None
-    assert "cannot contain dots" in error
+    err = _validate_quest_id("bad.id")
+    assert err is not None and "dots" in err
 
-    # quest_finished should also get prefixed
-    result, error = executor._rewrite_quest_ids('<quest_finished id="child">Done</quest_finished>')
-    assert error is None
-    assert 'id="parent.child"' in result
+    assert _validate_quest_id("bad id") is not None  # spaces
+    assert _validate_quest_id("bad@id") is not None  # special chars
 
 
-def test_chapter_append_executor_no_rewrite_without_current_quest():
-    """Without a current quest, IDs should not be rewritten."""
-    executor = ChapterAppendExecutor(agent=MagicMock(), arc="test#arc", current_quest_id=None)
+@pytest.mark.asyncio
+async def test_quest_start_executor(shared_agent):
+    """QuestStartExecutor creates quest and appends paragraph."""
+    agent = shared_agent
+    arc = "srv#chan"
+    agent.config.setdefault("chronicler", {}).setdefault("quests", {})["arcs"] = [arc]
 
-    result, error = executor._rewrite_quest_ids('<quest id="standalone">Do something</quest>')
-    assert error is None
-    assert 'id="standalone"' in result
+    executor = QuestStartExecutor(agent=agent, arc=arc)
+    result = await executor.execute(
+        id="test-quest", goal="Do something", success_criteria="Something done"
+    )
 
-    # Dots still rejected even outside a quest
-    result, error = executor._rewrite_quest_ids('<quest id="bad.id">Rejected</quest>')
-    assert error is not None
-    assert "cannot contain dots" in error
+    assert result == "Quest started: test-quest"
+    quest = await agent.chronicle.quest_get("test-quest")
+    assert quest is not None
+    assert quest["id"] == "test-quest"
+
+
+@pytest.mark.asyncio
+async def test_subquest_start_executor(shared_agent):
+    """SubquestStartExecutor creates subquest with prefixed ID."""
+    agent = shared_agent
+    arc = "srv#chan"
+    agent.config.setdefault("chronicler", {}).setdefault("quests", {})["arcs"] = [arc]
+
+    # First create parent quest
+    await chapter_append_paragraph(arc, '<quest id="parent">Main goal</quest>', agent)
+
+    executor = SubquestStartExecutor(agent=agent, arc=arc, parent_quest_id="parent")
+    result = await executor.execute(id="child", goal="Sub task", success_criteria="Sub task done")
+
+    assert result == "Subquest started: parent.child"
+    quest = await agent.chronicle.quest_get("parent.child")
+    assert quest is not None
+    assert quest["parent_id"] == "parent"
 
 
 @pytest.mark.asyncio
