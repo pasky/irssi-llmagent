@@ -1140,6 +1140,7 @@ def create_tool_executors(
     agent: Any,
     arc: str,
     router: Any = None,
+    current_quest_id: str | None = None,
 ) -> dict[str, Any]:
     """Create tool executors with configuration."""
     # Tool configs
@@ -1201,7 +1202,9 @@ def create_tool_executors(
         "edit_artifact": EditArtifactExecutor(
             store=artifact_store, webpage_visitor=webpage_visitor
         ),
-        "chronicle_append": ChapterAppendExecutor(agent=agent, arc=arc),
+        "chronicle_append": ChapterAppendExecutor(
+            agent=agent, arc=arc, current_quest_id=current_quest_id
+        ),
         "chronicle_read": ChapterRenderExecutor(chronicle=agent.chronicle, arc=arc),
     }
 

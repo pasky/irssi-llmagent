@@ -57,15 +57,59 @@ class QuestOperator:
         """Hook to be called after a paragraph is appended to the chronicle."""
         cfg = self.agent.config["chronicler"]["quests"]
         quest_id, is_finished = self._parse_quest(paragraph_text)
-        if not quest_id or is_finished:
+        if not quest_id:
             return
         allowed_arcs = set(cfg["arcs"])
         if arc not in allowed_arcs:
             logger.debug(f"Quest {quest_id} not in allowed: {allowed_arcs}")
             return
-        logger.debug(f"Quest {quest_id} triggered: {paragraph_text}")
 
+        if is_finished:
+            # Sub-quest finished: resume parent if this is a hierarchical quest
+            await self._maybe_resume_parent(arc, quest_id)
+            return
+
+        logger.debug(f"Quest {quest_id} triggered: {paragraph_text}")
         asyncio.create_task(self._run_step(arc, quest_id, paragraph_text))
+
+    async def _maybe_resume_parent(self, arc: str, finished_quest_id: str) -> None:
+        """If a sub-quest finished, find and resume the parent quest."""
+        if "." not in finished_quest_id:
+            logger.debug(f"Quest {finished_quest_id} finished (no parent to resume)")
+            return
+
+        parent_id = finished_quest_id.rsplit(".", 1)[0]
+        logger.info(f"Sub-quest {finished_quest_id} finished, resuming parent: {parent_id}")
+
+        # Find the latest paragraph for the parent quest
+        parent_paragraph = await self._find_latest_quest_paragraph(arc, parent_id)
+        if not parent_paragraph:
+            logger.warning(f"Could not find parent quest {parent_id} to resume")
+            return
+
+        asyncio.create_task(self._run_step(arc, parent_id, parent_paragraph))
+
+    async def _find_latest_quest_paragraph(self, arc: str, quest_id: str) -> str | None:
+        """Find the latest paragraph for a given quest ID, searching back through all chapters."""
+        # Search current chapter first, then progressively older chapters
+        relative_offset = 0
+        while True:
+            chap_id, chap = await self.agent.chronicle._resolve_relative_chapter_id(
+                arc, relative_offset
+            )
+            if chap_id is None:
+                break
+
+            paragraphs = await self.agent.chronicle.read_chapter(chap_id)
+            # Search in reverse order to find the latest occurrence
+            for p in reversed(paragraphs):
+                qid, is_finished = self._parse_quest(p)
+                if qid == quest_id and not is_finished:
+                    return p
+
+            relative_offset -= 1
+
+        return None
 
     async def scan_and_trigger_open_quests(self) -> None:
         """Scan current chapters of allowed arcs for unresolved quests and trigger them."""
@@ -136,6 +180,7 @@ class QuestOperator:
                 system_prompt=system_prompt,
                 arc=arc,
                 persistence_callback=persistence_cb,
+                current_quest_id=quest_id,
             )
         except Exception as e:
             logger.error(f"Quest step run_actor failed for {arc} {quest_id}: {e}")

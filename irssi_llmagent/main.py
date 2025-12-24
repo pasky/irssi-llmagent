@@ -84,6 +84,7 @@ class IRSSILLMAgent:
         progress_callback=None,
         persistence_callback=None,
         model: str | list[str] | None = None,
+        current_quest_id: str | None = None,
         **actor_kwargs,
     ) -> str | None:
         prepended_context: list[dict[str, str]] = []
@@ -105,6 +106,7 @@ class IRSSILLMAgent:
             progress_callback=progress_callback,
             persistence_callback=persistence_callback,
             arc=arc,
+            current_quest_id=current_quest_id,
         )
 
         if not response or response.strip().upper().startswith("NULL"):

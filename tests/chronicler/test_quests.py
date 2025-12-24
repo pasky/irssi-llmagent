@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from irssi_llmagent.chronicler.chapters import chapter_append_paragraph
+from irssi_llmagent.chronicler.tools import ChapterAppendExecutor
 
 
 @pytest.mark.asyncio
@@ -29,7 +30,13 @@ async def test_quest_operator_triggers_and_announces(shared_agent):
             pass
 
         async def run_agent(
-            self, context, *, progress_callback=None, persistence_callback=None, arc: str
+            self,
+            context,
+            *,
+            progress_callback=None,
+            persistence_callback=None,
+            arc: str,
+            current_quest_id: str | None = None,
         ):
             call_counter["count"] += 1
             if call_counter["count"] == 2:
@@ -98,7 +105,13 @@ async def test_scan_and_trigger_open_quests(shared_agent):
             pass
 
         async def run_agent(
-            self, context, *, progress_callback=None, persistence_callback=None, arc: str
+            self,
+            context,
+            *,
+            progress_callback=None,
+            persistence_callback=None,
+            arc: str,
+            current_quest_id: str | None = None,
         ):
             return next_para
 
@@ -134,7 +147,13 @@ async def test_chapter_rollover_copies_unresolved_quests(shared_agent):
             pass
 
         async def run_agent(
-            self, context, *, progress_callback=None, persistence_callback=None, arc: str
+            self,
+            context,
+            *,
+            progress_callback=None,
+            persistence_callback=None,
+            arc: str,
+            current_quest_id: str | None = None,
         ):
             actor_call_count["n"] += 1
             return None
@@ -180,3 +199,96 @@ async def test_chapter_rollover_copies_unresolved_quests(shared_agent):
         assert (
             agent.irc_monitor.varlink_sender.send_message.await_count >= 1
         )  # at least one announcement
+
+
+def test_chapter_append_executor_rewrites_quest_ids_for_subquests():
+    """When inside a quest, new quest IDs should be auto-prefixed with parent ID."""
+    executor = ChapterAppendExecutor(agent=MagicMock(), arc="test#arc", current_quest_id="parent")
+
+    # New quest should get prefixed
+    result, error = executor._rewrite_quest_ids('<quest id="child">Do something</quest>')
+    assert error is None
+    assert 'id="parent.child"' in result
+
+    # Quest with same ID as parent should not be double-prefixed
+    result, error = executor._rewrite_quest_ids('<quest id="parent">Continue parent</quest>')
+    assert error is None
+    assert 'id="parent"' in result
+    assert 'id="parent.parent"' not in result
+
+    # Quest with dot in ID should be rejected
+    result, error = executor._rewrite_quest_ids('<quest id="bad.id">Rejected</quest>')
+    assert error is not None
+    assert "cannot contain dots" in error
+
+    # quest_finished should also get prefixed
+    result, error = executor._rewrite_quest_ids('<quest_finished id="child">Done</quest_finished>')
+    assert error is None
+    assert 'id="parent.child"' in result
+
+
+def test_chapter_append_executor_no_rewrite_without_current_quest():
+    """Without a current quest, IDs should not be rewritten."""
+    executor = ChapterAppendExecutor(agent=MagicMock(), arc="test#arc", current_quest_id=None)
+
+    result, error = executor._rewrite_quest_ids('<quest id="standalone">Do something</quest>')
+    assert error is None
+    assert 'id="standalone"' in result
+
+    # Dots still rejected even outside a quest
+    result, error = executor._rewrite_quest_ids('<quest id="bad.id">Rejected</quest>')
+    assert error is not None
+    assert "cannot contain dots" in error
+
+
+@pytest.mark.asyncio
+async def test_subquest_finish_resumes_parent(shared_agent):
+    """When a sub-quest finishes, the parent quest should be resumed."""
+    agent = shared_agent
+    arc = "srv#chan"
+    agent.config.setdefault("chronicler", {}).setdefault("quests", {})["arcs"] = [arc]
+    agent.config["chronicler"]["quests"]["prompt_reminder"] = "Quest instructions"
+    agent.config["chronicler"]["quests"]["cooldown"] = 0.01
+
+    # Track which quest IDs trigger the actor
+    triggered_quest_ids = []
+
+    class TrackingActor:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def run_agent(
+            self,
+            context,
+            *,
+            progress_callback=None,
+            persistence_callback=None,
+            arc: str,
+            current_quest_id: str | None = None,
+        ):
+            triggered_quest_ids.append(current_quest_id)
+            # Return finished for sub-quest, continuation for parent
+            if current_quest_id == "parent.child":
+                return '<quest_finished id="parent.child">Sub-task done. CONFIRMED ACHIEVED</quest_finished>'
+            return '<quest id="parent">Continuing parent</quest>'
+
+    with patch("irssi_llmagent.main.AgenticLLMActor", new=TrackingActor):
+        agent.irc_monitor.varlink_sender = AsyncMock()
+        agent.irc_monitor.get_mynick = AsyncMock(return_value="botnick")
+
+        # Start with parent quest
+        await chapter_append_paragraph(arc, '<quest id="parent">Main goal</quest>', agent)
+        await asyncio.sleep(0.05)
+
+        # Simulate sub-quest being started (would normally happen via actor)
+        await chapter_append_paragraph(arc, '<quest id="parent.child">Sub-task</quest>', agent)
+        await asyncio.sleep(0.1)
+
+        # Verify: parent triggered first, then child, then parent resumed after child finished
+        assert "parent" in triggered_quest_ids
+        assert "parent.child" in triggered_quest_ids
+        # After child finishes, parent should be resumed
+        parent_triggers = [q for q in triggered_quest_ids if q == "parent"]
+        assert len(parent_triggers) >= 2, (
+            f"Parent should be triggered at least twice (initial + resume): {triggered_quest_ids}"
+        )
