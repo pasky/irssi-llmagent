@@ -79,6 +79,7 @@ class Chronicle:
                   status TEXT NOT NULL CHECK(status IN ('ongoing', 'in_step', 'finished')),
                   last_state TEXT,
                   plan TEXT,
+                  resume_at TEXT,
                   created_by_paragraph_id INTEGER,
                   last_updated_by_paragraph_id INTEGER,
                   FOREIGN KEY (arc_id) REFERENCES arcs(id),
@@ -95,6 +96,13 @@ class Chronicle:
                 """
             )
             await db.commit()
+
+            # Migration: add resume_at column if missing (for existing DBs)
+            async with db.execute("PRAGMA table_info(quests)") as cur:
+                columns = {row[1] for row in await cur.fetchall()}
+            if "resume_at" not in columns:
+                await db.execute("ALTER TABLE quests ADD COLUMN resume_at TEXT")
+                await db.commit()
 
     async def _get_or_create_arc(self, arc: str) -> tuple[int, bool]:
         async with self._lock, aiosqlite.connect(self.db_path) as db:
@@ -454,7 +462,7 @@ class Chronicle:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """SELECT id, arc_id, parent_id, status, last_state, plan,
+                """SELECT id, arc_id, parent_id, status, last_state, plan, resume_at,
                           created_by_paragraph_id, last_updated_by_paragraph_id
                    FROM quests WHERE id = ?""",
                 (quest_id,),
@@ -474,6 +482,16 @@ class Chronicle:
             await db.commit()
             return cursor.rowcount > 0
 
+    async def quest_set_resume_at(self, quest_id: str, resume_at: str | None) -> bool:
+        """Set the resume_at timestamp for a quest. Pass None to clear. Returns True if quest existed."""
+        async with self._lock, aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "UPDATE quests SET resume_at = ? WHERE id = ?",
+                (resume_at, quest_id),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
     async def quests_ready_for_heartbeat(
         self, arc: str, cooldown_seconds: float
     ) -> list[dict[str, Any]]:
@@ -483,6 +501,7 @@ class Chronicle:
         - status is ONGOING
         - last_updated paragraph.ts + cooldown < now
         - no children with status in (ONGOING, IN_STEP)
+        - resume_at is NULL or now >= resume_at
 
         Also logs warnings for any orphaned quests (ONGOING with no active children
         but parent has active children that don't include this quest).
@@ -498,6 +517,7 @@ class Chronicle:
                    WHERE q.arc_id = ?
                      AND q.status = ?
                      AND datetime(p.ts, '+' || ? || ' seconds') <= datetime('now')
+                     AND (q.resume_at IS NULL OR datetime('now') >= datetime(q.resume_at))
                      AND NOT EXISTS (
                        SELECT 1 FROM quests c
                        WHERE c.parent_id = q.id AND c.status IN (?, ?)

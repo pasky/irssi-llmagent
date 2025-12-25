@@ -312,7 +312,7 @@ class AgenticLLMActor:
                     for tool in result["tools"]:
                         try:
                             if (
-                                tool["name"] in ("quest_start", "subquest_start")
+                                tool["name"] in ("quest_start", "subquest_start", "quest_snooze")
                                 and "final_answer" not in tool_names_in_turn
                             ):
                                 tool_result = f"REJECTED: {tool['name']} can only be called alongside final_answer in the same turn."
@@ -389,7 +389,7 @@ class AgenticLLMActor:
                                 )
                                 cleaned_result = client.cleanup_raw_text(tool_result_str)
                                 # Check if there are other tool calls besides allowed ones
-                                quest_tools = {"quest_start", "subquest_start"}
+                                quest_tools = {"quest_start", "subquest_start", "quest_snooze"}
                                 allowed_with_final = {
                                     "final_answer",
                                     "progress_report",
@@ -406,12 +406,12 @@ class AgenticLLMActor:
                                     logger.warning(
                                         "Rejecting final answer, since disallowed tool calls were seen."
                                     )
-                                    tool_result = "REJECTED: final_answer must be called separately from other tools (progress_report, quest_start, subquest_start, make_plan are allowed)."
+                                    tool_result = "REJECTED: final_answer must be called separately from other tools (progress_report, quest_start, subquest_start, quest_snooze, make_plan are allowed)."
                                 elif has_make_plan and not has_quest_tool:
                                     logger.warning(
                                         "Rejecting final answer, since make_plan was called without quest tools."
                                     )
-                                    tool_result = "REJECTED: make_plan can only be called with final_answer if quest_start or subquest_start is also present."
+                                    tool_result = "REJECTED: make_plan can only be called with final_answer if quest_start, subquest_start, or quest_snooze is also present."
                                 elif "<thinking>" in tool_result_str and (
                                     not cleaned_result or cleaned_result == "..."
                                 ):

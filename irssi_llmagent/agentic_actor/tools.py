@@ -18,6 +18,7 @@ from ddgs import DDGS
 from ..chronicler.tools import (
     ChapterAppendExecutor,
     ChapterRenderExecutor,
+    QuestSnoozeExecutor,
     QuestStartExecutor,
     SubquestStartExecutor,
 )
@@ -844,7 +845,7 @@ class OracleExecutor:
     """Executor that spawns a nested agentic loop with a powerful reasoning model."""
 
     # Tools excluded from oracle's nested loop
-    EXCLUDED_TOOLS = {"oracle", "progress_report", "quest_start", "subquest_start"}
+    EXCLUDED_TOOLS = {"oracle", "progress_report", "quest_start", "subquest_start", "quest_snooze"}
 
     def __init__(
         self,
@@ -1324,6 +1325,7 @@ def create_tool_executors(
         executors["subquest_start"] = SubquestStartExecutor(
             agent=agent, arc=arc, parent_quest_id=current_quest_id
         )
+        executors["quest_snooze"] = QuestSnoozeExecutor(agent=agent, quest_id=current_quest_id)
 
     # Add generate_image only if router is available
     if router:

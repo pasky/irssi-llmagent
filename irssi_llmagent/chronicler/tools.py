@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .chapters import chapter_append_paragraph
@@ -98,6 +99,35 @@ class SubquestStartExecutor:
         return f"Subquest started: {full_id}"
 
 
+@dataclass
+class QuestSnoozeExecutor:
+    """Snooze the current quest until a specified time."""
+
+    agent: Any
+    quest_id: str
+
+    async def execute(self, until: str) -> str:
+        time_match = re.match(r"^(\d{1,2}):(\d{2})$", until.strip())
+        if not time_match:
+            return "Error: Invalid time format. Use HH:MM (e.g., 14:30)"
+
+        hour, minute = int(time_match.group(1)), int(time_match.group(2))
+        if hour > 23 or minute > 59:
+            return "Error: Invalid time. Hours must be 0-23, minutes 0-59"
+
+        now = datetime.now()
+        resume_local = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if resume_local <= now:
+            resume_local += timedelta(days=1)
+
+        resume_at = resume_local.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        success = await self.agent.chronicle.quest_set_resume_at(self.quest_id, resume_at)
+        if not success:
+            return f"Error: Quest '{self.quest_id}' not found"
+
+        return f"Quest snoozed until {resume_at}"
+
+
 def chronicle_tools_defs() -> list[dict[str, Any]]:
     append_description = """Append a short paragraph to the current chapter in the Chronicle.
 
@@ -144,6 +174,7 @@ def quest_tools_defs(current_quest_id: str | None = None) -> list[dict[str, Any]
 
     - quest_start: only when no active quest (starting a top-level quest)
     - subquest_start: only when inside a top-level quest (no dots in ID)
+    - quest_snooze: only when inside a quest
 
     Quest finish is handled via "CONFIRMED ACHIEVED" phrase detection at final_answer time.
     """
@@ -198,6 +229,25 @@ def quest_tools_defs(current_quest_id: str | None = None) -> list[dict[str, Any]
                         },
                     },
                     "required": ["id", "goal", "success_criteria"],
+                },
+                "persist": "summary",
+            }
+        )
+
+    if current_quest_id is not None:
+        tools.append(
+            {
+                "name": "quest_snooze",
+                "description": f'Snooze the current quest "{current_quest_id}" until a specified time. MUST be called alongside final_answer in the same turn - you will be pinged to resume the quest at the specified time.',
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "until": {
+                            "type": "string",
+                            "description": "Time to resume the quest in HH:MM format (24-hour). If the time is in the past today, it will be interpreted as tomorrow.",
+                        },
+                    },
+                    "required": ["until"],
                 },
                 "persist": "summary",
             }

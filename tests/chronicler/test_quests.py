@@ -1,10 +1,12 @@
 import asyncio
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from irssi_llmagent.chronicler.chapters import chapter_append_paragraph
 from irssi_llmagent.chronicler.tools import (
+    QuestSnoozeExecutor,
     QuestStartExecutor,
     SubquestStartExecutor,
     _validate_quest_id,
@@ -452,3 +454,77 @@ async def test_quest_start_with_make_plan_and_final_answer(shared_agent):
     assert "make_plan" in executed_tools, "make_plan should execute"
     assert "quest_start" in executed_tools, "quest_start should execute"
     assert "Quest started: plan-test" in result
+
+
+@pytest.mark.asyncio
+async def test_quest_snooze_executor(shared_agent):
+    """QuestSnoozeExecutor sets resume_at on the quest."""
+    agent = shared_agent
+    arc = "srv#chan"
+    agent.config.setdefault("chronicler", {}).setdefault("quests", {})["arcs"] = [arc]
+
+    await chapter_append_paragraph(arc, '<quest id="snooze-test">Goal</quest>', agent)
+
+    executor = QuestSnoozeExecutor(agent=agent, quest_id="snooze-test")
+    result = await executor.execute(until="14:30")
+
+    assert "Quest snoozed until" in result
+
+    quest = await agent.chronicle.quest_get("snooze-test")
+    assert quest is not None
+    assert quest["resume_at"] is not None
+    resume_utc = datetime.strptime(quest["resume_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+    resume_local = resume_utc.astimezone()
+    assert resume_local.hour == 14
+    assert resume_local.minute == 30
+
+
+@pytest.mark.asyncio
+async def test_quest_snooze_invalid_time(shared_agent):
+    """QuestSnoozeExecutor rejects invalid time formats."""
+    agent = shared_agent
+    arc = "srv#chan"
+    agent.config.setdefault("chronicler", {}).setdefault("quests", {})["arcs"] = [arc]
+
+    await chapter_append_paragraph(arc, '<quest id="snooze-invalid">Goal</quest>', agent)
+
+    executor = QuestSnoozeExecutor(agent=agent, quest_id="snooze-invalid")
+
+    result = await executor.execute(until="invalid")
+    assert "Error: Invalid time format" in result
+
+    result = await executor.execute(until="25:00")
+    assert "Error: Invalid time" in result
+
+    result = await executor.execute(until="12:60")
+    assert "Error: Invalid time" in result
+
+
+@pytest.mark.asyncio
+async def test_quest_snooze_nonexistent_quest(shared_agent):
+    """QuestSnoozeExecutor returns error for nonexistent quest."""
+    agent = shared_agent
+
+    executor = QuestSnoozeExecutor(agent=agent, quest_id="nonexistent")
+    result = await executor.execute(until="14:30")
+
+    assert "Error: Quest 'nonexistent' not found" in result
+
+
+@pytest.mark.asyncio
+async def test_snoozed_quest_not_ready_for_heartbeat(shared_agent):
+    """Snoozed quests are not returned by quests_ready_for_heartbeat."""
+    from datetime import timedelta
+
+    agent = shared_agent
+    arc = "srv#chan"
+    agent.config.setdefault("chronicler", {}).setdefault("quests", {})["arcs"] = [arc]
+
+    await chapter_append_paragraph(arc, '<quest id="snoozed-heartbeat">Goal</quest>', agent)
+
+    future_time = (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+    await agent.chronicle.quest_set_resume_at("snoozed-heartbeat", future_time)
+
+    ready = await agent.chronicle.quests_ready_for_heartbeat(arc, 0)
+    quest_ids = [q["id"] for q in ready]
+    assert "snoozed-heartbeat" not in quest_ids
