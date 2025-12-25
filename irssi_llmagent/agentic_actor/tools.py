@@ -247,6 +247,21 @@ TOOLS: list[Tool] = [
         },
         "persist": "artifact",
     },
+    {
+        "name": "oracle",
+        "description": "Consult the oracle - a more powerful reasoning model that may be consulted for complex analysis and creative work. Invoke it whenever it would be helpful to get deep advice on complex problems or produce a high quality creative piece.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The question or task for the oracle. Be extremely specific about what analysis, plan, or solution you need. The Oracle will get access to the chat context, but not to your progress made on the last request so far.",
+                },
+            },
+            "required": ["query"],
+        },
+        "persist": "none",
+    },
 ]
 
 
@@ -803,7 +818,7 @@ class FinalAnswerExecutor:
 
     async def execute(self, answer: str) -> str:
         """Return the final answer."""
-        logger.info(f"Final answer provided: {answer[:100]}...")
+        logger.info(f"Final answer provided: {answer[:500]}...")
         return answer
 
 
@@ -823,6 +838,83 @@ class MakePlanExecutor:
             logger.debug(f"Stored plan for quest {self.current_quest_id}")
 
         return "OK, follow this plan (stored for future quest steps)"
+
+
+class OracleExecutor:
+    """Executor that spawns a nested agentic loop with a powerful reasoning model."""
+
+    # Tools excluded from oracle's nested loop
+    EXCLUDED_TOOLS = {"oracle", "progress_report", "quest_start", "subquest_start"}
+
+    def __init__(
+        self,
+        config: dict,
+        agent: Any,
+        arc: str,
+        conversation_context: list[dict],
+        progress_callback: Callable[[str], Awaitable[None]] | None = None,
+    ):
+        self.config = config
+        self.agent = agent
+        self.arc = arc
+        self.conversation_context = conversation_context
+        self.progress_callback = progress_callback
+
+    async def execute(self, query: str) -> str:
+        """Consult the oracle with a query, returning its response."""
+        from .actor import AgenticLLMActor, get_tools_for_arc
+
+        oracle_config = self.config.get("tools", {}).get("oracle", {})
+        model = oracle_config.get("model")
+        if not model:
+            return "Error: oracle.model not configured"
+
+        system_prompt = oracle_config.get(
+            "prompt",
+            "You are an oracle - a powerful reasoning entity consulted for complex analysis.",
+        )
+
+        # Build allowed tools list (all tools except excluded ones)
+        all_tools = get_tools_for_arc(self.config, self.arc, current_quest_id=None)
+        allowed_tools = [t["name"] for t in all_tools if t["name"] not in self.EXCLUDED_TOOLS]
+
+        # Build context: original conversation + oracle query as new user turn
+        context = list(self.conversation_context) + [{"role": "user", "content": query}]
+
+        logger.info(
+            f"---------------------------------------------- CONSULTING ORACLE: {query[:500]}..."
+        )
+
+        actor = AgenticLLMActor(
+            config=self.config,
+            model=model,
+            system_prompt_generator=lambda: system_prompt,
+            reasoning_effort="high",
+            allowed_tools=allowed_tools,
+            agent=self.agent,
+        )
+
+        try:
+            result = await actor.run_agent(
+                context,
+                progress_callback=self.progress_callback,
+                arc=self.arc,
+                current_quest_id=None,
+            )
+            logger.info(
+                f"---------------------------------------------- Oracle response: {result[:500]}..."
+            )
+            return result
+        except StopIteration as e:
+            logger.warning(
+                f"---------------------------------------------- Oracle exhausted: {e}..."
+            )
+            return f"Oracle exhausted iterations: {e}"
+        except Exception as e:
+            logger.error(
+                f"---------------------------------------------- Oracle failed: {e}", exc_info=True
+            )
+            return f"Oracle error: {e}"
 
 
 class ArtifactStore:

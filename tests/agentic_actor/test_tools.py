@@ -9,6 +9,7 @@ from irssi_llmagent.agentic_actor.tools import (
     CodeExecutorE2B,
     EditArtifactExecutor,
     JinaSearchExecutor,
+    OracleExecutor,
     ShareArtifactExecutor,
     WebpageVisitorExecutor,
     WebSearchExecutor,
@@ -971,3 +972,168 @@ class TestToolDefinitions:
         tool_names = [t["name"] for t in tools_no_config]
         assert "chronicle_append" not in tool_names
         assert "chronicle_read" in tool_names
+
+
+class TestOracleExecutor:
+    """Tests for OracleExecutor."""
+
+    @pytest.mark.asyncio
+    async def test_oracle_missing_model_config(self):
+        """Test oracle returns error when model not configured."""
+        config = {"tools": {}}
+        agent = MagicMock()
+        agent.chronicle = MagicMock()
+
+        executor = OracleExecutor(
+            config=config,
+            agent=agent,
+            arc="server#channel",
+            conversation_context=[],
+        )
+
+        result = await executor.execute("test query")
+        assert "Error: oracle.model not configured" in result
+
+    @pytest.mark.asyncio
+    async def test_oracle_builds_context_correctly(self):
+        """Test oracle passes conversation context + query to nested actor."""
+        config = {
+            "tools": {
+                "oracle": {
+                    "model": "anthropic:claude-opus-4-5",
+                    "prompt": "You are an oracle.",
+                }
+            },
+            "actor": {"max_iterations": 5},
+        }
+        agent = MagicMock()
+        agent.chronicle = MagicMock()
+
+        conversation = [
+            {"role": "user", "content": "Original question"},
+            {"role": "assistant", "content": "Some response"},
+        ]
+
+        executor = OracleExecutor(
+            config=config,
+            agent=agent,
+            arc="server#channel",
+            conversation_context=conversation,
+        )
+
+        with patch("irssi_llmagent.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
+            mock_actor = AsyncMock()
+            mock_actor.run_agent = AsyncMock(return_value="Oracle says hello")
+            mock_actor_class.return_value = mock_actor
+
+            result = await executor.execute("What should I do?")
+
+            assert result == "Oracle says hello"
+
+            # Check the context passed to run_agent
+            call_args = mock_actor.run_agent.call_args
+            passed_context = call_args[0][0]
+            assert len(passed_context) == 3
+            assert passed_context[0] == {"role": "user", "content": "Original question"}
+            assert passed_context[1] == {"role": "assistant", "content": "Some response"}
+            assert passed_context[2] == {"role": "user", "content": "What should I do?"}
+
+    @pytest.mark.asyncio
+    async def test_oracle_excludes_correct_tools(self):
+        """Test oracle excludes oracle, progress_report, and quest tools."""
+        config = {
+            "tools": {
+                "oracle": {
+                    "model": "anthropic:claude-opus-4-5",
+                }
+            },
+            "actor": {"max_iterations": 5},
+            "chronicler": {"quests": {"arcs": ["server#channel"]}},
+        }
+        agent = MagicMock()
+        agent.chronicle = MagicMock()
+
+        executor = OracleExecutor(
+            config=config,
+            agent=agent,
+            arc="server#channel",
+            conversation_context=[],
+        )
+
+        with patch("irssi_llmagent.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
+            mock_actor = AsyncMock()
+            mock_actor.run_agent = AsyncMock(return_value="Result")
+            mock_actor_class.return_value = mock_actor
+
+            await executor.execute("query")
+
+            # Check allowed_tools passed to AgenticLLMActor
+            call_kwargs = mock_actor_class.call_args[1]
+            allowed_tools = call_kwargs["allowed_tools"]
+
+            assert "oracle" not in allowed_tools
+            assert "progress_report" not in allowed_tools
+            assert "quest_start" not in allowed_tools
+            assert "subquest_start" not in allowed_tools
+            # Should still have chronicle_read
+            assert "chronicle_read" in allowed_tools
+            # Should have standard tools
+            assert "web_search" in allowed_tools
+            assert "visit_webpage" in allowed_tools
+
+    @pytest.mark.asyncio
+    async def test_oracle_handles_generic_error(self):
+        """Test oracle handles errors from nested actor gracefully."""
+        config = {
+            "tools": {"oracle": {"model": "anthropic:claude-opus-4-5"}},
+            "actor": {"max_iterations": 5},
+        }
+        agent = MagicMock()
+        agent.chronicle = MagicMock()
+
+        executor = OracleExecutor(
+            config=config,
+            agent=agent,
+            arc="server#channel",
+            conversation_context=[],
+        )
+
+        with patch("irssi_llmagent.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
+            mock_actor = AsyncMock()
+            mock_actor.run_agent = AsyncMock(side_effect=RuntimeError("something went wrong"))
+            mock_actor_class.return_value = mock_actor
+
+            result = await executor.execute("complex query")
+
+            assert "Oracle error:" in result
+            assert "something went wrong" in result
+
+    @pytest.mark.asyncio
+    async def test_oracle_passes_progress_callback(self):
+        """Test oracle passes progress callback to nested actor."""
+        config = {
+            "tools": {"oracle": {"model": "anthropic:claude-opus-4-5"}},
+            "actor": {"max_iterations": 5},
+        }
+        agent = MagicMock()
+        agent.chronicle = MagicMock()
+        progress_cb = AsyncMock()
+
+        executor = OracleExecutor(
+            config=config,
+            agent=agent,
+            arc="server#channel",
+            conversation_context=[],
+            progress_callback=progress_cb,
+        )
+
+        with patch("irssi_llmagent.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
+            mock_actor = AsyncMock()
+            mock_actor.run_agent = AsyncMock(return_value="Done")
+            mock_actor_class.return_value = mock_actor
+
+            await executor.execute("query")
+
+            # Check progress_callback passed to run_agent
+            call_kwargs = mock_actor.run_agent.call_args[1]
+            assert call_kwargs["progress_callback"] is progress_cb

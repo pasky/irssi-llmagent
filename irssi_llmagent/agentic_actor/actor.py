@@ -7,7 +7,7 @@ from typing import Any
 
 from ..chronicler.tools import chronicle_tools_defs, quest_tools_defs
 from ..providers import ModelRouter
-from .tools import TOOLS, create_tool_executors, execute_tool
+from .tools import TOOLS, OracleExecutor, create_tool_executors, execute_tool
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,16 @@ class AgenticLLMActor:
             current_quest_id=current_quest_id,
         )
         tool_executors = {**base_executors, **self.additional_tool_executors}
+
+        # Add oracle executor (needs context, so created here after messages are built)
+        if self.allowed_tools is None or "oracle" in self.allowed_tools:
+            tool_executors["oracle"] = OracleExecutor(
+                config=self.config,
+                agent=self.agent,
+                arc=arc,
+                conversation_context=context,
+                progress_callback=progress_callback,
+            )
 
         # Initialize progress tracking (only if progress_callback is set)
         progress_start_time = None
