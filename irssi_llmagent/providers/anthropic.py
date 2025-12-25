@@ -81,17 +81,56 @@ class BaseAnthropicAPIClient(BaseAPIClient):
             self.logger.debug(messages)
             return {"cancel": "(wait, I just replied)"}
 
+        # Add cache_control to the last non-meta message for prompt caching
+        # (meta messages are dynamic/conditional, so we cache up to the last stable message)
+        # First, strip any existing cache_control from messages (max 4 breakpoints allowed)
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict):
+                        block.pop("cache_control", None)
+
+        for msg in reversed(messages):
+            content = msg["content"]
+            content_str = (
+                content
+                if isinstance(content, str)
+                else "".join(b.get("text", "") for b in content if isinstance(b, dict))
+            )
+            if "<meta>" in content_str:
+                continue
+            # Found the last non-meta message
+            if isinstance(content, str):
+                msg["content"] = [
+                    {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
+                ]
+            elif isinstance(content, list) and content:
+                last_block = content[-1]
+                if isinstance(last_block, dict):
+                    last_block["cache_control"] = {"type": "ephemeral"}
+            break
+
         thinking_budget = self._get_thinking_budget(reasoning_effort)
 
         payload = {
             "model": model,
             "max_tokens": max_tokens or ((4096 if tools else 512) + thinking_budget),
             "messages": messages,
-            "system": system_prompt,
+            "system": [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
         }
 
         if tools:
-            payload["tools"] = self._filter_tools(tools)
+            filtered_tools = self._filter_tools(tools)
+            if filtered_tools:
+                filtered_tools[-1]["cache_control"] = {"type": "ephemeral"}
+            payload["tools"] = filtered_tools
 
         self._handle_thinking_budget(payload, thinking_budget, messages)
 

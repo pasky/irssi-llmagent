@@ -86,9 +86,18 @@ class TestAnthropicSpecificBehavior:
         assert "thinking" in captured_payload  # Thinking budget was set
         assert captured_payload["thinking"]["budget_tokens"] == 4096  # Medium effort
 
-        # Assert exact literal value of messages[]
+        # Assert exact literal value of messages[] (with cache_control on last original message)
         expected_messages = [
-            {"role": "user", "content": "Test query"},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Test query",
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+            },
             {
                 "role": "user",
                 "content": "<meta>only tool ['final_answer'] may be called now</meta>",
