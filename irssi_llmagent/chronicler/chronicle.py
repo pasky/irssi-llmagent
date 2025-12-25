@@ -78,6 +78,7 @@ class Chronicle:
                   parent_id TEXT,
                   status TEXT NOT NULL CHECK(status IN ('ongoing', 'in_step', 'finished')),
                   last_state TEXT,
+                  plan TEXT,
                   created_by_paragraph_id INTEGER,
                   last_updated_by_paragraph_id INTEGER,
                   FOREIGN KEY (arc_id) REFERENCES arcs(id),
@@ -453,7 +454,7 @@ class Chronicle:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """SELECT id, arc_id, parent_id, status, last_state,
+                """SELECT id, arc_id, parent_id, status, last_state, plan,
                           created_by_paragraph_id, last_updated_by_paragraph_id
                    FROM quests WHERE id = ?""",
                 (quest_id,),
@@ -462,6 +463,16 @@ class Chronicle:
                 if not row:
                     return None
                 return dict(row)
+
+    async def quest_set_plan(self, quest_id: str, plan: str) -> bool:
+        """Set the plan for a quest. Returns True if quest existed."""
+        async with self._lock, aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "UPDATE quests SET plan = ? WHERE id = ?",
+                (plan, quest_id),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
 
     async def quests_ready_for_heartbeat(
         self, arc: str, cooldown_seconds: float

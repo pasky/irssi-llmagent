@@ -180,7 +180,7 @@ def quest_tools_defs(current_quest_id: str | None = None) -> list[dict[str, Any]
         tools.append(
             {
                 "name": "subquest_start",
-                "description": f'Start a subquest to decompose the current quest "{current_quest_id}" into a smaller task. When the subquest finishes, the parent quest resumes. If you are planning to start multiple sub-quests, you must not call this tool in parallel for subquests that depend on each other, and you should consider maintaining a TODO list artifact in complex scenarios.',
+                "description": f'Start a subquest to fully focus on a particular task of the current quest "{current_quest_id}". When the subquest finishes, the parent quest resumes. BEFORE starting subquests, call make_plan to outline your approach - the plan will be included in context for all future quest steps and can be updated via subsequent make_plan calls. If starting multiple subquests, do not call this tool in parallel for subquests that depend on each other.',
                 "input_schema": {
                     "type": "object",
                     "properties": {

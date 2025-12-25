@@ -173,10 +173,17 @@ class QuestOperator:
             irc_cfg["command"]["modes"].get("serious", {}).get("history_size", default_size)
         )
         context = await self.agent.history.get_context(server, channel, serious_size)
-        context = context + [{"role": "user", "content": paragraph_text}]
+
+        quest = await self.agent.chronicle.quest_get(quest_id)
+        if quest and quest.get("plan"):
+            context += [{"role": "user", "content": f"<meta><plan>{quest['plan']}</plan></meta>"}]
+
+        context += [{"role": "user", "content": paragraph_text}]
 
         mode_cfg = dict(irc_cfg["command"]["modes"]["serious"])
-        mode_cfg["prompt_reminder"] = cfg["prompt_reminder"]
+        mode_cfg["prompt_reminder"] = cfg["prompt_reminder"].replace(
+            "<quest>", f"<quest> {quest_id}"
+        )
 
         system_prompt = self.agent.irc_monitor.build_system_prompt("serious", mynick)
 

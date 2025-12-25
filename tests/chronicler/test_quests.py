@@ -350,3 +350,100 @@ async def test_subquest_finish_resumes_parent(shared_agent):
         assert len(parent_triggers) >= 2, (
             f"Parent should be triggered at least twice (initial + resume): {triggered_quest_ids}"
         )
+
+
+@pytest.mark.asyncio
+async def test_quest_start_with_make_plan_executes_both(shared_agent):
+    """make_plan is allowed in parallel with quest_start and both execute."""
+    from irssi_llmagent.agentic_actor import AgenticLLMActor
+
+    agent = shared_agent
+    arc = "srv#chan"
+    agent.config.setdefault("chronicler", {}).setdefault("quests", {})["arcs"] = [arc]
+
+    executed_tools = []
+
+    class MockClient:
+        def cleanup_raw_text(self, text):
+            return text
+
+        def has_tool_calls(self, response):
+            return "tool_calls" in response
+
+        def extract_tool_calls(self, response):
+            return response.get("tool_calls", [])
+
+        def format_assistant_message(self, response):
+            return {"role": "assistant", "content": ""}
+
+        def format_tool_results(self, results):
+            return [{"role": "user", "content": r["content"]} for r in results]
+
+    async def mock_call_raw(model, messages, *args, **kwargs):
+        return (
+            {
+                "tool_calls": [
+                    {
+                        "id": "1",
+                        "name": "make_plan",
+                        "input": {"plan": "Step 1: Do thing\nStep 2: Do other thing"},
+                    },
+                    {
+                        "id": "2",
+                        "name": "quest_start",
+                        "input": {
+                            "id": "plan-test",
+                            "goal": "Test goal",
+                            "success_criteria": "Test criteria",
+                        },
+                    },
+                ]
+            },
+            MockClient(),
+            None,
+        )
+
+    actor = AgenticLLMActor(
+        config=agent.config,
+        model="anthropic:claude-3-5-sonnet",
+        system_prompt_generator=lambda: "Test prompt",
+        agent=agent,
+    )
+
+    # Wrap executors to track calls
+    original_create = __import__(
+        "irssi_llmagent.agentic_actor.tools", fromlist=["create_tool_executors"]
+    ).create_tool_executors
+
+    def tracking_create(*args, **kwargs):
+        executors = original_create(*args, **kwargs)
+        original_make_plan = executors["make_plan"].execute
+        original_quest_start = executors["quest_start"].execute
+
+        async def track_make_plan(**kw):
+            executed_tools.append("make_plan")
+            return await original_make_plan(**kw)
+
+        async def track_quest_start(**kw):
+            executed_tools.append("quest_start")
+            return await original_quest_start(**kw)
+
+        executors["make_plan"].execute = track_make_plan
+        executors["quest_start"].execute = track_quest_start
+        return executors
+
+    with (
+        patch(
+            "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
+            new=AsyncMock(side_effect=mock_call_raw),
+        ),
+        patch(
+            "irssi_llmagent.agentic_actor.actor.create_tool_executors",
+            side_effect=tracking_create,
+        ),
+    ):
+        result = await actor.run_agent([{"role": "user", "content": "test"}], arc=arc)
+
+    assert "make_plan" in executed_tools, "make_plan should execute"
+    assert "quest_start" in executed_tools, "quest_start should execute"
+    assert "Quest started: plan-test" in result

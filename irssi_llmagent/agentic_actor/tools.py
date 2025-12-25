@@ -808,12 +808,21 @@ class FinalAnswerExecutor:
 
 
 class MakePlanExecutor:
-    """Executor for making plans (no-op that confirms receipt)."""
+    """Executor for making/updating plans. Stores plan in quest DB when inside a quest."""
+
+    def __init__(self, agent: Any = None, current_quest_id: str | None = None):
+        self.agent = agent
+        self.current_quest_id = current_quest_id
 
     async def execute(self, plan: str) -> str:
-        """Confirm plan receipt."""
-        logger.info(f"Plan formulated: {plan[:200]}...")
-        return "OK, follow this plan"
+        """Store plan in quest DB (if in quest) and confirm receipt."""
+        logger.info(f"Plan formulated: {plan[:500]}...")
+
+        if self.agent and self.current_quest_id:
+            await self.agent.chronicle.quest_set_plan(self.current_quest_id, plan)
+            logger.debug(f"Stored plan for quest {self.current_quest_id}")
+
+        return "OK, follow this plan (stored for future quest steps)"
 
 
 class ArtifactStore:
@@ -1207,7 +1216,7 @@ def create_tool_executors(
             send_callback=progress_callback, min_interval_seconds=min_interval
         ),
         "final_answer": FinalAnswerExecutor(),
-        "make_plan": MakePlanExecutor(),
+        "make_plan": MakePlanExecutor(agent=agent, current_quest_id=current_quest_id),
         "share_artifact": ShareArtifactExecutor(store=artifact_store),
         "edit_artifact": EditArtifactExecutor(
             store=artifact_store, webpage_visitor=webpage_visitor
