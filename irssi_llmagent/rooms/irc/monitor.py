@@ -178,7 +178,7 @@ class IRCRoomMonitor:
                 )
         except Exception as e:
             logger.error(f"Error classifying mode: {e}")
-            return "SARCASTIC"  # Default to sarcastic on error
+            return "UNSAFE"
 
     async def should_interject_proactively(
         self, context: list[dict[str, str]]
