@@ -152,10 +152,13 @@ class MessageLoggingContext:
 
     def __enter__(self) -> MessageContext:
         self._ctx = MessageContext.create(self.arc, self.nick, self.message, self.logs_dir)
+        logging.getLogger(__name__).info(f"Starting message log: {self._ctx.log_path}")
         self._token = _message_context.set(self._ctx)
         return self._ctx
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        if self._token is not None:
+        if self._token is not None and self._ctx is not None:
+            ctx = self._ctx
             _message_context.reset(self._token)
+            logging.getLogger(__name__).info(f"Finished message log: {ctx.log_path}")
         return None
