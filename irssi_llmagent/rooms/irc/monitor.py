@@ -342,8 +342,8 @@ class IRCRoomMonitor:
             )
 
             # Check for NULL response (proactive interjections can decide not to respond)
-            # Also filter out "Error - " responses which are proactive-specific
-            if not response or response.startswith("Error - "):
+            # Also filter out "Error: " responses which are proactive-specific
+            if not response or response.startswith("Error: "):
                 logger.info(f"Agent decided not to interject proactively for {chan_name}")
                 return
 

@@ -199,7 +199,7 @@ async def test_chapter_rollover_copies_unresolved_quests(shared_agent):
         # Mock the model router to avoid network calls during chronicle summarization
         mock_client = MagicMock()
         mock_client.extract_text_from_response.return_value = (
-            "Error - API error: Mock connection refused"
+            "Error: API error: Mock connection refused"
         )
         mock_router.return_value = ({"error": "Mock connection refused"}, mock_client, None)
         # Fill chapter to exactly the limit with a quest and normal paragraphs

@@ -212,7 +212,7 @@ class QuestOperator:
             logger.error(f"Quest step run_actor failed for {arc} {quest_id}: {e}")
             return
 
-        if not response or response.startswith("Error - "):
+        if not response or response.startswith("Error: "):
             response = f"{paragraph_text}. Previous quest call failed ({response})."
 
         # Infer finish from content and normalize tags minimally

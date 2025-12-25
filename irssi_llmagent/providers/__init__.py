@@ -42,7 +42,7 @@ class BaseAPIClient(ABC):
             return ""
 
         if "error" in response:
-            return f"Error - {response['error']}"
+            return f"Error: {response['error']}"
 
         text = self._extract_raw_text(response)
         return self.cleanup_raw_text(text)
