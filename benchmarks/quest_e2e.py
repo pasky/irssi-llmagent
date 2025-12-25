@@ -27,7 +27,7 @@ SCENARIO_GOAL = """start a quest with the goal of:
 2. Identifying any risks to passing flights
 3. Creating a PDF one-pager summarizing results
 
-Use subquests and artifacts. Do not solve everything immediately - outline the plan and leave execution for quest iterations."""
+Use a separate subquest per phase. Do not solve everything immediately - outline the plan and leave execution for quest iterations."""
 
 # Simulated IRC context
 SERVER = "benchmark"

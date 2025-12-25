@@ -153,7 +153,7 @@ def quest_tools_defs(current_quest_id: str | None = None) -> list[dict[str, Any]
         tools.append(
             {
                 "name": "quest_start",
-                "description": "Start a new quest for yourself. Only use on explicit user request for a multi-step autonomous task. The quest system will periodically advance the quest until success criteria are met.",
+                "description": "Start a new quest for yourself. Only use on explicit user request for a multi-step autonomous task. The quest system will periodically advance the quest until success criteria are met. MUST be called alongside final_answer in the same turn.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
@@ -180,7 +180,7 @@ def quest_tools_defs(current_quest_id: str | None = None) -> list[dict[str, Any]
         tools.append(
             {
                 "name": "subquest_start",
-                "description": f'Start a subquest to fully focus on a particular task of the current quest "{current_quest_id}". When the subquest finishes, the parent quest resumes. BEFORE starting subquests, call make_plan to outline your approach - the plan will be included in context for all future quest steps and can be updated via subsequent make_plan calls. If starting multiple subquests, do not call this tool in parallel for subquests that depend on each other.',
+                "description": f'Start a subquest to fully focus on a particular task of the current quest "{current_quest_id}". When the subquest finishes, the parent quest resumes. BEFORE starting subquests, call make_plan to outline your approach - the plan will be included in context for all future quest steps and can be updated via subsequent make_plan calls. If starting multiple subquests, do not call this tool in parallel for subquests that depend on each other. MUST be called alongside final_answer in the same turn.',
                 "input_schema": {
                     "type": "object",
                     "properties": {

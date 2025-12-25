@@ -175,7 +175,7 @@ TOOLS: list[Tool] = [
     },
     {
         "name": "make_plan",
-        "description": "Consider different approaches and formulate a brief research and/or execution plan. Only use this tool if research or code execution seems necessary.",
+        "description": "Consider different approaches and formulate a brief research and/or execution plan. Only use this tool if research or code execution seems necessary. Can only be called alongside final_answer if quest_start or subquest_start is also present.",
         "input_schema": {
             "type": "object",
             "properties": {

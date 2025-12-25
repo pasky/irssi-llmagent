@@ -353,8 +353,8 @@ async def test_subquest_finish_resumes_parent(shared_agent):
 
 
 @pytest.mark.asyncio
-async def test_quest_start_with_make_plan_executes_both(shared_agent):
-    """make_plan is allowed in parallel with quest_start and both execute."""
+async def test_quest_start_with_make_plan_and_final_answer(shared_agent):
+    """make_plan + quest_start + final_answer in same turn all execute."""
     from irssi_llmagent.agentic_actor import AgenticLLMActor
 
     agent = shared_agent
@@ -396,6 +396,11 @@ async def test_quest_start_with_make_plan_executes_both(shared_agent):
                             "goal": "Test goal",
                             "success_criteria": "Test criteria",
                         },
+                    },
+                    {
+                        "id": "3",
+                        "name": "final_answer",
+                        "input": {"answer": "Quest started: plan-test"},
                     },
                 ]
             },
