@@ -78,27 +78,42 @@ class MessageContextHandler(logging.Handler):
 
     When a message context is active, logs go to that message's log file.
     When no context is active, logs go to a fallback system.log file.
+
+    Uses LRU eviction to limit the number of open file handles.
     """
+
+    MAX_OPEN_HANDLES = 100
 
     def __init__(self, logs_dir: str | Path, level: int = logging.DEBUG):
         super().__init__(level)
         self.logs_dir = Path(logs_dir)
         self.system_log_path = self.logs_dir / "system.log"
 
-        # Cache of open file handles to avoid reopening constantly
+        # LRU cache of open file handles (path -> handler), limited size
         self._file_handles: dict[Path, logging.FileHandler] = {}
 
         # Formatter for log messages
         self._formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     def _get_handler_for_path(self, path: Path) -> logging.FileHandler:
-        """Get or create a file handler for the given path."""
-        if path not in self._file_handles:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            handler = logging.FileHandler(path, encoding="utf-8")
-            handler.setFormatter(self._formatter)
+        """Get or create a file handler for the given path, with LRU eviction."""
+        if path in self._file_handles:
+            # Move to end (most recently used)
+            handler = self._file_handles.pop(path)
             self._file_handles[path] = handler
-        return self._file_handles[path]
+            return handler
+
+        # Evict oldest handles if at capacity
+        while len(self._file_handles) >= self.MAX_OPEN_HANDLES:
+            oldest_path, oldest_handler = next(iter(self._file_handles.items()))
+            oldest_handler.close()
+            del self._file_handles[oldest_path]
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(path, encoding="utf-8")
+        handler.setFormatter(self._formatter)
+        self._file_handles[path] = handler
+        return handler
 
     def emit(self, record: logging.LogRecord) -> None:
         """Emit a log record to the appropriate file."""
