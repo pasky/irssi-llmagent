@@ -35,7 +35,8 @@ class ChatHistory:
                     message TEXT NOT NULL,
                     role TEXT NOT NULL,
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    chapter_id INTEGER NULL
+                    chapter_id INTEGER NULL,
+                    mode TEXT NULL
                 )
             """
             ) as _:
@@ -54,6 +55,11 @@ class ChatHistory:
             """
             ) as _:
                 pass
+            # Migrate existing tables: add mode column if missing
+            async with db.execute("PRAGMA table_info(chat_messages)") as cursor:
+                columns = [row[1] for row in await cursor.fetchall()]
+            if "mode" not in columns:
+                await db.execute("ALTER TABLE chat_messages ADD COLUMN mode TEXT NULL")
             await db.commit()
             logger.debug(f"Initialized chat history database: {self.db_path}")
 
@@ -67,6 +73,7 @@ class ChatHistory:
         is_response: bool = False,
         content_template: str = "<{nick}> {message}",
         role: str | None = None,
+        mode: str | None = None,
     ) -> None:
         """Add a message to the chat history."""
         if role is None:
@@ -79,10 +86,10 @@ class ChatHistory:
             db.execute(
                 """
                     INSERT INTO chat_messages
-                    (server_tag, channel_name, nick, message, role)
-                    VALUES (?, ?, ?, ?, ?)
+                    (server_tag, channel_name, nick, message, role, mode)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                (server_tag, channel_name, nick, content, role),
+                (server_tag, channel_name, nick, content, role, mode),
             ) as _,
         ):
             await db.commit()
@@ -92,14 +99,19 @@ class ChatHistory:
     async def get_context(
         self, server_tag: str, channel_name: str, limit: int | None = None
     ) -> list[dict[str, str]]:
-        """Get recent chat context for inference (limited by inference_limit or provided limit)."""
+        """Get recent chat context for inference (limited by inference_limit or provided limit).
+
+        For assistant messages with auto-routed mode, inserts a mode command prefix
+        (e.g. !s for sarcastic) before the timestamp so models can learn/reproduce routing.
+        """
         inference_limit = limit if limit is not None else self.inference_limit
         async with (
             self._lock,
             aiosqlite.connect(self.db_path) as db,
             db.execute(
                 """
-                    SELECT message, role, strftime('%H:%M', timestamp) as time_only FROM chat_messages
+                    SELECT message, role, strftime('%H:%M', timestamp) as time_only, mode
+                    FROM chat_messages
                     WHERE server_tag = ? AND channel_name = ?
                     ORDER BY timestamp DESC
                     LIMIT ?
@@ -112,9 +124,26 @@ class ChatHistory:
         # Reverse to get chronological order
         rows_list = list(rows)
         rows_list.reverse()
-        context = [{"role": str(row[1]), "content": f"[{row[2]}] {row[0]}"} for row in rows_list]
+        context = []
+        for row in rows_list:
+            message, role, time_only, mode = row[0], str(row[1]), row[2], row[3]
+            mode_prefix = self._mode_to_prefix(mode) if role == "assistant" and mode else ""
+            context.append({"role": role, "content": f"{mode_prefix}[{time_only}] {message}"})
         logger.debug(f"Retrieved {len(context)} messages for context: {server_tag}/{channel_name}")
         return context
+
+    @staticmethod
+    def _mode_to_prefix(mode: str | None) -> str:
+        """Convert internal mode name to IRC command prefix for context."""
+        if not mode:
+            return ""
+        mode_prefixes = {
+            "SARCASTIC": "!d ",
+            "EASY_SERIOUS": "!s ",
+            "THINKING_SERIOUS": "!a ",
+            "UNSAFE": "!u ",
+        }
+        return mode_prefixes.get(mode, "")
 
     async def get_full_history(
         self, server_tag: str, channel_name: str, limit: int | None = None

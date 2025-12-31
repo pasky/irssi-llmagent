@@ -242,7 +242,9 @@ class QuestOperator:
         # Mirror full response to IRC and ChatHistory
         logger.debug(f"Quest step run_actor for {arc} {quest_id} output: {response}")
         await self.agent.irc_monitor.varlink_sender.send_message(channel, response, server)
-        await self.agent.history.add_message(server, channel, response, mynick, mynick, True)
+        await self.agent.history.add_message(
+            server, channel, response, mynick, mynick, True, mode="THINKING_SERIOUS"
+        )
 
         # Append only quest XML to chronicle (triggers next quest step implicitly)
         from .chapters import chapter_append_paragraph

@@ -354,7 +354,7 @@ class IRCRoomMonitor:
                 )
                 await self.varlink_sender.send_message(chan_name, response, server)
                 await self.agent.history.add_message(
-                    server, chan_name, response, mynick, mynick, True
+                    server, chan_name, response, mynick, mynick, True, mode=classified_mode
                 )
                 await self.autochronicler.check_and_chronicle(
                     mynick, server, chan_name, self.irc_config["command"]["history_size"]
@@ -744,7 +744,9 @@ class IRCRoomMonitor:
         if response:
             logger.info(f"Sending {mode} response to {target}: {response}")
             await self.varlink_sender.send_message(target, response, server)
-            await self.agent.history.add_message(server, chan_name, response, mynick, mynick, True)
+            await self.agent.history.add_message(
+                server, chan_name, response, mynick, mynick, True, mode=mode
+            )
         else:
             logger.info(f"Agent in {mode} mode chose not to answer for {target}")
 

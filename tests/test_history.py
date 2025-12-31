@@ -183,3 +183,64 @@ class TestChatHistory:
         assert "<user1>" in user_msg["content"]
         assistant_msg = context[1]
         assert "<testbot>" in assistant_msg["content"]
+
+    @pytest.mark.asyncio
+    async def test_mode_tracking_in_context(self, temp_db_path):
+        """Test that mode is stored and prefixed in context for assistant messages."""
+        history = ChatHistory(temp_db_path, inference_limit=10)
+        await history.initialize()
+
+        server = "irc.libera.chat"
+        channel = "#test"
+        mynick = "testbot"
+
+        # Add user message (no mode)
+        await history.add_message(server, channel, "Tell me a joke", "user1", mynick)
+
+        # Add assistant responses with different modes
+        await history.add_message(
+            server, channel, "Why did the chicken...", mynick, mynick, mode="SARCASTIC"
+        )
+        await history.add_message(
+            server, channel, "Here's the answer", mynick, mynick, mode="EASY_SERIOUS"
+        )
+        await history.add_message(
+            server, channel, "Deep analysis", mynick, mynick, mode="THINKING_SERIOUS"
+        )
+        await history.add_message(server, channel, "Unsafe response", mynick, mynick, mode="UNSAFE")
+        # Assistant message without mode (legacy)
+        await history.add_message(server, channel, "No mode set", mynick, mynick)
+
+        context = await history.get_context(server, channel)
+        assert len(context) == 6
+
+        # User message should have no mode prefix
+        assert context[0]["content"].startswith("[")
+        assert not context[0]["content"].startswith("!")
+
+        # SARCASTIC -> !d prefix
+        assert context[1]["content"].startswith("!d [")
+        assert "Why did the chicken" in context[1]["content"]
+
+        # EASY_SERIOUS -> !s prefix
+        assert context[2]["content"].startswith("!s [")
+
+        # THINKING_SERIOUS -> !a prefix
+        assert context[3]["content"].startswith("!a [")
+
+        # UNSAFE -> !u prefix
+        assert context[4]["content"].startswith("!u [")
+
+        # No mode -> no prefix
+        assert context[5]["content"].startswith("[")
+        assert not context[5]["content"].startswith("!")
+
+    @pytest.mark.asyncio
+    async def test_mode_to_prefix_helper(self):
+        """Test the _mode_to_prefix static method."""
+        assert ChatHistory._mode_to_prefix(None) == ""
+        assert ChatHistory._mode_to_prefix("SARCASTIC") == "!d "
+        assert ChatHistory._mode_to_prefix("EASY_SERIOUS") == "!s "
+        assert ChatHistory._mode_to_prefix("THINKING_SERIOUS") == "!a "
+        assert ChatHistory._mode_to_prefix("UNSAFE") == "!u "
+        assert ChatHistory._mode_to_prefix("UNKNOWN") == ""
