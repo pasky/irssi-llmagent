@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,20 @@ from .autochronicler import AutoChronicler
 from .varlink import VarlinkClient, VarlinkSender
 
 logger = logging.getLogger(__name__)
+
+MODE_TOKENS = {"!s", "!S", "!a", "!d", "!D", "!u", "!p", "!h"}
+FLAG_TOKENS = {"!c"}
+
+
+@dataclass
+class ParsedPrefix:
+    """Result of parsing command prefix from IRC message."""
+
+    no_context: bool
+    mode_token: str | None
+    model_override: str | None
+    query_text: str
+    error: str | None = None
 
 
 def model_str_core(model):
@@ -554,6 +569,62 @@ class IRCRoomMonitor:
         # Check if auto-chronicling is needed after command handling
         await self.autochronicler.check_and_chronicle(mynick, server, chan_name, default_size)
 
+    def _parse_prefix(self, message: str) -> ParsedPrefix:
+        """Parse leading modifier tokens from message.
+
+        Recognized tokens (any order at start):
+          - !c: no-context flag
+          - !s/!S/!a/!d/!D/!u/!p/!h: mode commands
+          - @modelid: model override
+
+        Parsing stops at first non-modifier token. Only one mode allowed.
+        """
+        text = message.strip()
+        if not text:
+            return ParsedPrefix(False, None, None, "", None)
+
+        tokens = text.split()
+        no_context = False
+        mode_token: str | None = None
+        model_override: str | None = None
+        error: str | None = None
+        consumed = 0
+
+        for i, tok in enumerate(tokens):
+            if tok in FLAG_TOKENS:
+                no_context = True
+                consumed = i + 1
+                continue
+
+            if tok in MODE_TOKENS:
+                if mode_token is not None:
+                    error = "Only one mode command allowed."
+                    break
+                mode_token = tok
+                consumed = i + 1
+                continue
+
+            if tok.startswith("@") and len(tok) > 1:
+                if model_override is None:
+                    model_override = tok[1:]
+                consumed = i + 1
+                continue
+
+            if tok.startswith("!"):
+                error = f"Unknown command '{tok}'. Use !h for help."
+                break
+
+            break
+
+        query_text = " ".join(tokens[consumed:]) if consumed > 0 else text
+        return ParsedPrefix(
+            no_context=no_context,
+            mode_token=mode_token,
+            model_override=model_override,
+            query_text=query_text,
+            error=error,
+        )
+
     async def _route_command(
         self,
         server: str,
@@ -568,12 +639,21 @@ class IRCRoomMonitor:
         """Route commands based on message content with prepared context."""
         modes_config = self.irc_config["command"]["modes"]
 
-        no_context = False
-        if re.search(r"(?:^|\s)!c(?:\s|$)", cleaned_msg):
-            no_context = True
-            cleaned_msg = re.sub(r"(?:^|\s)!c(?=\s|$)", "", cleaned_msg, count=1).lstrip()
+        parsed = self._parse_prefix(cleaned_msg)
 
-        if cleaned_msg.startswith("!h") or cleaned_msg == "!h":
+        if parsed.error:
+            logger.warning(f"Command parse error from {nick}: {parsed.error} ({cleaned_msg})")
+            await self.varlink_sender.send_message(target, f"{nick}: {parsed.error}", server)
+            return
+
+        no_context = parsed.no_context
+        model_override = parsed.model_override
+        query_text = parsed.query_text
+
+        if model_override:
+            logger.debug(f"Overriding model to {model_override}")
+
+        if parsed.mode_token == "!h":
             logger.debug(f"Sending help message to {nick}")
             sarcastic_model = modes_config["sarcastic"]["model"]
             serious_model = modes_config["serious"]["model"]
@@ -595,14 +675,11 @@ class IRCRoomMonitor:
             await self.agent.history.add_message(server, chan_name, help_msg, mynick, mynick, True)
             return
 
-        if cleaned_msg.startswith("!p ") or cleaned_msg == "!p":
-            # Perplexity call
-            logger.debug(f"Processing Perplexity request from {nick}: {cleaned_msg}")
-            # Use default history size for Perplexity
+        if parsed.mode_token == "!p":
+            logger.debug(f"Processing Perplexity request from {nick}: {query_text}")
             perplexity = PerplexityClient(self.agent.config)
             response = await perplexity.call_perplexity(context[-default_size:])
             if response:
-                # Handle multi-line responses (citations)
                 lines = response.split("\n")
                 for line in lines:
                     if line.strip():
@@ -610,52 +687,35 @@ class IRCRoomMonitor:
                         await self.varlink_sender.send_message(
                             target, f"{nick}: {line.strip()}", server
                         )
-
-                # Update context with response
                 await self.agent.history.add_message(
                     server, chan_name, lines[0], mynick, mynick, True
                 )
             return
 
-        # Determine mode from explicit commands or auto-classification
         mode = None
-        model_override = None
         reasoning_effort = "minimal"
 
-        # Check for model override: !cmd @modelid ...
-        parts = cleaned_msg.split(maxsplit=2)
-        if len(parts) >= 2 and parts[1].startswith("@"):
-            model_override = parts[1][1:]
-            logger.debug(f"Overriding model to {model_override}")
-
-        if cleaned_msg.startswith("!S ") or cleaned_msg.startswith("!d "):
-            logger.debug(f"Processing explicit sarcastic request from {nick}: {cleaned_msg}")
+        if parsed.mode_token in {"!S", "!d"}:
+            logger.debug(f"Processing explicit sarcastic request from {nick}: {query_text}")
             mode = "SARCASTIC"
-        elif cleaned_msg.startswith("!D "):  # easter egg - thinking sarcastic
+        elif parsed.mode_token == "!D":
             logger.debug(
-                f"Processing explicit thinking sarcastic request from {nick}: {cleaned_msg}"
+                f"Processing explicit thinking sarcastic request from {nick}: {query_text}"
             )
             mode = "SARCASTIC"
             reasoning_effort = "high"
-        elif cleaned_msg.startswith("!s "):
-            logger.debug(f"Processing explicit serious request from {nick}: {cleaned_msg}")
+        elif parsed.mode_token == "!s":
+            logger.debug(f"Processing explicit serious request from {nick}: {query_text}")
             mode = "EASY_SERIOUS"
-        elif cleaned_msg.startswith("!a "):
-            logger.debug(f"Processing explicit agentic request from {nick}: {cleaned_msg}")
+        elif parsed.mode_token == "!a":
+            logger.debug(f"Processing explicit agentic request from {nick}: {query_text}")
             mode = "THINKING_SERIOUS"
-        elif cleaned_msg.startswith("!u "):
-            logger.debug(f"Processing explicit unsafe request from {nick}: {cleaned_msg}")
+        elif parsed.mode_token == "!u":
+            logger.debug(f"Processing explicit unsafe request from {nick}: {query_text}")
             mode = "UNSAFE"
-        elif re.match(r"^!.", cleaned_msg):
-            logger.warning(f"Unknown command from {nick}: {cleaned_msg}")
-            await self.varlink_sender.send_message(
-                target, f"{nick}: Unknown command. Use !h for help.", server
-            )
-            return
         else:
-            logger.debug(f"Processing automatic mode request from {nick}: {cleaned_msg}")
+            logger.debug(f"Processing automatic mode request from {nick}: {query_text}")
 
-            # Check for channel-specific or default mode override
             channel_mode = self.get_channel_mode(chan_name)
             if channel_mode == "serious":
                 mode = await self.classify_mode(context[-default_size:])

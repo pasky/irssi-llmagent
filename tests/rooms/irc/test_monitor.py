@@ -7,6 +7,7 @@ import pytest
 
 from irssi_llmagent.main import IRSSILLMAgent
 from irssi_llmagent.rooms import ProactiveDebouncer
+from irssi_llmagent.rooms.irc.monitor import ParsedPrefix
 
 
 class MockAPIClient:
@@ -1154,7 +1155,94 @@ class TestIRCMonitor:
         agent.run_actor.assert_called_once()
         context = agent.run_actor.call_args[0][0]
         assert len(context) == 1
-        assert "!s" in context[0]["content"]
         assert "hello" in context[0]["content"]
         mode_cfg = agent.run_actor.call_args[1]["mode_cfg"]
         assert mode_cfg["include_chapter_summary"] is False
+
+
+class TestParsePrefixParser:
+    """Tests for the _parse_prefix command parser."""
+
+    def test_no_modifiers(self, temp_config_file):
+        agent = IRSSILLMAgent(temp_config_file)
+        result = agent.irc_monitor._parse_prefix("just a plain query")
+        assert result == ParsedPrefix(False, None, None, "just a plain query", None)
+
+    def test_mode_only(self, temp_config_file):
+        agent = IRSSILLMAgent(temp_config_file)
+        result = agent.irc_monitor._parse_prefix("!s tell me something")
+        assert result.mode_token == "!s"
+        assert result.query_text == "tell me something"
+        assert result.no_context is False
+        assert result.model_override is None
+
+    def test_model_override_only(self, temp_config_file):
+        agent = IRSSILLMAgent(temp_config_file)
+        result = agent.irc_monitor._parse_prefix("@claude-sonnet query text")
+        assert result.model_override == "claude-sonnet"
+        assert result.query_text == "query text"
+        assert result.mode_token is None
+
+    def test_mode_and_model_any_order(self, temp_config_file):
+        agent = IRSSILLMAgent(temp_config_file)
+
+        r1 = agent.irc_monitor._parse_prefix("!s @model query")
+        r2 = agent.irc_monitor._parse_prefix("@model !s query")
+
+        assert r1.mode_token == "!s" and r1.model_override == "model" and r1.query_text == "query"
+        assert r2.mode_token == "!s" and r2.model_override == "model" and r2.query_text == "query"
+
+    def test_no_context_flag(self, temp_config_file):
+        agent = IRSSILLMAgent(temp_config_file)
+
+        r1 = agent.irc_monitor._parse_prefix("!c !s query")
+        r2 = agent.irc_monitor._parse_prefix("!s !c query")
+        r3 = agent.irc_monitor._parse_prefix("!c query")
+
+        assert r1.no_context is True and r1.mode_token == "!s" and r1.query_text == "query"
+        assert r2.no_context is True and r2.mode_token == "!s" and r2.query_text == "query"
+        assert r3.no_context is True and r3.mode_token is None and r3.query_text == "query"
+
+    def test_all_modifiers(self, temp_config_file):
+        agent = IRSSILLMAgent(temp_config_file)
+        result = agent.irc_monitor._parse_prefix("!c @model !a my query here")
+        assert result.no_context is True
+        assert result.model_override == "model"
+        assert result.mode_token == "!a"
+        assert result.query_text == "my query here"
+
+    def test_unknown_command_error(self, temp_config_file):
+        agent = IRSSILLMAgent(temp_config_file)
+        result = agent.irc_monitor._parse_prefix("!x query")
+        assert result.error is not None
+        assert "Unknown command" in result.error
+
+    def test_multiple_modes_error(self, temp_config_file):
+        agent = IRSSILLMAgent(temp_config_file)
+        result = agent.irc_monitor._parse_prefix("!s !a query")
+        assert result.error is not None
+        assert "Only one mode" in result.error
+
+    def test_bang_in_query_text_preserved(self, temp_config_file):
+        agent = IRSSILLMAgent(temp_config_file)
+        result = agent.irc_monitor._parse_prefix("!s what does !c mean in bash?")
+        assert result.mode_token == "!s"
+        assert result.query_text == "what does !c mean in bash?"
+        assert result.error is None
+
+    def test_at_in_query_text_preserved(self, temp_config_file):
+        agent = IRSSILLMAgent(temp_config_file)
+        result = agent.irc_monitor._parse_prefix("!s email me@example.com")
+        assert result.query_text == "email me@example.com"
+
+    def test_empty_message(self, temp_config_file):
+        agent = IRSSILLMAgent(temp_config_file)
+        result = agent.irc_monitor._parse_prefix("")
+        assert result == ParsedPrefix(False, None, None, "", None)
+
+    def test_all_mode_tokens(self, temp_config_file):
+        agent = IRSSILLMAgent(temp_config_file)
+        for token in ["!s", "!S", "!a", "!d", "!D", "!u", "!p", "!h"]:
+            result = agent.irc_monitor._parse_prefix(f"{token} query")
+            assert result.mode_token == token, f"Failed for {token}"
+            assert result.query_text == "query"
