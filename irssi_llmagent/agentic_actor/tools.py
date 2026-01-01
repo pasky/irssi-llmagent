@@ -863,7 +863,7 @@ class OracleExecutor:
 
     async def execute(self, query: str) -> str:
         """Consult the oracle with a query, returning its response."""
-        from .actor import AgenticLLMActor, get_tools_for_arc
+        from .actor import AgenticLLMActor, AgentIterationLimitError, get_tools_for_arc
 
         oracle_config = self.config.get("tools", {}).get("oracle", {})
         model = oracle_config.get("model")
@@ -906,7 +906,7 @@ class OracleExecutor:
                 f"---------------------------------------------- Oracle response: {result[:500]}..."
             )
             return result
-        except StopIteration as e:
+        except AgentIterationLimitError as e:
             logger.warning(
                 f"---------------------------------------------- Oracle exhausted: {e}..."
             )

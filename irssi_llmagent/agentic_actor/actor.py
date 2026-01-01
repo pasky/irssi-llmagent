@@ -12,6 +12,12 @@ from .tools import TOOLS, OracleExecutor, create_tool_executors, execute_tool
 logger = logging.getLogger(__name__)
 
 
+class AgentIterationLimitError(Exception):
+    """Raised when the agent exceeds maximum allowed iterations."""
+
+    pass
+
+
 def get_tools_for_arc(config: dict | None, arc: str, current_quest_id: str | None = None) -> list:
     """Get the full tools list including chronicle and quest tools configured for the arc.
 
@@ -235,14 +241,18 @@ class AgenticLLMActor:
                         tool_choice = [tool for tool in tool_choice if tool in self.allowed_tools]
 
                 system_prompt = self.system_prompt_generator()
-                response, client, _ = await self.model_router.call_raw_with_model(
-                    model,
-                    messages + extra_messages,
-                    system_prompt,
-                    tools=available_tools,
-                    tool_choice=tool_choice,
-                    reasoning_effort=self.reasoning_effort,
-                )
+                try:
+                    response, client, _ = await self.model_router.call_raw_with_model(
+                        model,
+                        messages + extra_messages,
+                        system_prompt,
+                        tools=available_tools,
+                        tool_choice=tool_choice,
+                        reasoning_effort=self.reasoning_effort,
+                    )
+                except ValueError as e:
+                    logger.error(f"Model configuration error: {e}")
+                    return f"Error: {e}"
 
                 # Process response using unified handler (provider-aware)
                 result = self._process_ai_response_provider(response, client)
@@ -468,7 +478,7 @@ class AgenticLLMActor:
             persistent_tool_calls, persistence_callback
         )
 
-        raise StopIteration("Agent took too many turns to research")
+        raise AgentIterationLimitError("Agent took too many turns to research")
 
     def _process_ai_response_provider(
         self, response: dict | str | None, client: Any
