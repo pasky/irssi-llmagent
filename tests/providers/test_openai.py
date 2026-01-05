@@ -289,24 +289,27 @@ class TestOpenRouterClient:
         test_config = {"providers": {"openrouter": {"key": "test-key"}}}
         client = OpenRouterClient(test_config)
 
-        # Test without provider routing
+        # Test without provider routing (still includes usage tracking)
         extra_body, model_name = client._get_extra_body("gpt-4o")
-        assert extra_body is None
+        assert extra_body == {"usage": {"include": True}}
         assert model_name is None
 
         # Test with provider routing
         extra_body, model_name = client._get_extra_body("moonshot/kimi-k2#groq,moonshotai")
-        assert extra_body == {"provider": {"only": ["groq", "moonshotai"]}}
+        assert extra_body == {
+            "provider": {"only": ["groq", "moonshotai"]},
+            "usage": {"include": True},
+        }
         assert model_name == "moonshot/kimi-k2"
 
         # Test with single provider
         extra_body, model_name = client._get_extra_body("gpt-4o#anthropic")
-        assert extra_body == {"provider": {"only": ["anthropic"]}}
+        assert extra_body == {"provider": {"only": ["anthropic"]}, "usage": {"include": True}}
         assert model_name == "gpt-4o"
 
-        # Test with empty provider list
+        # Test with empty provider list (still includes usage tracking)
         extra_body, model_name = client._get_extra_body("gpt-4o#")
-        assert extra_body is None
+        assert extra_body == {"usage": {"include": True}}
         assert model_name is None
 
     @pytest.mark.asyncio

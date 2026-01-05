@@ -3,6 +3,7 @@
 import copy
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from ..chronicler.tools import chronicle_tools_defs, quest_tools_defs
@@ -10,6 +11,17 @@ from ..providers import ModelRouter
 from .tools import TOOLS, OracleExecutor, create_tool_executors, execute_tool
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class AgentResult:
+    """Result from an agent run including response text and accumulated usage."""
+
+    text: str
+    total_input_tokens: int | None
+    total_output_tokens: int | None
+    total_cost: float | None
+    primary_model: str | None = None
 
 
 class AgentIterationLimitError(Exception):
@@ -84,7 +96,7 @@ class AgenticLLMActor:
         persistence_callback: Callable[[str], Awaitable[None]] | None = None,
         arc: str,
         current_quest_id: str | None = None,
-    ) -> str:
+    ) -> AgentResult:
         """Run the agent with tool-calling loop.
 
         Args:
@@ -92,10 +104,19 @@ class AgenticLLMActor:
             progress_callback: Called with progress updates to send to IRC.
             persistence_callback: Called with tool summaries to store for future context.
             arc: The arc identifier (e.g., "server#channel").
+
+        Returns:
+            AgentResult with response text and accumulated token usage/cost.
         """
         messages: list[dict[str, Any]] = copy.deepcopy(self.prepended_context) + copy.deepcopy(
             context
         )
+
+        # Accumulate usage across all LLM calls in this agent run
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_cost = 0.0
+        primary_model: str | None = None
 
         # Create tool executors with the provided arc
         base_executors = create_tool_executors(
@@ -134,6 +155,15 @@ class AgenticLLMActor:
 
         # Track empty response retries
         empty_response_retries = 0
+
+        def _make_result(text: str) -> AgentResult:
+            return AgentResult(
+                text=text,
+                total_input_tokens=total_input_tokens or None,
+                total_output_tokens=total_output_tokens or None,
+                total_cost=total_cost or None,
+                primary_model=primary_model,
+            )
 
         try:
             for iteration in range(self.max_iterations * 2):
@@ -242,7 +272,7 @@ class AgenticLLMActor:
 
                 system_prompt = self.system_prompt_generator()
                 try:
-                    response, client, _ = await self.model_router.call_raw_with_model(
+                    response, client, spec, usage = await self.model_router.call_raw_with_model(
                         model,
                         messages + extra_messages,
                         system_prompt,
@@ -252,14 +282,24 @@ class AgenticLLMActor:
                     )
                 except ValueError as e:
                     logger.error(f"Model configuration error: {e}")
-                    return f"Error: {e}"
+                    return _make_result(f"Error: {e}")
+
+                # Accumulate usage from this LLM call
+                if usage.input_tokens is not None:
+                    total_input_tokens += usage.input_tokens
+                if usage.output_tokens is not None:
+                    total_output_tokens += usage.output_tokens
+                if usage.cost is not None:
+                    total_cost += usage.cost
+                if primary_model is None:
+                    primary_model = f"{spec.provider}:{spec.name}"
 
                 # Process response using unified handler (provider-aware)
                 result = self._process_ai_response_provider(response, client)
 
                 if result["type"] == "error":
                     logger.error(f"Invalid AI response: {result['message']}")
-                    return f"Error: {result['message']}"
+                    return _make_result(f"Error: {result['message']}")
                 elif result["type"] == "empty_response_retry":
                     if empty_response_retries < 3:
                         empty_response_retries += 1
@@ -279,13 +319,13 @@ class AgenticLLMActor:
                         continue
 
                     logger.error(f"Invalid AI response: {result['message']}")
-                    return f"Error: {result['message']}"
+                    return _make_result(f"Error: {result['message']}")
                 elif result["type"] == "final_text":
                     # Generate persistence summary before returning
                     await self._generate_and_store_persistence_summary(
                         persistent_tool_calls, persistence_callback
                     )
-                    return f"{result['text']}{result_suffix}"
+                    return _make_result(f"{result['text']}{result_suffix}")
                 elif result["type"] == "truncated_tool_retry":
                     # Add assistant's truncated tool request to conversation
                     if response and isinstance(response, dict):
@@ -433,7 +473,7 @@ class AgenticLLMActor:
                                     await self._generate_and_store_persistence_summary(
                                         persistent_tool_calls, persistence_callback
                                     )
-                                    return f"{cleaned_result}{result_suffix}"
+                                    return _make_result(f"{cleaned_result}{result_suffix}")
 
                         except Exception as e:
                             logger.warning(f"Tool {tool['name']} failed: {e}", exc_info=True)
@@ -628,7 +668,7 @@ class AgenticLLMActor:
             summary_model = self.config["tools"]["summary"]["model"]
 
             if self.model_router:
-                summary_response, _, _ = await self.model_router.call_raw_with_model(
+                summary_response, _, _, _ = await self.model_router.call_raw_with_model(
                     summary_model,
                     [{"role": "user", "content": "\n".join(summary_input)}],
                     "As an AI agent, you need to remember in the future what tools you used when generating a response, and what did the tools tell you, as you may get challenged on that. This is your moment to generate that memory. Summarize all the tool uses in a single concise paragraph. In case artifact links are included, you MUST include all these artifact links in your summary, tied to the respective tool calls.",

@@ -200,7 +200,7 @@ class QuestOperator:
             )
 
         try:
-            response = await self.agent.run_actor(
+            agent_result = await self.agent.run_actor(
                 context,
                 mode_cfg=mode_cfg,
                 system_prompt=system_prompt,
@@ -212,6 +212,7 @@ class QuestOperator:
             logger.error(f"Quest step run_actor failed for {arc} {quest_id}: {e}")
             return
 
+        response = agent_result.text if agent_result else None
         if not response or response.startswith("Error: "):
             response = f"{paragraph_text}. Previous quest call failed ({response})."
 

@@ -38,7 +38,7 @@ class TestRefusalFallback:
         mock_client.call_raw.side_effect = mock_call_raw
 
         with patch.object(router, "_ensure_client", return_value=mock_client):
-            response, client, spec = await router.call_raw_with_model(
+            response, client, spec, _ = await router.call_raw_with_model(
                 "anthropic:claude-sonnet-4",
                 [{"role": "user", "content": "test"}],
                 "system prompt",
@@ -88,7 +88,7 @@ class TestRefusalFallback:
             return safe_client
 
         with patch.object(router, "_ensure_client", side_effect=get_client):
-            response, client, spec = await router.call_raw_with_model(
+            response, client, spec, _ = await router.call_raw_with_model(
                 "openai:gpt-4o",
                 [{"role": "user", "content": "test"}],
                 "system prompt",
@@ -135,7 +135,7 @@ class TestRefusalFallback:
             return openrouter_client
 
         with patch.object(router, "_ensure_client", side_effect=get_client):
-            response, client, spec = await router.call_raw_with_model(
+            response, client, spec, _ = await router.call_raw_with_model(
                 "anthropic:claude-sonnet-4",
                 [{"role": "user", "content": "test"}],
                 "system prompt",
@@ -165,7 +165,7 @@ class TestRefusalFallback:
         client.call_raw.return_value = {"error": "API error: connection timeout"}
 
         with patch.object(router, "_ensure_client", return_value=client):
-            response, returned_client, spec = await router.call_raw_with_model(
+            response, returned_client, spec, _ = await router.call_raw_with_model(
                 "anthropic:claude-sonnet-4",
                 [{"role": "user", "content": "test"}],
                 "system prompt",

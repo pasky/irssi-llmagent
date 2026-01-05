@@ -36,7 +36,24 @@ class ChatHistory:
                     role TEXT NOT NULL,
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                     chapter_id INTEGER NULL,
-                    mode TEXT NULL
+                    mode TEXT NULL,
+                    llm_call_id INTEGER NULL
+                )
+            """
+            ) as _:
+                pass
+            async with db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS llm_calls (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    input_tokens INTEGER,
+                    output_tokens INTEGER,
+                    cost REAL,
+                    call_type TEXT,
+                    arc_name TEXT
                 )
             """
             ) as _:
@@ -55,13 +72,52 @@ class ChatHistory:
             """
             ) as _:
                 pass
+            async with db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_llm_calls_arc
+                ON llm_calls (arc_name, timestamp)
+            """
+            ) as _:
+                pass
             # Migrate existing tables: add mode column if missing
             async with db.execute("PRAGMA table_info(chat_messages)") as cursor:
                 columns = [row[1] for row in await cursor.fetchall()]
             if "mode" not in columns:
                 await db.execute("ALTER TABLE chat_messages ADD COLUMN mode TEXT NULL")
+            if "llm_call_id" not in columns:
+                await db.execute("ALTER TABLE chat_messages ADD COLUMN llm_call_id INTEGER NULL")
             await db.commit()
             logger.debug(f"Initialized chat history database: {self.db_path}")
+
+    async def log_llm_call(
+        self,
+        provider: str,
+        model: str,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        cost: float | None,
+        call_type: str | None = None,
+        arc_name: str | None = None,
+    ) -> int:
+        """Log an LLM API call and return its ID."""
+        async with self._lock, aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                """
+                INSERT INTO llm_calls
+                (provider, model, input_tokens, output_tokens, cost, call_type, arc_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (provider, model, input_tokens, output_tokens, cost, call_type, arc_name),
+            ) as cursor:
+                call_id = cursor.lastrowid
+            await db.commit()
+
+        cost_str = f"${cost:.6f}" if cost is not None else "N/A"
+        logger.debug(
+            f"Logged LLM call: {provider}:{model} in={input_tokens} out={output_tokens} "
+            f"cost={cost_str} type={call_type} arc={arc_name}"
+        )
+        return call_id or 0
 
     async def add_message(
         self,
@@ -74,6 +130,7 @@ class ChatHistory:
         content_template: str = "<{nick}> {message}",
         role: str | None = None,
         mode: str | None = None,
+        llm_call_id: int | None = None,
     ) -> None:
         """Add a message to the chat history."""
         if role is None:
@@ -86,10 +143,10 @@ class ChatHistory:
             db.execute(
                 """
                     INSERT INTO chat_messages
-                    (server_tag, channel_name, nick, message, role, mode)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (server_tag, channel_name, nick, message, role, mode, llm_call_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                (server_tag, channel_name, nick, content, role, mode),
+                (server_tag, channel_name, nick, content, role, mode, llm_call_id),
             ) as _,
         ):
             await db.commit()

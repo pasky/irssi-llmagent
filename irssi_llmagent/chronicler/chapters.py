@@ -46,7 +46,7 @@ Respond only with the summary, no preamble."""
     chronicler_config = agent.config["chronicler"]
     model = chronicler_config.get("arc_models", {}).get(arc, chronicler_config["model"])
 
-    resp, client, _ = await agent.model_router.call_raw_with_model(
+    resp, client, _, _ = await agent.model_router.call_raw_with_model(
         model_str=model,
         context=[{"role": "user", "content": user_content}],
         system_prompt=summary_prompt,

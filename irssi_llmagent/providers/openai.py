@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any
 
-from . import BaseAPIClient
+from . import BaseAPIClient, UsageInfo, compute_cost
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +195,8 @@ class BaseOpenAIClient(BaseAPIClient):
         extra_body, model_override = self._get_extra_body(model)
         if extra_body:
             kwargs["extra_body"] = extra_body
-            kwargs["model"] = model_override
+            if model_override:
+                kwargs["model"] = model_override
             self.logger.debug(f"Using extra_body: {extra_body}, model override: {model_override}")
 
         max_retries = 5
@@ -394,6 +395,14 @@ class BaseOpenAIClient(BaseAPIClient):
 
         return processed_results
 
+    def extract_usage(self, response: dict, model: str) -> UsageInfo:
+        """Extract usage info from OpenAI API response."""
+        usage = response.get("usage", {})
+        input_tokens = usage.get("prompt_tokens")
+        output_tokens = usage.get("completion_tokens")
+        cost = compute_cost(self.provider_name, model, input_tokens, output_tokens)
+        return UsageInfo(input_tokens, output_tokens, cost)
+
 
 class OpenAIClient(BaseOpenAIClient):
     """OpenAI API client using Chat Completions API."""
@@ -418,11 +427,20 @@ class OpenRouterClient(BaseOpenAIClient):
 
     def _get_extra_body(self, model: str):
         if "#" not in model:
-            return None, None
+            return {"usage": {"include": True}}, None
 
         model_name, provider_list = model.split("#", 1)
         providers = [p.strip() for p in provider_list.split(",") if p.strip()]
 
         if providers:
-            return {"provider": {"only": providers}}, model_name
-        return None, None
+            return {"provider": {"only": providers}, "usage": {"include": True}}, model_name
+        return {"usage": {"include": True}}, None
+
+    def extract_usage(self, response: dict, model: str) -> UsageInfo:
+        """Extract usage info from OpenRouter API response (includes cost directly)."""
+        usage = response.get("usage", {})
+        input_tokens = usage.get("prompt_tokens")
+        output_tokens = usage.get("completion_tokens")
+        # OpenRouter returns cost directly in credits (USD)
+        cost = usage.get("cost")
+        return UsageInfo(input_tokens, output_tokens, cost)

@@ -6,16 +6,18 @@ import os
 import tempfile
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 
 @pytest.fixture
 def mock_agent():
-    """Create a mock agent with chronicle attribute."""
+    """Create a mock agent with chronicle and history attributes."""
     agent = MagicMock()
     agent.chronicle = MagicMock()
+    agent.history = AsyncMock()
+    agent.history.log_llm_call = AsyncMock(return_value=1)
     return agent
 
 
@@ -221,9 +223,16 @@ def mock_model_call():
     """Fixture that provides a mock model call function for testing."""
 
     def _mock_model_call(response_text: str = "Mock response"):
+        from irssi_llmagent.providers import ModelSpec, UsageInfo
+
         async def fake_call_raw_with_model(*args, **kwargs):
             resp = {"output_text": response_text}
-            return resp, MockAPIClient(response_text), None
+            return (
+                resp,
+                MockAPIClient(response_text),
+                ModelSpec("test", "model"),
+                UsageInfo(None, None, None),
+            )
 
         return fake_call_raw_with_model
 

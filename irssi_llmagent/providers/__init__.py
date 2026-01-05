@@ -10,9 +10,73 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Pricing in USD per 1M tokens (prompt, completion)
+# Updated as of 2025-11
+ANTHROPIC_PRICING: dict[str, dict[str, float]] = {
+    "claude-sonnet-4-20250514": {"prompt": 3.0, "completion": 15.0},
+    "claude-3-5-sonnet-20241022": {"prompt": 3.0, "completion": 15.0},
+    "claude-3-5-haiku-20241022": {"prompt": 0.80, "completion": 4.0},
+    "claude-3-haiku-20240307": {"prompt": 0.25, "completion": 1.25},
+    "claude-3-opus-20240229": {"prompt": 15.0, "completion": 75.0},
+    "claude-opus-4-5": {"prompt": 5.0, "completion": 25.0},
+    "claude-haiku-4-5-20251001": {"prompt": 1.0, "completion": 5.0},
+}
+
+OPENAI_PRICING: dict[str, dict[str, float]] = {
+    "gpt-4o": {"prompt": 2.5, "completion": 10.0},
+    "gpt-4o-2024-11-20": {"prompt": 2.5, "completion": 10.0},
+    "gpt-4o-mini": {"prompt": 0.15, "completion": 0.60},
+    "gpt-4-turbo": {"prompt": 10.0, "completion": 30.0},
+    "o1": {"prompt": 15.0, "completion": 60.0},
+    "o1-mini": {"prompt": 1.10, "completion": 4.40},
+    "o3-mini": {"prompt": 1.10, "completion": 4.40},
+    "gpt-4.1": {"prompt": 2.0, "completion": 8.0},
+    "gpt-4.1-mini": {"prompt": 0.40, "completion": 1.60},
+    "gpt-4.1-nano": {"prompt": 0.10, "completion": 0.40},
+    "gpt-5-mini": {"prompt": 0.25, "completion": 2.0},
+}
+
+DEEPSEEK_PRICING: dict[str, dict[str, float]] = {
+    "deepseek-chat": {"prompt": 0.14, "completion": 0.28},
+    "deepseek-reasoner": {"prompt": 0.55, "completion": 2.19},
+}
+
+
+def compute_cost(
+    provider: str,
+    model: str,
+    input_tokens: int | None,
+    output_tokens: int | None,
+) -> float | None:
+    """Compute cost in USD from token counts. Returns None if model not in pricelist."""
+    pricing_map = {
+        "anthropic": ANTHROPIC_PRICING,
+        "openai": OPENAI_PRICING,
+        "deepseek": DEEPSEEK_PRICING,
+    }
+    pricing = pricing_map.get(provider, {})
+    if model not in pricing:
+        logger.warning(f"No pricing data for {provider}:{model}, cost will be None")
+        return None
+    rates = pricing[model]
+    prompt_cost = (input_tokens or 0) * rates["prompt"] / 1_000_000
+    completion_cost = (output_tokens or 0) * rates["completion"] / 1_000_000
+    return prompt_cost + completion_cost
+
+
+@dataclass
+class UsageInfo:
+    """Token usage and cost information from an LLM call."""
+
+    input_tokens: int | None
+    output_tokens: int | None
+    cost: float | None  # USD, None if unknown
+
 
 class BaseAPIClient(ABC):
     """Abstract base class for AI API clients."""
+
+    provider_name: str = "unknown"
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
@@ -30,6 +94,10 @@ class BaseAPIClient(ABC):
     ) -> dict:
         """Call API with context and system prompt, returning raw response."""
         pass
+
+    def extract_usage(self, response: dict, model: str) -> UsageInfo:
+        """Extract usage info from response. Override in subclasses for provider-specific formats."""
+        return UsageInfo(None, None, None)
 
     async def call(self, context: list[dict], system_prompt: str, model: str) -> str:
         """Call API with context and system prompt, returning cleaned text response."""
@@ -161,7 +229,7 @@ class ModelRouter:
         reasoning_effort: str = "minimal",
         modalities: list[str] | None = None,
         max_tokens: int | None = None,
-    ) -> tuple[dict, Any, ModelSpec]:
+    ) -> tuple[dict, Any, ModelSpec, UsageInfo]:
         spec = parse_model_spec(model_str)
         client = self.client_for(spec.provider)
         resp = await client.call_raw(
@@ -209,6 +277,8 @@ class ModelRouter:
                     if "content" in msg and isinstance(msg["content"], str):
                         msg["content"] = f"[{fallback_spec.name}] {msg['content']}"
 
-            return fallback_resp, fallback_client, fallback_spec
+            usage = fallback_client.extract_usage(fallback_resp, fallback_spec.name)
+            return fallback_resp, fallback_client, fallback_spec, usage
 
-        return resp, client, spec
+        usage = client.extract_usage(resp, spec.name)
+        return resp, client, spec, usage

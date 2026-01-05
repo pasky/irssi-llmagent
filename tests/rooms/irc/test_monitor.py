@@ -5,7 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from irssi_llmagent.agentic_actor.actor import AgentResult
 from irssi_llmagent.main import IRSSILLMAgent
+from irssi_llmagent.providers import ModelSpec, UsageInfo
 from irssi_llmagent.rooms import ProactiveDebouncer
 from irssi_llmagent.rooms.irc.monitor import ParsedPrefix
 
@@ -97,7 +99,12 @@ class TestIRCMonitor:
             # Return simple text response via a fake client
             resp = {"output_text": "Test response"}
 
-            return resp, MockAPIClient("Test response"), None
+            return (
+                resp,
+                MockAPIClient("Test response"),
+                ModelSpec("test", "model"),
+                UsageInfo(None, None, None),
+            )
 
         with patch(
             "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
@@ -136,7 +143,12 @@ class TestIRCMonitor:
         # Mock the model router call
         async def fake_call_raw_with_model(*args, **kwargs):
             resp = {"output_text": "Test response"}
-            return resp, MockAPIClient("Test response"), None
+            return (
+                resp,
+                MockAPIClient("Test response"),
+                ModelSpec("test", "model"),
+                UsageInfo(None, None, None),
+            )
 
         with patch(
             "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
@@ -520,7 +532,14 @@ class TestIRCMonitor:
 
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
-            mock_agent.run_agent = AsyncMock(return_value="Agent response")
+            mock_agent.run_agent = AsyncMock(
+                return_value=AgentResult(
+                    text="Agent response",
+                    total_input_tokens=None,
+                    total_output_tokens=None,
+                    total_cost=None,
+                )
+            )
             mock_agent_class.return_value = mock_agent
 
             # Test serious mode (should use agent)
@@ -567,7 +586,14 @@ class TestIRCMonitor:
 
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
-            mock_agent.run_agent = AsyncMock(return_value="Agent response")
+            mock_agent.run_agent = AsyncMock(
+                return_value=AgentResult(
+                    text="Agent response",
+                    total_input_tokens=None,
+                    total_output_tokens=None,
+                    total_cost=None,
+                )
+            )
             mock_agent_class.return_value = mock_agent
 
             # 1. Test fallback (thinking_model NOT configured)
@@ -658,11 +684,23 @@ class TestIRCMonitor:
             # Return simple text response via a fake client
             resp = {"output_text": "Sarcastic response"}
 
-            return resp, MockAPIClient("Sarcastic response"), None
+            return (
+                resp,
+                MockAPIClient("Sarcastic response"),
+                ModelSpec("test", "model"),
+                UsageInfo(None, None, None),
+            )
 
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
-            mock_agent.run_agent = AsyncMock(return_value="Sarcastic response")
+            mock_agent.run_agent = AsyncMock(
+                return_value=AgentResult(
+                    text="Sarcastic response",
+                    total_input_tokens=None,
+                    total_output_tokens=None,
+                    total_cost=None,
+                )
+            )
             mock_agent_class.return_value = mock_agent
 
             # Test sarcastic mode
@@ -699,14 +737,26 @@ class TestIRCMonitor:
             # Return classification result
             resp = {"output_text": "SERIOUS"}
 
-            return resp, MockAPIClient("SERIOUS"), None
+            return (
+                resp,
+                MockAPIClient("SERIOUS"),
+                ModelSpec("test", "model"),
+                UsageInfo(None, None, None),
+            )
 
         # Set up the model_router mock
         agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model)
 
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
-            mock_agent.run_agent = AsyncMock(return_value="Agent response")
+            mock_agent.run_agent = AsyncMock(
+                return_value=AgentResult(
+                    text="Agent response",
+                    total_input_tokens=None,
+                    total_output_tokens=None,
+                    total_cost=None,
+                )
+            )
             mock_agent_class.return_value = mock_agent
 
             # Test automatic mode message that should be classified as serious
@@ -731,7 +781,14 @@ class TestIRCMonitor:
         # Mock the AgenticLLMActor for unsafe mode
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
-            mock_agent.run_agent = AsyncMock(return_value="Unsafe response")
+            mock_agent.run_agent = AsyncMock(
+                return_value=AgentResult(
+                    text="Unsafe response",
+                    total_input_tokens=None,
+                    total_output_tokens=None,
+                    total_cost=None,
+                )
+            )
             mock_agent_class.return_value = mock_agent
 
             # Test explicit unsafe mode command
@@ -762,7 +819,14 @@ class TestIRCMonitor:
         # Mock the AgenticLLMActor for unsafe mode
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
-            mock_agent.run_agent = AsyncMock(return_value="Unsafe response")
+            mock_agent.run_agent = AsyncMock(
+                return_value=AgentResult(
+                    text="Unsafe response",
+                    total_input_tokens=None,
+                    total_output_tokens=None,
+                    total_cost=None,
+                )
+            )
             mock_agent_class.return_value = mock_agent
 
             # Test explicit unsafe mode command with override
@@ -864,7 +928,12 @@ class TestIRCMonitor:
         async def fake_call_raw_with_model(*args, **kwargs):
             # Return UNSAFE classification result
             resp = {"output_text": "UNSAFE"}
-            return resp, MockAPIClient("UNSAFE"), None
+            return (
+                resp,
+                MockAPIClient("UNSAFE"),
+                ModelSpec("test", "model"),
+                UsageInfo(None, None, None),
+            )
 
         # Set up the model_router mock
         agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model)
@@ -921,7 +990,12 @@ class TestIRCMonitor:
             text = seq.pop(0)
             resp = {"output_text": text}
 
-            return resp, MockAPIClient(text), None
+            return (
+                resp,
+                MockAPIClient(text),
+                ModelSpec("test", "model"),
+                UsageInfo(None, None, None),
+            )
 
         # Set up the model_router mock
         agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model)
@@ -960,7 +1034,12 @@ class TestIRCMonitor:
 
         async def fake_call_raw_with_model(*args, **kwargs):
             resp = {"output_text": "Testing threshold: 8/10"}
-            return resp, MockAPIClient("Testing threshold: 8/10"), None
+            return (
+                resp,
+                MockAPIClient("Testing threshold: 8/10"),
+                ModelSpec("test", "model"),
+                UsageInfo(None, None, None),
+            )
 
         # Set up the model_router mock
         agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model)
@@ -986,7 +1065,7 @@ class TestIRCMonitor:
                 def extract_text_from_response(self, r):
                     return "Testing threshold: 8/10"
 
-            return resp, C(), None
+            return resp, C(), ModelSpec("test", "model"), UsageInfo(None, None, None)
 
         # Set up the model_router mock with new function
         agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model_8)
@@ -1005,7 +1084,12 @@ class TestIRCMonitor:
         # Test with threshold 9 - score 7 should NOT trigger at all
         async def fake_call_raw_with_model_7(*args, **kwargs):
             resp = {"output_text": "Testing threshold: 7/10"}
-            return resp, MockAPIClient("Testing threshold: 7/10"), None
+            return (
+                resp,
+                MockAPIClient("Testing threshold: 7/10"),
+                ModelSpec("test", "model"),
+                UsageInfo(None, None, None),
+            )
 
         # Set up the model_router mock with new function
         agent.model_router.call_raw_with_model = AsyncMock(side_effect=fake_call_raw_with_model_7)
@@ -1041,7 +1125,14 @@ class TestIRCMonitor:
 
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
-            mock_agent.run_agent = AsyncMock(return_value=long_response)
+            mock_agent.run_agent = AsyncMock(
+                return_value=AgentResult(
+                    text=long_response,
+                    total_input_tokens=None,
+                    total_output_tokens=None,
+                    total_cost=None,
+                )
+            )
             mock_agent_class.return_value = mock_agent
 
             # Mock the ShareArtifactExecutor
@@ -1092,7 +1183,14 @@ class TestIRCMonitor:
 
         with patch("irssi_llmagent.main.AgenticLLMActor") as mock_agent_class:
             mock_agent = AsyncMock()
-            mock_agent.run_agent = AsyncMock(return_value=short_response)
+            mock_agent.run_agent = AsyncMock(
+                return_value=AgentResult(
+                    text=short_response,
+                    total_input_tokens=None,
+                    total_output_tokens=None,
+                    total_cost=None,
+                )
+            )
             mock_agent_class.return_value = mock_agent
 
             # Test command that generates short response
@@ -1123,7 +1221,11 @@ class TestIRCMonitor:
         await agent.history.add_message("test", "#test", "history 2", "user", "mybot")
 
         # Mock agent.run_actor to check arguments
-        agent.run_actor = AsyncMock(return_value="Response")
+        agent.run_actor = AsyncMock(
+            return_value=AgentResult(
+                text="Response", total_input_tokens=None, total_output_tokens=None, total_cost=None
+            )
+        )
 
         # Test !s !c
         await agent.irc_monitor.handle_command(

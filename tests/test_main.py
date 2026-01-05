@@ -4,7 +4,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from irssi_llmagent.agentic_actor.actor import AgentResult
 from irssi_llmagent.main import IRSSILLMAgent, cli_message
+from irssi_llmagent.providers import ModelSpec, UsageInfo
 
 
 class MockAPIClient:
@@ -70,7 +72,12 @@ class TestCLIMode:
                 async def fake_call_raw_with_model(*args, **kwargs):
                     resp = {"output_text": "Sarcastic response"}
 
-                    return resp, MockAPIClient("Sarcastic response"), None
+                    return (
+                        resp,
+                        MockAPIClient("Sarcastic response"),
+                        ModelSpec("test", "model"),
+                        UsageInfo(None, None, None),
+                    )
 
                 # Patch the agent creation in cli_message and model router
                 with patch("irssi_llmagent.main.IRSSILLMAgent", return_value=agent):
@@ -158,7 +165,14 @@ class TestCLIMode:
                     mock_history_class.return_value = mock_history
 
                     mock_agent = AsyncMock()
-                    mock_agent.run_agent = AsyncMock(return_value="Agent response")
+                    mock_agent.run_agent = AsyncMock(
+                        return_value=AgentResult(
+                            text="Agent response",
+                            total_input_tokens=None,
+                            total_output_tokens=None,
+                            total_cost=None,
+                        )
+                    )
                     mock_agent_class.return_value = mock_agent
 
                     # Create a real agent
@@ -206,7 +220,14 @@ class TestCLIMode:
                     mock_history_class.return_value = mock_history
 
                     mock_agent = AsyncMock()
-                    mock_agent.run_agent = AsyncMock(return_value="Agent response")
+                    mock_agent.run_agent = AsyncMock(
+                        return_value=AgentResult(
+                            text="Agent response",
+                            total_input_tokens=None,
+                            total_output_tokens=None,
+                            total_cost=None,
+                        )
+                    )
                     mock_agent_class.return_value = mock_agent
 
                     # Create a real agent

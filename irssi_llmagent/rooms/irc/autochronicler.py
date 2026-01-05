@@ -140,7 +140,7 @@ class AutoChronicler:
         chronicler_model = chronicler_config.get("arc_models", {}).get(
             arc, chronicler_config["model"]
         )
-        resp, client, _ = await self.monitor.agent.model_router.call_raw_with_model(
+        resp, client, _, _ = await self.monitor.agent.model_router.call_raw_with_model(
             model_str=chronicler_model,
             context=context_messages,
             system_prompt=system_prompt,

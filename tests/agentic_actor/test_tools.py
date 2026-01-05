@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import aiohttp
 import pytest
 
+from irssi_llmagent.agentic_actor.actor import AgentResult
 from irssi_llmagent.agentic_actor.tools import (
     CodeExecutorE2B,
     EditArtifactExecutor,
@@ -1023,7 +1024,14 @@ class TestOracleExecutor:
 
         with patch("irssi_llmagent.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
             mock_actor = AsyncMock()
-            mock_actor.run_agent = AsyncMock(return_value="Oracle says hello")
+            mock_actor.run_agent = AsyncMock(
+                return_value=AgentResult(
+                    text="Oracle says hello",
+                    total_input_tokens=None,
+                    total_output_tokens=None,
+                    total_cost=None,
+                )
+            )
             mock_actor_class.return_value = mock_actor
 
             result = await executor.execute("What should I do?")
@@ -1062,7 +1070,14 @@ class TestOracleExecutor:
 
         with patch("irssi_llmagent.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
             mock_actor = AsyncMock()
-            mock_actor.run_agent = AsyncMock(return_value="Result")
+            mock_actor.run_agent = AsyncMock(
+                return_value=AgentResult(
+                    text="Result",
+                    total_input_tokens=None,
+                    total_output_tokens=None,
+                    total_cost=None,
+                )
+            )
             mock_actor_class.return_value = mock_actor
 
             await executor.execute("query")
@@ -1129,7 +1144,11 @@ class TestOracleExecutor:
 
         with patch("irssi_llmagent.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
             mock_actor = AsyncMock()
-            mock_actor.run_agent = AsyncMock(return_value="Done")
+            mock_actor.run_agent = AsyncMock(
+                return_value=AgentResult(
+                    text="Done", total_input_tokens=None, total_output_tokens=None, total_cost=None
+                )
+            )
             mock_actor_class.return_value = mock_actor
 
             await executor.execute("query")

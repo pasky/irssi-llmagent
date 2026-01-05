@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from irssi_llmagent.agentic_actor.actor import AgentResult
 from irssi_llmagent.chronicler.chapters import chapter_append_paragraph
 from irssi_llmagent.chronicler.tools import (
     QuestSnoozeExecutor,
@@ -11,6 +12,7 @@ from irssi_llmagent.chronicler.tools import (
     SubquestStartExecutor,
     _validate_quest_id,
 )
+from irssi_llmagent.providers import ModelSpec, UsageInfo
 
 
 @pytest.mark.asyncio
@@ -53,7 +55,10 @@ async def test_quest_operator_triggers_and_announces(shared_agent):
                 finished_event.set()
             if call_counter["count"] >= 3:
                 third_call_event.set()
-            return intermediate_para if call_counter["count"] == 1 else finished_para
+            text = intermediate_para if call_counter["count"] == 1 else finished_para
+            return AgentResult(
+                text=text, total_input_tokens=None, total_output_tokens=None, total_cost=None
+            )
 
     with patch("irssi_llmagent.main.AgenticLLMActor", new=DummyActor):
         # Ensure varlink sender mock
@@ -137,7 +142,9 @@ async def test_heartbeat_triggers_open_quests(shared_agent):
             arc: str,
             current_quest_id: str | None = None,
         ):
-            return next_para
+            return AgentResult(
+                text=next_para, total_input_tokens=None, total_output_tokens=None, total_cost=None
+            )
 
     with patch("irssi_llmagent.main.AgenticLLMActor", new=DummyActor2):
         agent.irc_monitor.varlink_sender = AsyncMock()
@@ -192,7 +199,9 @@ async def test_chapter_rollover_copies_unresolved_quests(shared_agent):
             current_quest_id: str | None = None,
         ):
             actor_call_count["n"] += 1
-            return None
+            return AgentResult(
+                text="", total_input_tokens=None, total_output_tokens=None, total_cost=None
+            )
 
     with (
         patch("irssi_llmagent.main.AgenticLLMActor", new=DummyActor3),
@@ -203,7 +212,12 @@ async def test_chapter_rollover_copies_unresolved_quests(shared_agent):
         mock_client.extract_text_from_response.return_value = (
             "Error: API error: Mock connection refused"
         )
-        mock_router.return_value = ({"error": "Mock connection refused"}, mock_client, None)
+        mock_router.return_value = (
+            {"error": "Mock connection refused"},
+            mock_client,
+            ModelSpec("test", "model"),
+            UsageInfo(None, None, None),
+        )
         # Fill chapter to exactly the limit with a quest and normal paragraphs
         await chapter_append_paragraph(arc, '<quest id="carry">Carry over me</quest>', agent)
         await chapter_append_paragraph(arc, "Some other text", agent)
@@ -320,8 +334,12 @@ async def test_subquest_finish_resumes_parent(shared_agent):
             triggered_quest_ids.append(current_quest_id)
             # Return finished for sub-quest, continuation for parent
             if current_quest_id == "parent.child":
-                return '<quest_finished id="parent.child">Sub-task done. CONFIRMED ACHIEVED</quest_finished>'
-            return '<quest id="parent">Continuing parent</quest>'
+                text = '<quest_finished id="parent.child">Sub-task done. CONFIRMED ACHIEVED</quest_finished>'
+            else:
+                text = '<quest id="parent">Continuing parent</quest>'
+            return AgentResult(
+                text=text, total_input_tokens=None, total_output_tokens=None, total_cost=None
+            )
 
     with patch("irssi_llmagent.main.AgenticLLMActor", new=TrackingActor):
         agent.irc_monitor.varlink_sender = AsyncMock()
@@ -407,7 +425,8 @@ async def test_quest_start_with_make_plan_and_final_answer(shared_agent):
                 ]
             },
             MockClient(),
-            None,
+            ModelSpec("test", "model"),
+            UsageInfo(None, None, None),
         )
 
     actor = AgenticLLMActor(
@@ -453,7 +472,7 @@ async def test_quest_start_with_make_plan_and_final_answer(shared_agent):
 
     assert "make_plan" in executed_tools, "make_plan should execute"
     assert "quest_start" in executed_tools, "quest_start should execute"
-    assert "Quest started: plan-test" in result
+    assert "Quest started: plan-test" in result.text
 
 
 @pytest.mark.asyncio

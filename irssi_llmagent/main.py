@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .agentic_actor import AgenticLLMActor
+from .agentic_actor.actor import AgentResult
 from .chronicler.chronicle import Chronicle
 from .chronicler.quests import QuestOperator
 from .history import ChatHistory
@@ -86,7 +87,7 @@ class IRSSILLMAgent:
         model: str | list[str] | None = None,
         current_quest_id: str | None = None,
         **actor_kwargs,
-    ) -> str | None:
+    ) -> AgentResult | None:
         prepended_context: list[dict[str, str]] = []
         if mode_cfg.get("include_chapter_summary", True) and arc:
             prepended_context = await self.chronicle.get_chapter_context_messages(arc)
@@ -101,7 +102,7 @@ class IRSSILLMAgent:
             vision_model=mode_cfg.get("vision_model"),
             **actor_kwargs,
         )
-        response = await actor.run_agent(
+        agent_result = await actor.run_agent(
             context,
             progress_callback=progress_callback,
             persistence_callback=persistence_callback,
@@ -109,9 +110,9 @@ class IRSSILLMAgent:
             current_quest_id=current_quest_id,
         )
 
-        if not response or response.strip().upper().startswith("NULL"):
+        if not agent_result.text or agent_result.text.strip().upper().startswith("NULL"):
             return None
-        cleaned = response.strip()
+        cleaned = agent_result.text.strip()
         # Strip IRC-style leading prefixes from context-echoed outputs: [model], mode commands, timestamps, and non-quest tags like <nick>.
         # Never strip <quest> or <quest_finished> because those carry semantics for the chronicler.
         cleaned = re.sub(
@@ -120,7 +121,14 @@ class IRSSILLMAgent:
             cleaned,
             flags=re.IGNORECASE,
         )
-        return cleaned
+        # Return a new AgentResult with cleaned text but same usage stats
+        return AgentResult(
+            text=cleaned,
+            total_input_tokens=agent_result.total_input_tokens,
+            total_output_tokens=agent_result.total_output_tokens,
+            total_cost=agent_result.total_cost,
+            primary_model=agent_result.primary_model,
+        )
 
     def load_config(self, config_path: str) -> dict[str, Any]:
         """Load configuration from JSON file."""

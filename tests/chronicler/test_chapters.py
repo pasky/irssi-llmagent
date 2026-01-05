@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from irssi_llmagent.chronicler.chapters import _get_arc_lock, chapter_append_paragraph
+from irssi_llmagent.providers import ModelSpec, UsageInfo
 
 
 @pytest.mark.asyncio
@@ -53,7 +54,12 @@ async def test_chapter_append_paragraph_over_limit(temp_config_file):
     mock_client = Mock()
     mock_client.extract_text_from_response.return_value = "Chapter summary"
     agent.model_router.call_raw_with_model = AsyncMock(
-        return_value=(mock_response, mock_client, None)
+        return_value=(
+            mock_response,
+            mock_client,
+            ModelSpec("test", "model"),
+            UsageInfo(None, None, None),
+        )
     )
 
     # Set reasonable paragraph limit for testing (high enough to avoid recursion issues)
@@ -160,7 +166,12 @@ async def test_concurrent_appends_same_arc(temp_config_file):
     mock_client = Mock()
     mock_client.extract_text_from_response.return_value = "Concurrent test summary"
     agent.model_router.call_raw_with_model = AsyncMock(
-        return_value=(mock_response, mock_client, None)
+        return_value=(
+            mock_response,
+            mock_client,
+            ModelSpec("test", "model"),
+            UsageInfo(None, None, None),
+        )
     )
 
     arc = "test-concurrent-arc"

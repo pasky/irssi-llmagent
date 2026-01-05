@@ -1,6 +1,7 @@
 import pytest
 
 from irssi_llmagent.agentic_actor import AgenticLLMActor
+from irssi_llmagent.providers import ModelSpec, UsageInfo
 
 
 class FakeAPIClient:
@@ -138,10 +139,15 @@ async def test_progress_report_tool_emits_callback(monkeypatch, mock_agent):
             resp = await fake_client.call_raw(
                 messages, system_prompt, model, tools=kwargs.get("tools")
             )
-            return resp, fake_client, None
+            return resp, fake_client, ModelSpec("test", "model"), UsageInfo(None, None, None)
         else:
             # Second call: return final text
-            return {"content": [{"type": "text", "text": "Final answer"}]}, fake_client, None
+            return (
+                {"content": [{"type": "text", "text": "Final answer"}]},
+                fake_client,
+                ModelSpec("test", "model"),
+                UsageInfo(None, None, None),
+            )
 
     from unittest.mock import AsyncMock as _AsyncMock
     from unittest.mock import patch as _patch
@@ -156,7 +162,7 @@ async def test_progress_report_tool_emits_callback(monkeypatch, mock_agent):
         # Run agent without using context manager (fake client doesn't need it here)
         result = await agent.run_agent(context, progress_callback=progress_cb, arc="test-arc")
 
-    assert result == "Final answer"
+    assert result.text == "Final answer"
     assert sent, "Expected progress callback to be called at least once"
     assert sent[0].startswith("Searching docs")
 

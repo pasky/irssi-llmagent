@@ -14,7 +14,9 @@ import irssi_llmagent
 if TYPE_CHECKING:
     from ...main import IRSSILLMAgent
 
+from ...agentic_actor.actor import AgentResult
 from ...message_logging import MessageLoggingContext
+from ...providers import parse_model_spec
 from ...providers.perplexity import PerplexityClient
 from ...rate_limiter import RateLimiter
 from .. import ProactiveDebouncer
@@ -168,7 +170,7 @@ class IRCRoomMonitor:
                 message=current_message
             )
             model = self.irc_config["command"]["mode_classifier"]["model"]
-            resp, client, _ = await self.agent.model_router.call_raw_with_model(
+            resp, client, _, _ = await self.agent.model_router.call_raw_with_model(
                 model, context, prompt
             )
             response = client.extract_text_from_response(resp)
@@ -231,7 +233,7 @@ class IRCRoomMonitor:
 
             # Run iterative validation through all models
             for i, model in enumerate(validation_models):
-                resp, client, _ = await self.agent.model_router.call_raw_with_model(
+                resp, client, _, _ = await self.agent.model_router.call_raw_with_model(
                     model, context, prompt
                 )
                 response = client.extract_text_from_response(resp)
@@ -346,7 +348,7 @@ class IRCRoomMonitor:
                 )
                 send_message = True
 
-            response = await self._run_actor(
+            agent_result = await self._run_actor(
                 context,
                 mynick,
                 mode="serious",
@@ -358,24 +360,27 @@ class IRCRoomMonitor:
 
             # Check for NULL response (proactive interjections can decide not to respond)
             # Also filter out "Error: " responses which are proactive-specific
-            if not response or response.startswith("Error: "):
+            if not agent_result or not agent_result.text or agent_result.text.startswith("Error: "):
                 logger.info(f"Agent decided not to interject proactively for {chan_name}")
                 return
 
+            response_text = agent_result.text
             if send_message:
-                response = f"[{model_str_core(self.irc_config['proactive']['models']['serious'])}] {response}"
+                response_text = f"[{model_str_core(self.irc_config['proactive']['models']['serious'])}] {response_text}"
                 logger.info(
-                    f"Sending proactive agent ({classified_mode}) response to {chan_name}: {response}"
+                    f"Sending proactive agent ({classified_mode}) response to {chan_name}: {response_text}"
                 )
-                await self.varlink_sender.send_message(chan_name, response, server)
+                await self.varlink_sender.send_message(chan_name, response_text, server)
                 await self.agent.history.add_message(
-                    server, chan_name, response, mynick, mynick, True, mode=classified_mode
+                    server, chan_name, response_text, mynick, mynick, True, mode=classified_mode
                 )
                 await self.autochronicler.check_and_chronicle(
                     mynick, server, chan_name, self.irc_config["command"]["history_size"]
                 )
             else:
-                logger.info(f"[TEST MODE] Generated proactive response for {chan_name}: {response}")
+                logger.info(
+                    f"[TEST MODE] Generated proactive response for {chan_name}: {response_text}"
+                )
         except Exception as e:
             logger.error(f"Error in debounced proactive check for {chan_name}: {e}")
 
@@ -389,7 +394,7 @@ class IRCRoomMonitor:
         model: str | list[str] | None = None,
         no_context: bool = False,
         **actor_kwargs,
-    ) -> str | None:
+    ) -> AgentResult | None:
         mode_cfg = self.irc_config["command"]["modes"][mode]
         if no_context:
             context = context[-1:]
@@ -400,7 +405,7 @@ class IRCRoomMonitor:
         system_prompt = self.build_system_prompt(mode, mynick, model_override) + extra_prompt
 
         try:
-            response = await self.agent.run_actor(
+            agent_result = await self.agent.run_actor(
                 context,
                 mode_cfg=mode_cfg,
                 system_prompt=system_prompt,
@@ -409,17 +414,33 @@ class IRCRoomMonitor:
             )
         except Exception as e:
             logger.error(f"Error during agent execution: {e}", exc_info=True)
-            return f"Error: {e}"
-
-        if response and len(response.encode("utf-8")) > 800:
-            logger.info(
-                f"Response too long ({len(response.encode('utf-8'))} bytes), creating artifact"
+            return AgentResult(
+                text=f"Error: {e}",
+                total_input_tokens=None,
+                total_output_tokens=None,
+                total_cost=None,
+                primary_model=None,
             )
-            response = await self._create_artifact_for_long_response(response)
-        if response:
-            response = response.replace("\n", "; ").strip()
 
-        return response
+        if agent_result is None:
+            return None
+
+        response_text = agent_result.text
+        if response_text and len(response_text.encode("utf-8")) > 800:
+            logger.info(
+                f"Response too long ({len(response_text.encode('utf-8'))} bytes), creating artifact"
+            )
+            response_text = await self._create_artifact_for_long_response(response_text)
+        if response_text:
+            response_text = response_text.replace("\n", "; ").strip()
+
+        return AgentResult(
+            text=response_text,
+            total_input_tokens=agent_result.total_input_tokens,
+            total_output_tokens=agent_result.total_output_tokens,
+            total_cost=agent_result.total_cost,
+            primary_model=agent_result.primary_model,
+        )
 
     async def _create_artifact_for_long_response(self, full_response: str) -> str:
         """Create an artifact for a long response and return a trimmed response with artifact URL.
@@ -752,7 +773,7 @@ class IRCRoomMonitor:
             )
 
         if mode == "SARCASTIC":
-            response = await self._run_actor(
+            agent_result = await self._run_actor(
                 context[-modes_config["sarcastic"].get("history_size", default_size) :],
                 mynick,
                 mode="sarcastic",
@@ -769,7 +790,7 @@ class IRCRoomMonitor:
                 reasoning_effort == "minimal"
             )  # test we didn't override it earlier since we ignore it here
 
-            response = await self._run_actor(
+            agent_result = await self._run_actor(
                 context[-modes_config["serious"].get("history_size", default_size) :],
                 mynick,
                 mode="serious",
@@ -786,7 +807,7 @@ class IRCRoomMonitor:
                 no_context=no_context,
             )
         elif mode == "UNSAFE":
-            response = await self._run_actor(
+            agent_result = await self._run_actor(
                 context[-modes_config["unsafe"].get("history_size", default_size) :],
                 mynick,
                 mode="unsafe",
@@ -801,11 +822,38 @@ class IRCRoomMonitor:
             raise ValueError(f"Unknown mode {mode}")
 
         # Send response if we got one
-        if response:
-            logger.info(f"Sending {mode} response to {target}: {response}")
-            await self.varlink_sender.send_message(target, response, server)
+        if agent_result and agent_result.text:
+            response_text = agent_result.text
+            cost_str = f"${agent_result.total_cost:.4f}" if agent_result.total_cost else "?"
+            logger.info(f"Sending {mode} response ({cost_str}) to {target}: {response_text}")
+
+            # Log the LLM call for cost tracking
+            llm_call_id = None
+            if agent_result.primary_model:
+                try:
+                    spec = parse_model_spec(agent_result.primary_model)
+                    llm_call_id = await self.agent.history.log_llm_call(
+                        provider=spec.provider,
+                        model=spec.name,
+                        input_tokens=agent_result.total_input_tokens,
+                        output_tokens=agent_result.total_output_tokens,
+                        cost=agent_result.total_cost,
+                        call_type="agent_run",
+                        arc_name=f"{server}#{chan_name}",
+                    )
+                except ValueError:
+                    logger.warning(f"Could not parse model spec: {agent_result.primary_model}")
+
+            await self.varlink_sender.send_message(target, response_text, server)
             await self.agent.history.add_message(
-                server, chan_name, response, mynick, mynick, True, mode=mode
+                server,
+                chan_name,
+                response_text,
+                mynick,
+                mynick,
+                True,
+                mode=mode,
+                llm_call_id=llm_call_id,
             )
         else:
             logger.info(f"Agent in {mode} mode chose not to answer for {target}")

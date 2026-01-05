@@ -7,7 +7,7 @@ from typing import Any
 
 import aiohttp
 
-from . import BaseAPIClient
+from . import BaseAPIClient, UsageInfo, compute_cost
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +275,14 @@ class BaseAnthropicAPIClient(BaseAPIClient):
     def format_tool_results(self, tool_results: list[dict]) -> dict:
         """Format tool results for Anthropic API - just wrap in user message."""
         return {"role": "user", "content": tool_results}
+
+    def extract_usage(self, response: dict, model: str) -> UsageInfo:
+        """Extract usage info from Anthropic API response."""
+        usage = response.get("usage", {})
+        input_tokens = usage.get("input_tokens")
+        output_tokens = usage.get("output_tokens")
+        cost = compute_cost(self.provider_name, model, input_tokens, output_tokens)
+        return UsageInfo(input_tokens, output_tokens, cost)
 
 
 class AnthropicClient(BaseAnthropicAPIClient):

@@ -903,9 +903,9 @@ class OracleExecutor:
                 current_quest_id=None,
             )
             logger.info(
-                f"---------------------------------------------- Oracle response: {result[:500]}..."
+                f"---------------------------------------------- Oracle response: {result.text[:500]}..."
             )
-            return result
+            return result.text
         except AgentIterationLimitError as e:
             logger.warning(
                 f"---------------------------------------------- Oracle exhausted: {e}..."
@@ -1126,7 +1126,7 @@ class ImageGenExecutor:
         context = [{"role": "user", "content": content}]
 
         try:
-            response, _, _ = await self.router.call_raw_with_model(
+            response, _, _, _ = await self.router.call_raw_with_model(
                 model_str=self.model,
                 context=context,
                 system_prompt="",

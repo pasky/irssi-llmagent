@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from irssi_llmagent.agentic_actor import AgenticLLMActor
-from irssi_llmagent.providers import ModelRouter, ModelSpec
+from irssi_llmagent.providers import ModelRouter, ModelSpec, UsageInfo
 
 
 class TestAPIAgent:
@@ -134,7 +134,12 @@ class TestAPIAgent:
 
         async def fake_call_raw_with_model(model, messages, *args, **kwargs):
             captured_messages.extend(messages)
-            return mock_response, FakeClient(), ModelSpec("anthropic", "dummy")
+            return (
+                mock_response,
+                FakeClient(),
+                ModelSpec("anthropic", "dummy"),
+                UsageInfo(None, None, None),
+            )
 
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
@@ -143,7 +148,7 @@ class TestAPIAgent:
                 [{"role": "user", "content": "What is 2+2?"}], arc="test"
             )
 
-            assert result == "This is a simple answer."
+            assert result.text == "This is a simple answer."
             mock_call.assert_called_once()
             # Check prompt reminder was added as last message
             assert len(captured_messages) == 2
@@ -194,7 +199,12 @@ class TestAPIAgent:
         seq = [tool_use_response, final_response]
 
         async def fake_call_raw_with_model(*args, **kwargs):
-            return seq.pop(0), FakeClient(), ModelSpec("anthropic", "dummy")
+            return (
+                seq.pop(0),
+                FakeClient(),
+                ModelSpec("anthropic", "dummy"),
+                UsageInfo(None, None, None),
+            )
 
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
@@ -208,7 +218,7 @@ class TestAPIAgent:
                     [{"role": "user", "content": "Tell me about Python tutorials"}], arc="test"
                 )
 
-                assert "Based on the search results" in result
+                assert "Based on the search results" in result.text
                 assert mock_call.call_count == 2
                 mock_tool.assert_called_once()
 
@@ -250,7 +260,12 @@ class TestAPIAgent:
         seq = [tool_use_response, tool_use_response, final_dict_response]
 
         async def fake_call_raw_with_model(*args, **kwargs):
-            return seq.pop(0), FakeClient(), ModelSpec("anthropic", "dummy")
+            return (
+                seq.pop(0),
+                FakeClient(),
+                ModelSpec("anthropic", "dummy"),
+                UsageInfo(None, None, None),
+            )
 
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
@@ -264,7 +279,7 @@ class TestAPIAgent:
                     [{"role": "user", "content": "Keep using tools"}], arc="test"
                 )
 
-                assert "Final response" in result
+                assert "Final response" in result.text
                 assert mock_call.call_count == 3  # 3 iterations max
 
     @pytest.mark.asyncio
@@ -295,15 +310,16 @@ class TestAPIAgent:
             return (
                 {"error": "The AI refused to respond to this request"},
                 client,
-                "anthropic:claude-3-5-sonnet",
+                ModelSpec("anthropic", "claude-3-5-sonnet"),
+                UsageInfo(None, None, None),
             )
 
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ):
             result = await agent.run_agent([{"role": "user", "content": "Test query"}], arc="test")
-            assert "Error:" in result
-            assert "refused" in result.lower()
+            assert "Error:" in result.text
+            assert "refused" in result.text.lower()
 
     @pytest.mark.asyncio
     async def test_agent_tool_execution_error(self, agent, api_type):
@@ -339,7 +355,12 @@ class TestAPIAgent:
         seq = [tool_use_response, final_response]
 
         async def fake_call_raw_with_model(*args, **kwargs):
-            return seq.pop(0), FakeClient(), ModelSpec("anthropic", "dummy")
+            return (
+                seq.pop(0),
+                FakeClient(),
+                ModelSpec("anthropic", "dummy"),
+                UsageInfo(None, None, None),
+            )
 
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
@@ -353,7 +374,7 @@ class TestAPIAgent:
                     [{"role": "user", "content": "Search for something"}], arc="test"
                 )
 
-                assert "encountered an error" in result or "what I can tell you" in result
+                assert "encountered an error" in result.text or "what I can tell you" in result.text
 
     def test_extract_tool_uses_single(self, agent, api_type):
         """Test single tool use extraction from API response."""
@@ -633,6 +654,7 @@ class TestAPIAgent:
                     },
                 )(),
                 ModelSpec("anthropic", "dummy"),
+                UsageInfo(None, None, None),
             )
 
         actor = AgenticLLMActor(
@@ -672,7 +694,7 @@ class TestAPIAgent:
 
         assert model_calls[0].startswith("openrouter:")
         assert model_calls[1].startswith("anthropic:")
-        assert result.endswith(" [image fallback to claude-sonnet-4-20250514]")
+        assert result.text.endswith(" [image fallback to claude-sonnet-4-20250514]")
 
     @pytest.mark.asyncio
     async def test_agent_multiple_tools_execution(self, agent, api_type):
@@ -718,7 +740,12 @@ class TestAPIAgent:
         seq = [multi_tool_response, final_response]
 
         async def fake_call_raw_with_model(*args, **kwargs):
-            return seq.pop(0), FakeClient(), ModelSpec("anthropic", "dummy")
+            return (
+                seq.pop(0),
+                FakeClient(),
+                ModelSpec("anthropic", "dummy"),
+                UsageInfo(None, None, None),
+            )
 
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
@@ -743,7 +770,7 @@ class TestAPIAgent:
                 assert call_args_list[1][0][0] == "visit_webpage"  # first positional arg
                 assert call_args_list[1][1] == {"url": "https://example.com"}  # kwargs
 
-                assert "Here's what I found" in result
+                assert "Here's what I found" in result.text
 
     @pytest.mark.asyncio
     async def test_agent_with_context(self, agent):
@@ -783,6 +810,7 @@ class TestAPIAgent:
                 },
                 FakeClient(),
                 ModelSpec("anthropic", "dummy"),
+                UsageInfo(None, None, None),
             )
 
         with patch.object(
@@ -832,6 +860,7 @@ class TestAPIAgent:
                 },
                 FakeClient(),
                 ModelSpec("anthropic", "dummy"),
+                UsageInfo(None, None, None),
             )
 
         with patch.object(
@@ -988,7 +1017,12 @@ class TestAPIAgent:
         responses = [invalid_response, invalid_response, valid_response]
 
         async def fake_call_raw_with_model(*args, **kwargs):
-            return responses.pop(0), FakeClient(), ModelSpec("anthropic", "dummy")
+            return (
+                responses.pop(0),
+                FakeClient(),
+                ModelSpec("anthropic", "dummy"),
+                UsageInfo(None, None, None),
+            )
 
         progress_calls = []
 
@@ -1004,7 +1038,7 @@ class TestAPIAgent:
                 progress_callback=mock_progress_callback,
             )
 
-            assert "Success!" in result
+            assert "Success!" in result.text
             # Should have 2 retry warnings in progress
             assert len(progress_calls) == 2
             assert "Retrying (1/3)" in progress_calls[0]["text"]
@@ -1079,14 +1113,14 @@ class TestAPIAgent:
                 call_messages.append(messages.copy())  # Store messages for verification
             response = responses[mock_client.call_count]
             mock_client.call_count += 1
-            return response, mock_client, None
+            return response, mock_client, ModelSpec("test", "model"), UsageInfo(None, None, None)
 
         with patch(
             "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
             new=AsyncMock(side_effect=mock_call_raw_with_model),
         ):
             result = await agent.run_agent([{"role": "user", "content": "test"}], arc="test")
-            assert result == "This is the actual answer"
+            assert result.text == "This is the actual answer"
             assert mock_client.call_count == 2  # Should have made 2 calls
 
             # Verify second call includes the original thinking content
@@ -1142,7 +1176,12 @@ class TestAPIAgent:
         seq = [truncated_response, final_response]
 
         async def fake_call_raw_with_model(*args, **kwargs):
-            return seq.pop(0), FakeClient(), ModelSpec("anthropic", "dummy")
+            return (
+                seq.pop(0),
+                FakeClient(),
+                ModelSpec("anthropic", "dummy"),
+                UsageInfo(None, None, None),
+            )
 
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
@@ -1153,7 +1192,7 @@ class TestAPIAgent:
 
             # Should have made 2 calls - first truncated, then retry
             assert mock_call.call_count == 2
-            assert "final answer" in result
+            assert "final answer" in result.text
 
     @pytest.mark.asyncio
     async def test_create_artifact_for_tool(self, agent):
@@ -1231,7 +1270,14 @@ class TestAPIAgent:
         }
 
         agent.model_router = AsyncMock()
-        agent.model_router.call_raw_with_model = AsyncMock(return_value=(mock_response, None, None))
+        agent.model_router.call_raw_with_model = AsyncMock(
+            return_value=(
+                mock_response,
+                None,
+                ModelSpec("test", "model"),
+                UsageInfo(None, None, None),
+            )
+        )
 
         # Test data
         persistent_tool_calls = [
@@ -1372,7 +1418,7 @@ class TestAPIAgent:
         seq = [tool_use_response, final_response]
 
         async def fake_call_raw_with_model(*args, **kwargs):
-            return seq.pop(0), FakeClient(), None
+            return seq.pop(0), FakeClient(), ModelSpec("test", "model"), UsageInfo(None, None, None)
 
         # Track progress callback calls
         progress_calls = []
@@ -1442,7 +1488,14 @@ class TestAPIAgent:
         }
 
         agent.model_router = AsyncMock()
-        agent.model_router.call_raw_with_model = AsyncMock(return_value=(mock_response, None, None))
+        agent.model_router.call_raw_with_model = AsyncMock(
+            return_value=(
+                mock_response,
+                None,
+                ModelSpec("test", "model"),
+                UsageInfo(None, None, None),
+            )
+        )
 
         # Test data with Anthropic content blocks
         persistent_tool_calls = [
