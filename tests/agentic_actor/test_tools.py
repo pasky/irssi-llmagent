@@ -1027,9 +1027,10 @@ class TestOracleExecutor:
             mock_actor.run_agent = AsyncMock(
                 return_value=AgentResult(
                     text="Oracle says hello",
-                    total_input_tokens=None,
-                    total_output_tokens=None,
-                    total_cost=None,
+                    total_input_tokens=100,
+                    total_output_tokens=50,
+                    total_cost=0.01,
+                    tool_calls_count=2,
                 )
             )
             mock_actor_class.return_value = mock_actor
@@ -1073,9 +1074,10 @@ class TestOracleExecutor:
             mock_actor.run_agent = AsyncMock(
                 return_value=AgentResult(
                     text="Result",
-                    total_input_tokens=None,
-                    total_output_tokens=None,
-                    total_cost=None,
+                    total_input_tokens=100,
+                    total_output_tokens=50,
+                    total_cost=0.01,
+                    tool_calls_count=2,
                 )
             )
             mock_actor_class.return_value = mock_actor
@@ -1146,7 +1148,11 @@ class TestOracleExecutor:
             mock_actor = AsyncMock()
             mock_actor.run_agent = AsyncMock(
                 return_value=AgentResult(
-                    text="Done", total_input_tokens=None, total_output_tokens=None, total_cost=None
+                    text="Done",
+                    total_input_tokens=100,
+                    total_output_tokens=50,
+                    total_cost=0.01,
+                    tool_calls_count=2,
                 )
             )
             mock_actor_class.return_value = mock_actor

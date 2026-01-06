@@ -168,9 +168,10 @@ class TestCLIMode:
                     mock_agent.run_agent = AsyncMock(
                         return_value=AgentResult(
                             text="Agent response",
-                            total_input_tokens=None,
-                            total_output_tokens=None,
-                            total_cost=None,
+                            total_input_tokens=100,
+                            total_output_tokens=50,
+                            total_cost=0.01,
+                            tool_calls_count=3,
                         )
                     )
                     mock_agent_class.return_value = mock_agent
@@ -223,9 +224,10 @@ class TestCLIMode:
                     mock_agent.run_agent = AsyncMock(
                         return_value=AgentResult(
                             text="Agent response",
-                            total_input_tokens=None,
-                            total_output_tokens=None,
-                            total_cost=None,
+                            total_input_tokens=100,
+                            total_output_tokens=50,
+                            total_cost=0.01,
+                            tool_calls_count=3,
                         )
                     )
                     mock_agent_class.return_value = mock_agent

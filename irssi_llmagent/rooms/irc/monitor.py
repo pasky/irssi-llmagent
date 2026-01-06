@@ -1,6 +1,7 @@
 """IRC room monitor for handling IRC-specific message processing."""
 
 import asyncio
+import dataclasses
 import logging
 import re
 import time
@@ -434,14 +435,7 @@ class IRCRoomMonitor:
         if response_text:
             response_text = response_text.replace("\n", "; ").strip()
 
-        return AgentResult(
-            text=response_text,
-            total_input_tokens=agent_result.total_input_tokens,
-            total_output_tokens=agent_result.total_output_tokens,
-            total_cost=agent_result.total_cost,
-            primary_model=agent_result.primary_model,
-            tool_calls_count=agent_result.tool_calls_count,
-        )
+        return dataclasses.replace(agent_result, text=response_text)
 
     async def _create_artifact_for_long_response(self, full_response: str) -> str:
         """Create an artifact for a long response and return a trimmed response with artifact URL.

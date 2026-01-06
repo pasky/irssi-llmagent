@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import dataclasses
 import json
 import logging
 import re
@@ -122,13 +123,7 @@ class IRSSILLMAgent:
             flags=re.IGNORECASE,
         )
         # Return a new AgentResult with cleaned text but same usage stats
-        return AgentResult(
-            text=cleaned,
-            total_input_tokens=agent_result.total_input_tokens,
-            total_output_tokens=agent_result.total_output_tokens,
-            total_cost=agent_result.total_cost,
-            primary_model=agent_result.primary_model,
-        )
+        return dataclasses.replace(agent_result, text=cleaned)
 
     def load_config(self, config_path: str) -> dict[str, Any]:
         """Load configuration from JSON file."""

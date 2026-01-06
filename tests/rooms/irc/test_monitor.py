@@ -535,9 +535,10 @@ class TestIRCMonitor:
             mock_agent.run_agent = AsyncMock(
                 return_value=AgentResult(
                     text="Agent response",
-                    total_input_tokens=None,
-                    total_output_tokens=None,
-                    total_cost=None,
+                    total_input_tokens=100,
+                    total_output_tokens=50,
+                    total_cost=0.01,
+                    tool_calls_count=2,
                 )
             )
             mock_agent_class.return_value = mock_agent
@@ -589,9 +590,10 @@ class TestIRCMonitor:
             mock_agent.run_agent = AsyncMock(
                 return_value=AgentResult(
                     text="Agent response",
-                    total_input_tokens=None,
-                    total_output_tokens=None,
-                    total_cost=None,
+                    total_input_tokens=100,
+                    total_output_tokens=50,
+                    total_cost=0.01,
+                    tool_calls_count=2,
                 )
             )
             mock_agent_class.return_value = mock_agent
@@ -696,9 +698,10 @@ class TestIRCMonitor:
             mock_agent.run_agent = AsyncMock(
                 return_value=AgentResult(
                     text="Sarcastic response",
-                    total_input_tokens=None,
-                    total_output_tokens=None,
-                    total_cost=None,
+                    total_input_tokens=100,
+                    total_output_tokens=50,
+                    total_cost=0.01,
+                    tool_calls_count=2,
                 )
             )
             mock_agent_class.return_value = mock_agent
@@ -752,9 +755,10 @@ class TestIRCMonitor:
             mock_agent.run_agent = AsyncMock(
                 return_value=AgentResult(
                     text="Agent response",
-                    total_input_tokens=None,
-                    total_output_tokens=None,
-                    total_cost=None,
+                    total_input_tokens=100,
+                    total_output_tokens=50,
+                    total_cost=0.01,
+                    tool_calls_count=2,
                 )
             )
             mock_agent_class.return_value = mock_agent
@@ -784,9 +788,10 @@ class TestIRCMonitor:
             mock_agent.run_agent = AsyncMock(
                 return_value=AgentResult(
                     text="Unsafe response",
-                    total_input_tokens=None,
-                    total_output_tokens=None,
-                    total_cost=None,
+                    total_input_tokens=100,
+                    total_output_tokens=50,
+                    total_cost=0.01,
+                    tool_calls_count=2,
                 )
             )
             mock_agent_class.return_value = mock_agent
@@ -822,9 +827,10 @@ class TestIRCMonitor:
             mock_agent.run_agent = AsyncMock(
                 return_value=AgentResult(
                     text="Unsafe response",
-                    total_input_tokens=None,
-                    total_output_tokens=None,
-                    total_cost=None,
+                    total_input_tokens=100,
+                    total_output_tokens=50,
+                    total_cost=0.01,
+                    tool_calls_count=2,
                 )
             )
             mock_agent_class.return_value = mock_agent
@@ -1128,9 +1134,10 @@ class TestIRCMonitor:
             mock_agent.run_agent = AsyncMock(
                 return_value=AgentResult(
                     text=long_response,
-                    total_input_tokens=None,
-                    total_output_tokens=None,
-                    total_cost=None,
+                    total_input_tokens=100,
+                    total_output_tokens=50,
+                    total_cost=0.01,
+                    tool_calls_count=2,
                 )
             )
             mock_agent_class.return_value = mock_agent
@@ -1186,9 +1193,10 @@ class TestIRCMonitor:
             mock_agent.run_agent = AsyncMock(
                 return_value=AgentResult(
                     text=short_response,
-                    total_input_tokens=None,
-                    total_output_tokens=None,
-                    total_cost=None,
+                    total_input_tokens=100,
+                    total_output_tokens=50,
+                    total_cost=0.01,
+                    tool_calls_count=2,
                 )
             )
             mock_agent_class.return_value = mock_agent
@@ -1223,7 +1231,11 @@ class TestIRCMonitor:
         # Mock agent.run_actor to check arguments
         agent.run_actor = AsyncMock(
             return_value=AgentResult(
-                text="Response", total_input_tokens=None, total_output_tokens=None, total_cost=None
+                text="Response",
+                total_input_tokens=100,
+                total_output_tokens=50,
+                total_cost=0.01,
+                tool_calls_count=2,
             )
         )
 
@@ -1372,7 +1384,7 @@ class TestCostFollowup:
                 resp,
                 MockAPIClient("Test response"),
                 ModelSpec("test", "model"),
-                UsageInfo(5000, 2000, 0.05),  # Cost > $0.025 threshold
+                UsageInfo(50000, 20000, 0.25),  # Cost > $0.20 threshold
             )
 
         with patch(

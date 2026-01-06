@@ -57,7 +57,11 @@ async def test_quest_operator_triggers_and_announces(shared_agent):
                 third_call_event.set()
             text = intermediate_para if call_counter["count"] == 1 else finished_para
             return AgentResult(
-                text=text, total_input_tokens=None, total_output_tokens=None, total_cost=None
+                text=text,
+                total_input_tokens=100,
+                total_output_tokens=50,
+                total_cost=0.01,
+                tool_calls_count=2,
             )
 
     with patch("irssi_llmagent.main.AgenticLLMActor", new=DummyActor):
@@ -143,7 +147,11 @@ async def test_heartbeat_triggers_open_quests(shared_agent):
             current_quest_id: str | None = None,
         ):
             return AgentResult(
-                text=next_para, total_input_tokens=None, total_output_tokens=None, total_cost=None
+                text=next_para,
+                total_input_tokens=100,
+                total_output_tokens=50,
+                total_cost=0.01,
+                tool_calls_count=2,
             )
 
     with patch("irssi_llmagent.main.AgenticLLMActor", new=DummyActor2):
@@ -200,7 +208,11 @@ async def test_chapter_rollover_copies_unresolved_quests(shared_agent):
         ):
             actor_call_count["n"] += 1
             return AgentResult(
-                text="", total_input_tokens=None, total_output_tokens=None, total_cost=None
+                text="",
+                total_input_tokens=100,
+                total_output_tokens=50,
+                total_cost=0.01,
+                tool_calls_count=2,
             )
 
     with (
@@ -338,7 +350,11 @@ async def test_subquest_finish_resumes_parent(shared_agent):
             else:
                 text = '<quest id="parent">Continuing parent</quest>'
             return AgentResult(
-                text=text, total_input_tokens=None, total_output_tokens=None, total_cost=None
+                text=text,
+                total_input_tokens=100,
+                total_output_tokens=50,
+                total_cost=0.01,
+                tool_calls_count=2,
             )
 
     with patch("irssi_llmagent.main.AgenticLLMActor", new=TrackingActor):
