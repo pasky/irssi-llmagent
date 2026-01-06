@@ -277,12 +277,18 @@ class BaseAnthropicAPIClient(BaseAPIClient):
         return {"role": "user", "content": tool_results}
 
     def extract_usage(self, response: dict, model: str) -> UsageInfo:
-        """Extract usage info from Anthropic API response."""
+        """Extract usage info from Anthropic API response.
+
+        Includes cache_creation_input_tokens since those are tokens we're
+        sending now (that happen to get cached for future requests).
+        """
         usage = response.get("usage", {})
-        input_tokens = usage.get("input_tokens")
+        input_tokens = usage.get("input_tokens", 0)
+        cache_creation = usage.get("cache_creation_input_tokens", 0)
+        total_input = input_tokens + cache_creation
         output_tokens = usage.get("output_tokens")
-        cost = compute_cost(self.provider_name, model, input_tokens, output_tokens)
-        return UsageInfo(input_tokens, output_tokens, cost)
+        cost = compute_cost(self.provider_name, model, total_input, output_tokens)
+        return UsageInfo(total_input or None, output_tokens, cost)
 
 
 class AnthropicClient(BaseAnthropicAPIClient):

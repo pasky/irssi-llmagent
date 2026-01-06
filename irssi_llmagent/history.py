@@ -320,6 +320,23 @@ class ChatHistory:
                 f"Marked {len(message_ids)} messages as chronicled in chapter {chapter_id}"
             )
 
+    async def get_arc_cost_today(self, arc_name: str) -> float:
+        """Get total LLM cost for an arc since midnight today."""
+        async with (
+            self._lock,
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                """
+                SELECT COALESCE(SUM(cost), 0) FROM llm_calls
+                WHERE arc_name = ?
+                AND timestamp >= date('now', 'localtime')
+                """,
+                (arc_name,),
+            ) as cursor,
+        ):
+            row = await cursor.fetchone()
+            return float(row[0]) if row else 0.0
+
     async def close(self) -> None:
         """Close database connections."""
         # aiosqlite handles connection cleanup automatically

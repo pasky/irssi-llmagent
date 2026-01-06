@@ -22,6 +22,7 @@ class AgentResult:
     total_output_tokens: int | None
     total_cost: float | None
     primary_model: str | None = None
+    tool_calls_count: int = 0
 
 
 class AgentIterationLimitError(Exception):
@@ -116,6 +117,7 @@ class AgenticLLMActor:
         total_input_tokens = 0
         total_output_tokens = 0
         total_cost = 0.0
+        total_tool_calls = 0
         primary_model: str | None = None
 
         # Create tool executors with the provided arc
@@ -163,6 +165,7 @@ class AgenticLLMActor:
                 total_output_tokens=total_output_tokens or None,
                 total_cost=total_cost or None,
                 primary_model=primary_model,
+                tool_calls_count=total_tool_calls,
             )
 
         try:
@@ -378,6 +381,7 @@ class AgenticLLMActor:
                             tool_result = await execute_tool(
                                 tool["name"], tool_executors, **tool["input"]
                             )
+                            total_tool_calls += 1
 
                             # Log result, truncating image data in content blocks
                             if isinstance(tool_result, list):

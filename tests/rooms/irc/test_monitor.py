@@ -1348,3 +1348,97 @@ class TestParsePrefixParser:
             result = agent.irc_monitor._parse_prefix(f"{token} query")
             assert result.mode_token == token, f"Failed for {token}"
             assert result.query_text == "query"
+
+
+class TestCostFollowup:
+    """Test cost followup message functionality."""
+
+    @pytest.mark.asyncio
+    async def test_cost_followup_sent_for_expensive_requests(self, temp_config_file):
+        """Test that a cost followup message is sent when cost exceeds threshold."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.irc_monitor.varlink_sender = AsyncMock()
+        agent.irc_monitor.server_nicks["test"] = "mybot"
+
+        await agent.history.initialize()
+        await agent.chronicle.initialize()
+
+        agent.irc_monitor.rate_limiter.check_limit = lambda: True
+
+        # Mock expensive response with tool calls
+        async def fake_call_raw_with_model(*args, **kwargs):
+            resp = {"output_text": "Test response"}
+            return (
+                resp,
+                MockAPIClient("Test response"),
+                ModelSpec("test", "model"),
+                UsageInfo(5000, 2000, 0.05),  # Cost > $0.025 threshold
+            )
+
+        with patch(
+            "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
+            new=AsyncMock(side_effect=fake_call_raw_with_model),
+        ):
+            event = {
+                "type": "message",
+                "subtype": "public",
+                "server": "test",
+                "target": "#test",
+                "nick": "testuser",
+                "message": "mybot: hello",
+            }
+
+            await agent.irc_monitor.process_message_event(event)
+
+            # Should have multiple send_message calls: response + cost followup
+            calls = agent.irc_monitor.varlink_sender.send_message.call_args_list
+            assert len(calls) >= 2
+            # Last call should be the cost followup
+            cost_msg = calls[-1][0][1]
+            assert "tool calls" in cost_msg
+            assert "tokens" in cost_msg
+            assert "cost" in cost_msg
+
+    @pytest.mark.asyncio
+    async def test_no_cost_followup_for_cheap_requests(self, temp_config_file):
+        """Test that no cost followup is sent for cheap requests."""
+        agent = IRSSILLMAgent(temp_config_file)
+        agent.irc_monitor.varlink_sender = AsyncMock()
+        agent.irc_monitor.server_nicks["test"] = "mybot"
+
+        await agent.history.initialize()
+        await agent.chronicle.initialize()
+
+        agent.irc_monitor.rate_limiter.check_limit = lambda: True
+
+        # Mock cheap response
+        async def fake_call_raw_with_model(*args, **kwargs):
+            resp = {"output_text": "Test response"}
+            return (
+                resp,
+                MockAPIClient("Test response"),
+                ModelSpec("test", "model"),
+                UsageInfo(100, 50, 0.001),  # Cost < $0.025 threshold
+            )
+
+        with patch(
+            "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
+            new=AsyncMock(side_effect=fake_call_raw_with_model),
+        ):
+            event = {
+                "type": "message",
+                "subtype": "public",
+                "server": "test",
+                "target": "#test",
+                "nick": "testuser",
+                "message": "mybot: hello",
+            }
+
+            await agent.irc_monitor.process_message_event(event)
+
+            # Should only have one send_message call (the response)
+            calls = agent.irc_monitor.varlink_sender.send_message.call_args_list
+            assert len(calls) == 1
+            # Verify it's not a cost message
+            msg = calls[0][0][1]
+            assert "cost $" not in msg

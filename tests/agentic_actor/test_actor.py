@@ -197,13 +197,17 @@ class TestAPIAgent:
                 return {"role": "user", "content": []}
 
         seq = [tool_use_response, final_response]
+        usage_seq = [
+            UsageInfo(1000, 500, 0.01),
+            UsageInfo(800, 300, 0.008),
+        ]
 
         async def fake_call_raw_with_model(*args, **kwargs):
             return (
                 seq.pop(0),
                 FakeClient(),
                 ModelSpec("anthropic", "dummy"),
-                UsageInfo(None, None, None),
+                usage_seq.pop(0),
             )
 
         with patch.object(
@@ -221,6 +225,11 @@ class TestAPIAgent:
                 assert "Based on the search results" in result.text
                 assert mock_call.call_count == 2
                 mock_tool.assert_called_once()
+                # Verify usage accumulation across iterations
+                assert result.total_input_tokens == 1800  # 1000 + 800
+                assert result.total_output_tokens == 800  # 500 + 300
+                assert result.total_cost == pytest.approx(0.018)  # 0.01 + 0.008
+                assert result.tool_calls_count == 1
 
     @pytest.mark.asyncio
     async def test_agent_max_iterations(self, agent, api_type):

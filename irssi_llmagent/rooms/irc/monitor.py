@@ -440,6 +440,7 @@ class IRCRoomMonitor:
             total_output_tokens=agent_result.total_output_tokens,
             total_cost=agent_result.total_cost,
             primary_model=agent_result.primary_model,
+            tool_calls_count=agent_result.tool_calls_count,
         )
 
     async def _create_artifact_for_long_response(self, full_response: str) -> str:
@@ -855,6 +856,37 @@ class IRCRoomMonitor:
                 mode=mode,
                 llm_call_id=llm_call_id,
             )
+
+            # Send cost followup for expensive requests
+            if agent_result.total_cost and agent_result.total_cost > 0.025:
+                in_tokens = agent_result.total_input_tokens or 0
+                out_tokens = agent_result.total_output_tokens or 0
+                cost_msg = (
+                    f"(this message used {agent_result.tool_calls_count} tool calls, "
+                    f"{in_tokens} in / {out_tokens} out tokens, "
+                    f"and cost ${agent_result.total_cost:.4f})"
+                )
+                logger.info(f"Cost followup for {target}: {cost_msg}")
+                await self.varlink_sender.send_message(target, cost_msg, server)
+                await self.agent.history.add_message(
+                    server, chan_name, cost_msg, mynick, mynick, True
+                )
+
+            # Check for daily cost milestone
+            if agent_result.total_cost:
+                arc_name = f"{server}#{chan_name}"
+                cost_before = await self.agent.history.get_arc_cost_today(arc_name)
+                cost_before -= agent_result.total_cost
+                dollars_before = int(cost_before)
+                dollars_after = int(cost_before + agent_result.total_cost)
+                if dollars_after > dollars_before:
+                    total_today = cost_before + agent_result.total_cost
+                    fun_msg = f"(fun fact: my messages in this channel have already cost ${total_today:.4f} today)"
+                    logger.info(f"Daily cost milestone for {arc_name}: {fun_msg}")
+                    await self.varlink_sender.send_message(target, fun_msg, server)
+                    await self.agent.history.add_message(
+                        server, chan_name, fun_msg, mynick, mynick, True
+                    )
         else:
             logger.info(f"Agent in {mode} mode chose not to answer for {target}")
 
