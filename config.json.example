@@ -70,7 +70,7 @@
     "model": "anthropic:claude-haiku-4-5-20251001",
     "arc_models": {
     },
-    "paragraphs_per_chapter": 10,
+    "paragraphs_per_chapter": 5,
     "database": {
       "path": "chronicle.db"
     },
