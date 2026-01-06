@@ -858,7 +858,7 @@ class IRCRoomMonitor:
             )
 
             # Send cost followup for expensive requests
-            if agent_result.total_cost and agent_result.total_cost > 0.025:
+            if agent_result.total_cost and agent_result.total_cost > 0.05:
                 in_tokens = agent_result.total_input_tokens or 0
                 out_tokens = agent_result.total_output_tokens or 0
                 cost_msg = (
