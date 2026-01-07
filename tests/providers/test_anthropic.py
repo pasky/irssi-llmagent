@@ -1,6 +1,7 @@
 """Tests for Anthropic-specific functionality."""
 
 import base64
+import json
 from unittest.mock import patch
 
 import pytest
@@ -127,13 +128,17 @@ class TestAnthropicRetryLogic:
             def __init__(self, status, data):
                 self.status = status
                 self.ok = status == 200
+                self.reason = "Overloaded" if status == 529 else "OK"
                 self._data = data
+                self.request_info = None
+                self.history = ()
+
+            async def text(self):
+                return json.dumps(self._data)
 
             def raise_for_status(self):
                 if not self.ok:
-                    import aiohttp
-
-                    raise aiohttp.ClientError(f"HTTP status {self.status}")
+                    raise Exception(f"{self.status} {self.reason}")
 
             async def json(self):
                 return self._data
@@ -217,13 +222,17 @@ class TestAnthropicRetryLogic:
             def __init__(self, status, data):
                 self.status = status
                 self.ok = status == 200
+                self.reason = "Overloaded"
                 self._data = data
+                self.request_info = None
+                self.history = ()
+
+            async def text(self):
+                return json.dumps(self._data)
 
             def raise_for_status(self):
                 if not self.ok:
-                    import aiohttp
-
-                    raise aiohttp.ClientError(f"HTTP status {self.status}")
+                    raise Exception(f"{self.status} {self.reason}")
 
             async def json(self):
                 return self._data

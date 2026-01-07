@@ -162,6 +162,9 @@ class BaseAnthropicAPIClient(BaseAPIClient):
                     ) as session,
                     session.post(self.config["url"], json=payload) as response,
                 ):
+                    if not response.ok:
+                        error_body = await response.text()
+                        self.logger.debug(f"{self.provider_name} error body: {error_body}")
                     response.raise_for_status()
                     data = await response.json()
 
