@@ -229,6 +229,7 @@ class ModelRouter:
         reasoning_effort: str = "minimal",
         modalities: list[str] | None = None,
         max_tokens: int | None = None,
+        add_fallback_suffix: bool = True,
     ) -> tuple[dict, Any, ModelSpec, UsageInfo]:
         spec = parse_model_spec(model_str)
         client = self.client_for(spec.provider)
@@ -262,20 +263,21 @@ class ModelRouter:
                 max_tokens=max_tokens,
             )
 
-            # Prefix text responses with [modelname]
-            if isinstance(fallback_resp, dict) and "content" in fallback_resp:
-                # Anthropic format
-                for block in fallback_resp.get("content", []):
-                    if block.get("type") == "text":
-                        block["text"] = f"[{fallback_spec.name}] {block['text']}"
-                        break
-            elif isinstance(fallback_resp, dict) and "choices" in fallback_resp:
-                # OpenAI format
-                choices = fallback_resp.get("choices", [])
-                if choices and "message" in choices[0]:
-                    msg = choices[0]["message"]
-                    if "content" in msg and isinstance(msg["content"], str):
-                        msg["content"] = f"[{fallback_spec.name}] {msg['content']}"
+            # Append fallback suffix to text responses
+            if add_fallback_suffix:
+                if isinstance(fallback_resp, dict) and "content" in fallback_resp:
+                    # Anthropic format
+                    for block in fallback_resp.get("content", []):
+                        if block.get("type") == "text":
+                            block["text"] += f" [refusal fallback to {fallback_spec.name}]"
+                            break
+                elif isinstance(fallback_resp, dict) and "choices" in fallback_resp:
+                    # OpenAI format
+                    choices = fallback_resp.get("choices", [])
+                    if choices and "message" in choices[0]:
+                        msg = choices[0]["message"]
+                        if "content" in msg and isinstance(msg["content"], str):
+                            msg["content"] += f" [refusal fallback to {fallback_spec.name}]"
 
             usage = fallback_client.extract_usage(fallback_resp, fallback_spec.name)
             return fallback_resp, fallback_client, fallback_spec, usage

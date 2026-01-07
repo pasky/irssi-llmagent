@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from irssi_llmagent.agentic_actor import AgenticLLMActor
-from irssi_llmagent.providers import ModelRouter, ModelSpec, UsageInfo
+from irssi_llmagent.providers import ModelRouter, ModelSpec, UsageInfo, parse_model_spec
 
 
 class TestAPIAgent:
@@ -137,7 +137,7 @@ class TestAPIAgent:
             return (
                 mock_response,
                 FakeClient(),
-                ModelSpec("anthropic", "dummy"),
+                parse_model_spec(model),
                 UsageInfo(None, None, None),
             )
 
@@ -202,11 +202,11 @@ class TestAPIAgent:
             UsageInfo(800, 300, 0.008),
         ]
 
-        async def fake_call_raw_with_model(*args, **kwargs):
+        async def fake_call_raw_with_model(model, *args, **kwargs):
             return (
                 seq.pop(0),
                 FakeClient(),
-                ModelSpec("anthropic", "dummy"),
+                parse_model_spec(model),
                 usage_seq.pop(0),
             )
 
@@ -268,11 +268,11 @@ class TestAPIAgent:
         final_dict_response = self.create_text_response(api_type, "Final response")
         seq = [tool_use_response, tool_use_response, final_dict_response]
 
-        async def fake_call_raw_with_model(*args, **kwargs):
+        async def fake_call_raw_with_model(model, *args, **kwargs):
             return (
                 seq.pop(0),
                 FakeClient(),
-                ModelSpec("anthropic", "dummy"),
+                parse_model_spec(model),
                 UsageInfo(None, None, None),
             )
 
@@ -363,11 +363,11 @@ class TestAPIAgent:
 
         seq = [tool_use_response, final_response]
 
-        async def fake_call_raw_with_model(*args, **kwargs):
+        async def fake_call_raw_with_model(model, *args, **kwargs):
             return (
                 seq.pop(0),
                 FakeClient(),
-                ModelSpec("anthropic", "dummy"),
+                parse_model_spec(model),
                 UsageInfo(None, None, None),
             )
 
@@ -608,7 +608,7 @@ class TestAPIAgent:
 
         # Build actor with openrouter base and anthropic vision
         from irssi_llmagent.agentic_actor import AgenticLLMActor
-        from irssi_llmagent.providers import ModelRouter, ModelSpec
+        from irssi_llmagent.providers import ModelRouter
 
         model_calls: list[str] = []
 
@@ -630,8 +630,11 @@ class TestAPIAgent:
 
         async def fake_call_raw_with_model(model, messages, *args, **kwargs):
             model_calls.append(model)
+            resp = seq.pop(0)
+            # Return spec matching the requested model to avoid false refusal detection
+            spec = parse_model_spec(model)
             return (
-                seq.pop(0),
+                resp,
                 type(
                     "C",
                     (),
@@ -662,7 +665,7 @@ class TestAPIAgent:
                         "cleanup_raw_text": lambda self, t: t,
                     },
                 )(),
-                ModelSpec("anthropic", "dummy"),
+                spec,
                 UsageInfo(None, None, None),
             )
 
@@ -748,11 +751,11 @@ class TestAPIAgent:
 
         seq = [multi_tool_response, final_response]
 
-        async def fake_call_raw_with_model(*args, **kwargs):
+        async def fake_call_raw_with_model(model, *args, **kwargs):
             return (
                 seq.pop(0),
                 FakeClient(),
-                ModelSpec("anthropic", "dummy"),
+                parse_model_spec(model),
                 UsageInfo(None, None, None),
             )
 
@@ -818,7 +821,7 @@ class TestAPIAgent:
                     "stop_reason": "end_turn",
                 },
                 FakeClient(),
-                ModelSpec("anthropic", "dummy"),
+                parse_model_spec(model),
                 UsageInfo(None, None, None),
             )
 
@@ -868,7 +871,7 @@ class TestAPIAgent:
                     "stop_reason": "end_turn",
                 },
                 FakeClient(),
-                ModelSpec("anthropic", "dummy"),
+                parse_model_spec(model),
                 UsageInfo(None, None, None),
             )
 
@@ -1025,11 +1028,11 @@ class TestAPIAgent:
 
         responses = [invalid_response, invalid_response, valid_response]
 
-        async def fake_call_raw_with_model(*args, **kwargs):
+        async def fake_call_raw_with_model(model, *args, **kwargs):
             return (
                 responses.pop(0),
                 FakeClient(),
-                ModelSpec("anthropic", "dummy"),
+                parse_model_spec(model),
                 UsageInfo(None, None, None),
             )
 
@@ -1122,7 +1125,7 @@ class TestAPIAgent:
                 call_messages.append(messages.copy())  # Store messages for verification
             response = responses[mock_client.call_count]
             mock_client.call_count += 1
-            return response, mock_client, ModelSpec("test", "model"), UsageInfo(None, None, None)
+            return response, mock_client, parse_model_spec(model), UsageInfo(None, None, None)
 
         with patch(
             "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
@@ -1184,11 +1187,11 @@ class TestAPIAgent:
 
         seq = [truncated_response, final_response]
 
-        async def fake_call_raw_with_model(*args, **kwargs):
+        async def fake_call_raw_with_model(model, *args, **kwargs):
             return (
                 seq.pop(0),
                 FakeClient(),
-                ModelSpec("anthropic", "dummy"),
+                parse_model_spec(model),
                 UsageInfo(None, None, None),
             )
 

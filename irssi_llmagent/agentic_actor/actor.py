@@ -149,16 +149,20 @@ class AgenticLLMActor:
             progress_start_time = _now()
 
         # Tool execution loop
-        vision_switched = False
-        result_suffix = ""
-
         # Track tool calls that need persistence
         persistent_tool_calls = []
 
         # Track empty response retries
         empty_response_retries = 0
 
+        # Sticky model override (set when refusal/vision fallback occurs)
+        model_override: str | None = None
+        fallback_reason: str | None = None
+
         def _make_result(text: str) -> AgentResult:
+            if model_override:
+                slug = re.sub(r"(?:[^:]*:)?(?:.*/)?([^#/]+)(?:#.*)?", r"\1", model_override)
+                text += f" [{fallback_reason} fallback to {slug}]"
             return AgentResult(
                 text=text,
                 total_input_tokens=total_input_tokens or None,
@@ -176,9 +180,8 @@ class AgenticLLMActor:
                     logger.warn("Exceeding max iterations...")
 
                 # Select model per iteration; last element repeats thereafter for lists
-                if vision_switched:
-                    assert self.vision_model
-                    model = self.vision_model
+                if model_override:
+                    model = model_override
                 elif isinstance(self.model, list):
                     model = self.model[iteration] if iteration < len(self.model) else self.model[-1]
                 else:
@@ -282,6 +285,7 @@ class AgenticLLMActor:
                         tools=available_tools,
                         tool_choice=tool_choice,
                         reasoning_effort=self.reasoning_effort,
+                        add_fallback_suffix=False,
                     )
                 except ValueError as e:
                     logger.error(f"Model configuration error: {e}")
@@ -294,8 +298,15 @@ class AgenticLLMActor:
                     total_output_tokens += usage.output_tokens
                 if usage.cost is not None:
                     total_cost += usage.cost
+
+                # Track actual model used; detect refusal fallback and stick to it
+                actual_model = f"{spec.provider}:{spec.name}"
                 if primary_model is None:
-                    primary_model = f"{spec.provider}:{spec.name}"
+                    primary_model = actual_model
+                if actual_model != model:
+                    logger.info(f"Refusal fallback: {model} -> {actual_model}")
+                    model_override = actual_model
+                    fallback_reason = "refusal"
 
                 # Process response using unified handler (provider-aware)
                 result = self._process_ai_response_provider(response, client)
@@ -328,7 +339,7 @@ class AgenticLLMActor:
                     await self._generate_and_store_persistence_summary(
                         persistent_tool_calls, persistence_callback
                     )
-                    return _make_result(f"{result['text']}{result_suffix}")
+                    return _make_result(result["text"])
                 elif result["type"] == "truncated_tool_retry":
                     # Add assistant's truncated tool request to conversation
                     if response and isinstance(response, dict):
@@ -477,23 +488,20 @@ class AgenticLLMActor:
                                     await self._generate_and_store_persistence_summary(
                                         persistent_tool_calls, persistence_callback
                                     )
-                                    return _make_result(f"{cleaned_result}{result_suffix}")
+                                    return _make_result(cleaned_result)
 
                         except Exception as e:
                             logger.warning(f"Tool {tool['name']} failed: {e}", exc_info=True)
                             tool_result = repr(e)
 
-                        if self.vision_model and not vision_switched:
+                        if self.vision_model and model_override != self.vision_model:
                             # Check if tool result contains images (Anthropic blocks)
                             has_images = isinstance(tool_result, list) and any(
                                 block.get("type") == "image" for block in tool_result
                             )
                             if has_images:
-                                vision_switched = True
-                                fallback_slug = re.sub(
-                                    r"(?:[^:]*:)?(?:.*/)?([^#/]+)(?:#.*)?", r"\1", self.vision_model
-                                )
-                                result_suffix += f" [image fallback to {fallback_slug}]"
+                                model_override = self.vision_model
+                                fallback_reason = "image"
 
                         tool_results.append(
                             {

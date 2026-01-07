@@ -1,7 +1,7 @@
 import pytest
 
 from irssi_llmagent.agentic_actor import AgenticLLMActor
-from irssi_llmagent.providers import ModelSpec, UsageInfo
+from irssi_llmagent.providers import UsageInfo, parse_model_spec
 
 
 class FakeAPIClient:
@@ -129,23 +129,19 @@ async def test_progress_report_tool_emits_callback(monkeypatch, mock_agent):
     fake_client = FakeAPIClient()
     call_count = {"n": 0}
 
-    async def fake_call_raw_with_model(*args, **kwargs):
-        # args: (model, messages, system_prompt, ...)
-        model = args[0]
-        messages = args[1]
-        system_prompt = args[2]
+    async def fake_call_raw_with_model(model, messages, system_prompt, **kwargs):
         if call_count["n"] == 0:
             call_count["n"] += 1
             resp = await fake_client.call_raw(
                 messages, system_prompt, model, tools=kwargs.get("tools")
             )
-            return resp, fake_client, ModelSpec("test", "model"), UsageInfo(None, None, None)
+            return resp, fake_client, parse_model_spec(model), UsageInfo(None, None, None)
         else:
             # Second call: return final text
             return (
                 {"content": [{"type": "text", "text": "Final answer"}]},
                 fake_client,
-                ModelSpec("test", "model"),
+                parse_model_spec(model),
                 UsageInfo(None, None, None),
             )
 

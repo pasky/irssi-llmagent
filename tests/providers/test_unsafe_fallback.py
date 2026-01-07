@@ -4,7 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from irssi_llmagent.providers import ModelRouter
+from irssi_llmagent.agentic_actor import AgenticLLMActor
+from irssi_llmagent.providers import ModelRouter, ModelSpec, UsageInfo
 
 
 class TestRefusalFallback:
@@ -46,7 +47,12 @@ class TestRefusalFallback:
 
         # Should return fallback response with model prefix
         assert response == {
-            "content": [{"type": "text", "text": "[claude-sonnet-4-unsafe] Unsafe response"}]
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Unsafe response [refusal fallback to claude-sonnet-4-unsafe]",
+                }
+            ]
         }
         assert spec.provider == "anthropic"
         assert spec.name == "claude-sonnet-4-unsafe"
@@ -96,7 +102,9 @@ class TestRefusalFallback:
 
         # Should return fallback response with model prefix
         assert response == {
-            "choices": [{"message": {"content": "[gpt-4o-unsafe] Unsafe response"}}]
+            "choices": [
+                {"message": {"content": "Unsafe response [refusal fallback to gpt-4o-unsafe]"}}
+            ]
         }
         assert spec.provider == "openai"
         assert spec.name == "gpt-4o-unsafe"
@@ -144,7 +152,11 @@ class TestRefusalFallback:
         # Should return response from OpenRouter with model prefix
         assert response == {
             "choices": [
-                {"message": {"content": "[some-unsafe-model] Cross-provider unsafe response"}}
+                {
+                    "message": {
+                        "content": "Cross-provider unsafe response [refusal fallback to some-unsafe-model]"
+                    }
+                }
             ]
         }
         assert spec.provider == "openrouter"
@@ -174,3 +186,81 @@ class TestRefusalFallback:
         # Should return original error without retrying (no "consider !u" marker)
         assert response == {"error": "API error: connection timeout"}
         assert client.call_raw.call_count == 1  # Only called once
+
+    @pytest.mark.asyncio
+    async def test_agentic_loop_sticks_to_fallback_model(self, test_config, mock_agent):
+        """Test that after refusal fallback, all subsequent iterations use fallback model."""
+        test_config["router"] = {"refusal_fallback_model": "deepseek:deepseek-reasoner"}
+
+        models_called = []
+
+        def create_tool_response():
+            return {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tool_1",
+                        "name": "final_answer",
+                        "input": {"answer": "Done"},
+                    }
+                ],
+                "stop_reason": "tool_use",
+            }
+
+        async def fake_call_raw_with_model(model, messages, *args, **kwargs):
+            models_called.append(model)
+
+            # First call: refusal (returns different spec to simulate fallback)
+            if len(models_called) == 1:
+                return (
+                    create_tool_response(),
+                    FakeClient(),
+                    ModelSpec("deepseek", "deepseek-reasoner"),  # Fallback was used
+                    UsageInfo(10, 20, 0.001),
+                )
+            # Second call: should now be using fallback model
+            return (
+                {"content": [{"type": "text", "text": "Final answer"}], "stop_reason": "end_turn"},
+                FakeClient(),
+                ModelSpec("deepseek", "deepseek-reasoner"),
+                UsageInfo(10, 20, 0.001),
+            )
+
+        class FakeClient:
+            def extract_text_from_response(self, r):
+                for block in r.get("content", []):
+                    if block.get("type") == "text":
+                        return block.get("text", "")
+                return ""
+
+            def has_tool_calls(self, r):
+                return any(b.get("type") == "tool_use" for b in r.get("content", []))
+
+            def extract_tool_calls(self, r):
+                return [b for b in r.get("content", []) if b.get("type") == "tool_use"]
+
+            def format_assistant_message(self, r):
+                return {"role": "assistant", "content": r.get("content", [])}
+
+            def format_tool_results(self, results):
+                return {"role": "user", "content": results}
+
+        agent = AgenticLLMActor(
+            config=test_config,
+            model="anthropic:claude-sonnet-4",
+            system_prompt_generator=lambda: "Test prompt",
+            prompt_reminder_generator=lambda: None,
+            agent=mock_agent,
+        )
+
+        with patch.object(
+            ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+        ):
+            result = await agent.run_agent([{"role": "user", "content": "test"}], arc="test")
+
+        # First call was with original model, second should be with fallback
+        assert len(models_called) == 2
+        assert models_called[0] == "anthropic:claude-sonnet-4"
+        assert models_called[1] == "deepseek:deepseek-reasoner"
+        # Final result should have the fallback suffix
+        assert result.text.endswith("[refusal fallback to deepseek-reasoner]")
