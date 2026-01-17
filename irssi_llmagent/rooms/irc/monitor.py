@@ -109,12 +109,18 @@ class IRCRoomMonitor:
                 return model_str_core(model_override)
             return model_str_core(modes_config[m]["model"])
 
+        thinking_model = modes_config["serious"].get("thinking_model")
+        prompt_note = self.irc_config.get("prompt_note", "")
         return prompt_template.format(
             mynick=mynick,
             current_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
             sarcastic_model=get_model("sarcastic"),
             serious_model=get_model("serious"),
+            thinking_model=model_str_core(thinking_model)
+            if thinking_model
+            else get_model("serious"),
             unsafe_model=get_model("unsafe"),
+            prompt_note=prompt_note,
         )
 
     async def get_mynick(self, server: str) -> str | None:
