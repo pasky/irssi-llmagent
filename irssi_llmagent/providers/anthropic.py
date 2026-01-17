@@ -115,7 +115,7 @@ class BaseAnthropicAPIClient(BaseAPIClient):
 
         payload = {
             "model": model,
-            "max_tokens": max_tokens or ((4096 if tools else 512) + thinking_budget),
+            "max_tokens": max_tokens or ((4096 if tools else 2048) + thinking_budget),
             "messages": messages,
             "system": [
                 {
