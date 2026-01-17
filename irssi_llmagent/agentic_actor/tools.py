@@ -167,7 +167,7 @@ TOOLS: list[Tool] = [
             "properties": {
                 "answer": {
                     "type": "string",
-                    "description": "The final answer or response to the user's question. Start with final deliberation in <thinking>...</thinking>. Never say 'you are doing something' or 'you will do something' - at this point, you are *done*.",
+                    "description": "The final answer or response to the user's question. Start with final deliberation in <thinking>...</thinking>. Never say 'you are doing something' or 'you will do something' - at this point, you are *done*. Cite your sources; if you have produced some artifacts (even side-effect artifacts from e.g. execute_code), do not forget to link them.",
                 }
             },
             "required": ["answer"],
