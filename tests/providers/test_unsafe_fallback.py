@@ -1,6 +1,6 @@
 """Tests for refusal fallback model."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -21,9 +21,6 @@ class TestRefusalFallback:
 
         router = ModelRouter(config)
 
-        # Mock client that returns refusal on first call, success on second
-        mock_client = AsyncMock()
-
         # Track call count to return different responses
         call_count = [0]
 
@@ -36,7 +33,10 @@ class TestRefusalFallback:
                 # Second call (unsafe model) succeeds
                 return {"content": [{"type": "text", "text": "Unsafe response"}]}
 
-        mock_client.call_raw.side_effect = mock_call_raw
+        # Use Mock for client, AsyncMock only for call_raw
+        mock_client = Mock()
+        mock_client.call_raw = AsyncMock(side_effect=mock_call_raw)
+        mock_client.extract_usage.return_value = UsageInfo(10, 20, 0.001)
 
         with patch.object(router, "_ensure_client", return_value=mock_client):
             response, client, spec, _ = await router.call_raw_with_model(
@@ -68,19 +68,19 @@ class TestRefusalFallback:
 
         router = ModelRouter(config)
 
-        # Mock both clients
-        safe_client = AsyncMock()
-        unsafe_client = AsyncMock()
+        # Use Mock for clients, AsyncMock only for call_raw
+        safe_client = Mock()
+        safe_client.call_raw = AsyncMock(
+            return_value={
+                "error": "Invalid prompt: we've limited access to this content for safety reasons. (consider !u)"
+            }
+        )
 
-        # Safe client refuses
-        safe_client.call_raw.return_value = {
-            "error": "Invalid prompt: we've limited access to this content for safety reasons. (consider !u)"
-        }
-
-        # Unsafe client succeeds
-        unsafe_client.call_raw.return_value = {
-            "choices": [{"message": {"content": "Unsafe response"}}]
-        }
+        unsafe_client = Mock()
+        unsafe_client.call_raw = AsyncMock(
+            return_value={"choices": [{"message": {"content": "Unsafe response"}}]}
+        )
+        unsafe_client.extract_usage.return_value = UsageInfo(10, 20, 0.001)
 
         # Mock client creation
         call_count = [0]
@@ -122,19 +122,17 @@ class TestRefusalFallback:
 
         router = ModelRouter(config)
 
-        # Mock both clients
-        anthropic_client = AsyncMock()
-        openrouter_client = AsyncMock()
+        # Use Mock for clients, AsyncMock only for call_raw
+        anthropic_client = Mock()
+        anthropic_client.call_raw = AsyncMock(
+            return_value={"error": "The AI refused to respond to this request (consider !u)"}
+        )
 
-        # Anthropic refuses
-        anthropic_client.call_raw.return_value = {
-            "error": "The AI refused to respond to this request (consider !u)"
-        }
-
-        # OpenRouter succeeds
-        openrouter_client.call_raw.return_value = {
-            "choices": [{"message": {"content": "Cross-provider unsafe response"}}]
-        }
+        openrouter_client = Mock()
+        openrouter_client.call_raw = AsyncMock(
+            return_value={"choices": [{"message": {"content": "Cross-provider unsafe response"}}]}
+        )
+        openrouter_client.extract_usage.return_value = UsageInfo(10, 20, 0.001)
 
         # Mock client creation
         def get_client(provider):
@@ -172,9 +170,10 @@ class TestRefusalFallback:
 
         router = ModelRouter(config)
 
-        # Mock client
-        client = AsyncMock()
-        client.call_raw.return_value = {"error": "API error: connection timeout"}
+        # Use Mock for client, AsyncMock only for call_raw
+        client = Mock()
+        client.call_raw = AsyncMock(return_value={"error": "API error: connection timeout"})
+        client.extract_usage.return_value = UsageInfo(10, 20, 0.001)
 
         with patch.object(router, "_ensure_client", return_value=client):
             response, returned_client, spec, _ = await router.call_raw_with_model(
