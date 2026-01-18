@@ -72,7 +72,6 @@ class IRCRoomMonitor:
         self.proactive_debouncer = ProactiveDebouncer(irc_config["proactive"]["debounce_seconds"])
         self.server_nicks: dict[str, str] = {}  # Cache of nicks per server
 
-        # Initialize auto-chronicler
         self.autochronicler = AutoChronicler(self.agent.history, self)
 
     @property
@@ -402,11 +401,12 @@ class IRCRoomMonitor:
         no_context: bool = False,
         **actor_kwargs,
     ) -> AgentResult | None:
-        mode_cfg = self.irc_config["command"]["modes"][mode]
+        mode_cfg = self.irc_config["command"]["modes"][mode].copy()
         if no_context:
             context = context[-1:]
-            mode_cfg = mode_cfg.copy()
             mode_cfg["include_chapter_summary"] = False
+        elif mode in {"serious", "unsafe"} and len(context) > 1:
+            mode_cfg["reduce_context"] = True
 
         model_override = model if isinstance(model, str) else None
         system_prompt = self.build_system_prompt(mode, mynick, model_override) + extra_prompt

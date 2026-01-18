@@ -14,6 +14,7 @@ from .agentic_actor import AgenticLLMActor
 from .agentic_actor.actor import AgentResult
 from .chronicler.chronicle import Chronicle
 from .chronicler.quests import QuestOperator
+from .context_reducer import ContextReducer
 from .history import ChatHistory
 from .message_logging import MessageContextHandler
 from .providers import ModelRouter
@@ -73,6 +74,7 @@ class IRSSILLMAgent:
         chronicler_config = self.config.get("chronicler", {})
         chronicle_db_path = chronicler_config.get("database", {}).get("path", "chronicle.db")
         self.chronicle = Chronicle(chronicle_db_path)
+        self.context_reducer = ContextReducer(self)
         self.irc_monitor = IRCRoomMonitor(self)
         self.quests = QuestOperator(self)
 
@@ -92,6 +94,12 @@ class IRSSILLMAgent:
         prepended_context: list[dict[str, str]] = []
         if mode_cfg.get("include_chapter_summary", True) and arc:
             prepended_context = await self.chronicle.get_chapter_context_messages(arc)
+
+        if mode_cfg.get("reduce_context") and self.context_reducer.is_configured:
+            full_context = prepended_context + context
+            reduced = await self.context_reducer.reduce(full_context, system_prompt)
+            prepended_context = []
+            context = reduced + context[-1:]
 
         actor = AgenticLLMActor(
             config=self.config,
