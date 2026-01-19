@@ -126,13 +126,18 @@ TOOLS: list[Tool] = [
             "properties": {
                 "code": {
                     "type": "string",
-                    "description": "The code to execute in the sandbox.",
+                    "description": "The code to execute in the sandbox. Each execution is auto-saved to /tmp/_v{n}.py (or .sh for bash) - the exact path is returned in the response. You can re-run previous code with 'python /tmp/_v1.py' after fixing issues (e.g., pip install missing module).",
                 },
                 "language": {
                     "type": "string",
                     "enum": ["python", "bash"],
                     "default": "python",
                     "description": "The language to execute the code in.",
+                },
+                "input_artifacts": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of artifact URLs to download into the sandbox at /artifacts/ before execution (e.g., ['https://example.com/artifacts/abc123.csv'] -> /artifacts/abc123.csv).",
                 },
                 "output_files": {
                     "type": "array",
@@ -480,7 +485,33 @@ class WebpageVisitorExecutor:
                 if not resolved_path.exists():
                     raise ValueError("Artifact file not found")
 
-                # Check file size to prevent reading huge files
+                # Check if it's an image file
+                suffix = resolved_path.suffix.lower()
+                if suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+                    file_size = resolved_path.stat().st_size
+                    if file_size > self.max_image_size:
+                        raise ValueError(f"Image too large: {file_size} bytes")
+                    image_data = resolved_path.read_bytes()
+                    media_type = {
+                        ".png": "image/png",
+                        ".jpg": "image/jpeg",
+                        ".jpeg": "image/jpeg",
+                        ".gif": "image/gif",
+                        ".webp": "image/webp",
+                    }[suffix]
+                    logger.info(f"Read local image artifact: {filename}")
+                    return [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": base64.b64encode(image_data).decode(),
+                            },
+                        }
+                    ]
+
+                # Text file handling
                 file_size = resolved_path.stat().st_size
                 if file_size > self.max_content_length:
                     content = resolved_path.read_text(encoding="utf-8")[: self.max_content_length]
@@ -587,11 +618,14 @@ class CodeExecutorE2B:
         api_key: str | None = None,
         timeout: int = 600,
         artifact_store: ArtifactStore | None = None,
+        webpage_visitor: WebpageVisitorExecutor | None = None,
     ):
         self.api_key = api_key
         self.timeout = timeout
         self.sandbox = None
         self.artifact_store = artifact_store
+        self.webpage_visitor = webpage_visitor
+        self._version_counter = 0
 
     async def _ensure_sandbox(self):
         """Ensure sandbox is created and connected."""
@@ -649,8 +683,62 @@ class CodeExecutorE2B:
         suffix = PurePosixPath(filename).suffix
         return suffix if suffix else ".bin"
 
+    def _extract_image_data(self, content: list[dict]) -> bytes | None:
+        """Extract binary image data from Anthropic content blocks."""
+        for block in content:
+            if block.get("type") == "image":
+                source = block.get("source", {})
+                if source.get("type") == "base64":
+                    return base64.b64decode(source["data"])
+        return None
+
+    async def _upload_input_artifacts(self, input_artifacts: list[str]) -> list[str]:
+        """Download artifacts and upload them to sandbox. Returns list of messages."""
+        import asyncio
+
+        if not self.webpage_visitor:
+            return ["Warning: input_artifacts requested but webpage visitor not configured"]
+
+        assert self.sandbox is not None
+        await asyncio.to_thread(self.sandbox.files.make_dir, "/artifacts")
+
+        messages = []
+        for artifact_url in input_artifacts:
+            filename = artifact_url.split("/")[-1]
+            if not filename:
+                messages.append(f"Error: Invalid artifact URL (no filename): {artifact_url}")
+                continue
+
+            try:
+                content = await self.webpage_visitor.execute(artifact_url)
+                sandbox_path = f"/artifacts/{filename}"
+
+                if isinstance(content, list):
+                    data = self._extract_image_data(content)
+                    if data is None:
+                        messages.append(f"Error: Unsupported image format: {artifact_url}")
+                        continue
+                    content_type = "image"
+                else:
+                    data = content
+                    content_type = "text"
+
+                await asyncio.to_thread(self.sandbox.files.write, sandbox_path, data)  # type: ignore[union-attr]
+                logger.info(f"Uploaded {content_type} to sandbox: {artifact_url} -> {sandbox_path}")
+                messages.append(f"Uploaded {content_type}: {sandbox_path}")
+
+            except Exception as e:
+                logger.warning(f"Failed to upload artifact {artifact_url}: {e}")
+                messages.append(f"Error: Failed to upload {artifact_url}: {e}")
+
+        return messages
+
     async def execute(
-        self, code: str, language: str = "python", output_files: list[str] | None = None
+        self,
+        code: str,
+        language: str = "python",
+        input_artifacts: list[str] | None = None,
+        output_files: list[str] | None = None,
     ) -> str:
         """Execute code in E2B sandbox and return output."""
         try:
@@ -662,10 +750,24 @@ class CodeExecutorE2B:
             import asyncio
 
             assert self.sandbox is not None
+
+            output_parts = []
+
+            # Upload input artifacts first
+            if input_artifacts:
+                artifact_messages = await self._upload_input_artifacts(input_artifacts)
+                for msg in artifact_messages:
+                    output_parts.append(f"**{msg}**")
+
+            # Auto-save code to /tmp/_v{n}.py for re-runs
+            self._version_counter += 1
+            ext = ".py" if language == "python" else ".sh"
+            saved_file = f"/tmp/_v{self._version_counter}{ext}"
+            await asyncio.to_thread(self.sandbox.files.write, saved_file, code)  # type: ignore[union-attr]
+
             result = await asyncio.to_thread(self.sandbox.run_code, code, language=language)
             logger.debug(result)
 
-            output_parts = []
             artifact_urls = []
 
             # Check for execution error first (e.g., ModuleNotFoundError)
@@ -749,6 +851,9 @@ class CodeExecutorE2B:
 
             if not output_parts:
                 output_parts.append("Code executed successfully with no output.")
+
+            # Append saved file info for re-runs
+            output_parts.append(f"_Code saved to `{saved_file}` for re-run._")
 
             logger.info(
                 f"Executed {language} code in E2B sandbox: {code[:512]}... -> {output_parts[:512]}"
@@ -1317,6 +1422,11 @@ def create_tool_executors(
         "chronicle_append": ChapterAppendExecutor(agent=agent, arc=arc),
         "chronicle_read": ChapterRenderExecutor(chronicle=agent.chronicle, arc=arc),
     }
+
+    # Update execute_code with webpage_visitor for input_artifacts support
+    executors["execute_code"] = CodeExecutorE2B(
+        api_key=e2b_api_key, artifact_store=artifact_store, webpage_visitor=webpage_visitor
+    )
 
     # Add quest tools conditionally based on current_quest_id
     if current_quest_id is None:
