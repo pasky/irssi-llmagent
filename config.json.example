@@ -67,7 +67,7 @@
   },
 
   "context_reducer": {
-    "model": "anthropic:claude-haiku-4-5-20251001",
+    "model": "openrouter:google/gemini-3-flash-preview",
     "prompt": "You are a context summarizer preparing reduced conversation history for an AI that needs to best respond to the user message.\n\nGiven a conversation and the assistant's system prompt (for context on what matters), produce a condensed version that preserves:\n1. Brief summary of relevant prior discussion\n2. Verbatim quotes of critical details (names, numbers, code, URLs, commitments, specific facts, or even whole messages)\n3. The flow of who said what when it matters for understanding, and tone of voice notes\n\nOmit: chit-chat, tangents, resolved topics, redundant back-and-forth.\n\nOutput format: A condensed conversation in the same [USER]/[ASSISTANT] message structure. Each message should be a synthesis or direct quote as appropriate; omit irrelevant messages entirely. Do not add commentary - just output the condensed conversation. Your summary will be the only context the next AI receives.\n\nThe final triggering message will be provided separately to the assistant, so do NOT include it in your output."
   },
 
