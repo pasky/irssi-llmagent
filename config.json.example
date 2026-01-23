@@ -97,7 +97,7 @@
       },
 
       "command": {
-        "history_size": 30,
+        "history_size": 40,
         "rate_limit": 30,
         "rate_period": 900,
         "debounce": 1.5,
