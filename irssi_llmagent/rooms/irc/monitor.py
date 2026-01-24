@@ -548,7 +548,9 @@ class IRCRoomMonitor:
         self, server: str, chan_name: str, target: str, nick: str, message: str, mynick: str
     ) -> None:
         """Handle IRC commands and generate responses."""
-        await self.agent.history.add_message(server, chan_name, message, nick, mynick)
+        trigger_message_id = await self.agent.history.add_message(
+            server, chan_name, message, nick, mynick
+        )
 
         if not self.rate_limiter.check_limit():
             logger.warning(f"Rate limiting triggered for {nick}")
@@ -584,7 +586,15 @@ class IRCRoomMonitor:
                 context[-1]["content"] += "\n" + "\n".join([m["message"] for m in followups])
 
         await self._route_command(
-            server, chan_name, target, nick, mynick, cleaned_msg, context, default_size
+            server,
+            chan_name,
+            target,
+            nick,
+            mynick,
+            cleaned_msg,
+            context,
+            default_size,
+            trigger_message_id,
         )
         await self.proactive_debouncer.cancel_channel(chan_name)
 
@@ -657,6 +667,7 @@ class IRCRoomMonitor:
         cleaned_msg: str,
         context: list[dict],
         default_size: int,
+        trigger_message_id: int,
     ) -> None:
         """Route commands based on message content with prepared context."""
         modes_config = self.irc_config["command"]["modes"]
@@ -841,12 +852,13 @@ class IRCRoomMonitor:
                         cost=agent_result.total_cost,
                         call_type="agent_run",
                         arc_name=f"{server}#{chan_name}",
+                        trigger_message_id=trigger_message_id,
                     )
                 except ValueError:
                     logger.warning(f"Could not parse model spec: {agent_result.primary_model}")
 
             await self.varlink_sender.send_message(target, response_text, server)
-            await self.agent.history.add_message(
+            response_message_id = await self.agent.history.add_message(
                 server,
                 chan_name,
                 response_text,
@@ -856,6 +868,8 @@ class IRCRoomMonitor:
                 mode=mode,
                 llm_call_id=llm_call_id,
             )
+            if llm_call_id:
+                await self.agent.history.update_llm_call_response(llm_call_id, response_message_id)
 
             # Send cost followup for expensive requests
             if agent_result.total_cost and agent_result.total_cost > 0.2:

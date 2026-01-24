@@ -86,6 +86,23 @@ class ChatHistory:
                 await db.execute("ALTER TABLE chat_messages ADD COLUMN mode TEXT NULL")
             if "llm_call_id" not in columns:
                 await db.execute("ALTER TABLE chat_messages ADD COLUMN llm_call_id INTEGER NULL")
+            # Migrate llm_calls: add trigger/response message links
+            async with db.execute("PRAGMA table_info(llm_calls)") as cursor:
+                llm_columns = [row[1] for row in await cursor.fetchall()]
+            if "trigger_message_id" not in llm_columns:
+                await db.execute("ALTER TABLE llm_calls ADD COLUMN trigger_message_id INTEGER NULL")
+            if "response_message_id" not in llm_columns:
+                await db.execute(
+                    "ALTER TABLE llm_calls ADD COLUMN response_message_id INTEGER NULL"
+                )
+                # Backfill response_message_id from existing chat_messages.llm_call_id
+                await db.execute(
+                    """
+                    UPDATE llm_calls SET response_message_id = (
+                        SELECT id FROM chat_messages WHERE llm_call_id = llm_calls.id LIMIT 1
+                    ) WHERE response_message_id IS NULL
+                    """
+                )
             await db.commit()
             logger.debug(f"Initialized chat history database: {self.db_path}")
 
@@ -98,16 +115,27 @@ class ChatHistory:
         cost: float | None,
         call_type: str | None = None,
         arc_name: str | None = None,
+        trigger_message_id: int | None = None,
     ) -> int:
         """Log an LLM API call and return its ID."""
         async with self._lock, aiosqlite.connect(self.db_path) as db:
             async with db.execute(
                 """
                 INSERT INTO llm_calls
-                (provider, model, input_tokens, output_tokens, cost, call_type, arc_name)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (provider, model, input_tokens, output_tokens, cost, call_type, arc_name,
+                 trigger_message_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (provider, model, input_tokens, output_tokens, cost, call_type, arc_name),
+                (
+                    provider,
+                    model,
+                    input_tokens,
+                    output_tokens,
+                    cost,
+                    call_type,
+                    arc_name,
+                    trigger_message_id,
+                ),
             ) as cursor:
                 call_id = cursor.lastrowid
             await db.commit()
@@ -115,9 +143,18 @@ class ChatHistory:
         cost_str = f"${cost:.6f}" if cost is not None else "N/A"
         logger.debug(
             f"Logged LLM call: {provider}:{model} in={input_tokens} out={output_tokens} "
-            f"cost={cost_str} type={call_type} arc={arc_name}"
+            f"cost={cost_str} type={call_type} arc={arc_name} trigger={trigger_message_id}"
         )
         return call_id or 0
+
+    async def update_llm_call_response(self, call_id: int, response_message_id: int) -> None:
+        """Update an LLM call with the response message ID."""
+        async with self._lock, aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE llm_calls SET response_message_id = ? WHERE id = ?",
+                (response_message_id, call_id),
+            )
+            await db.commit()
 
     async def add_message(
         self,
@@ -131,27 +168,26 @@ class ChatHistory:
         role: str | None = None,
         mode: str | None = None,
         llm_call_id: int | None = None,
-    ) -> None:
-        """Add a message to the chat history."""
+    ) -> int:
+        """Add a message to the chat history. Returns the message ID."""
         if role is None:
             role = "assistant" if nick.lower() == mynick.lower() else "user"
         content = content_template.format(nick=nick, message=message)
 
-        async with (
-            self._lock,
-            aiosqlite.connect(self.db_path) as db,
-            db.execute(
+        async with self._lock, aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
                 """
-                    INSERT INTO chat_messages
-                    (server_tag, channel_name, nick, message, role, mode, llm_call_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
+                INSERT INTO chat_messages
+                (server_tag, channel_name, nick, message, role, mode, llm_call_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
                 (server_tag, channel_name, nick, content, role, mode, llm_call_id),
-            ) as _,
-        ):
+            ) as cursor:
+                message_id = cursor.lastrowid
             await db.commit()
 
         logger.debug(f"Added message to history: {server_tag}/{channel_name} - {nick}: {message}")
+        return message_id or 0
 
     async def get_context(
         self, server_tag: str, channel_name: str, limit: int | None = None
