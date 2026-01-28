@@ -53,19 +53,23 @@ class DiscordRoomMonitor:
         intents.messages = True
         self.client = DiscordClient(self, intents=intents)
 
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        return "_".join(name.strip().split())
+
     def _get_channel_name(self, channel: discord.abc.Messageable) -> str:
         if isinstance(channel, discord.Thread) and channel.parent:
-            return f"{channel.parent.name}/{channel.name} ({channel.id})"
+            return self._normalize_name(channel.parent.name)
         if isinstance(channel, discord.abc.GuildChannel):
-            return f"{channel.name} ({channel.id})"
+            return self._normalize_name(channel.name)
         if isinstance(channel, discord.abc.PrivateChannel):
-            return f"dm ({channel.id})"
-        return "dm (unknown)"
+            return "dm"
+        return "dm"
 
     def _get_server_tag(self, message: discord.Message) -> str:
         if message.guild:
             return f"discord:{message.guild.name}"
-        return "discord:dm"
+        return "discord:_DM"
 
     def _is_highlight(self, message: discord.Message) -> bool:
         if message.guild is None:
@@ -88,7 +92,8 @@ class DiscordRoomMonitor:
 
         server_tag = self._get_server_tag(message)
         if message.guild is None:
-            channel_name = f"{message.author.display_name} ({message.author.id})"
+            normalized_name = self._normalize_name(message.author.display_name)
+            channel_name = f"{normalized_name}_{message.author.id}"
         else:
             channel_name = self._get_channel_name(message.channel)
         arc = f"{server_tag}#{channel_name}"
