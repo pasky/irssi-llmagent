@@ -50,7 +50,6 @@ class DiscordRoomMonitor:
             self.agent,
             "discord",
             self.room_config,
-            sender_factory=self._sender_factory,
             response_cleaner=self._strip_nick_prefix,
         )
 
@@ -112,7 +111,6 @@ class DiscordRoomMonitor:
         *,
         server_tag: str,
         channel_name: str,
-        target: str | None,
         reply_context: Any | None,
     ) -> Callable[[str], Awaitable[None]]:
         last_reply: discord.Message | None = None
@@ -166,29 +164,33 @@ class DiscordRoomMonitor:
             server_tag, channel_name, content, nick, mynick
         )
 
+        sender = self._sender_factory(
+            server_tag=server_tag,
+            channel_name=channel_name,
+            reply_context=message,
+        )
+
         if self._is_highlight(message):
             cleaned_content = self._strip_leading_mention(message, mynick)
             with MessageLoggingContext(arc, nick, content, Path("logs")):
                 await self.command_handler.handle_command(
                     server_tag=server_tag,
                     channel_name=channel_name,
-                    target=None,
                     nick=nick,
                     mynick=mynick,
                     message=cleaned_content,
                     trigger_message_id=trigger_message_id,
-                    reply_context=message,
+                    sender=sender,
                 )
             return
 
         await self.command_handler.handle_passive_message(
             server_tag=server_tag,
             channel_name=channel_name,
-            target=None,
             nick=nick,
             mynick=mynick,
             message=content,
-            reply_context=message,
+            sender=sender,
         )
 
     async def run(self) -> None:

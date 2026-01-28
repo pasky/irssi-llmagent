@@ -85,7 +85,6 @@ async def test_discord_sender_chains_replies(test_config):
     sender = monitor._sender_factory(
         server_tag="discord:_DM",
         channel_name="dm",
-        target=None,
         reply_context=original_message,
     )
 

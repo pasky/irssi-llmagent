@@ -197,9 +197,11 @@ async def should_interject_proactively_with_reason(
     """Use MuaddibAgent method to determine if bot should interject proactively."""
     try:
         # Use the actual agent method - it now returns decision, reason, and test_mode flag
-        should_interject, reason, test_mode = await agent.irc_monitor.should_interject_proactively(
-            context
-        )
+        (
+            should_interject,
+            reason,
+            test_mode,
+        ) = await agent.irc_monitor.command_handler.should_interject_proactively(context)
         return should_interject, reason
     except Exception as e:
         logger.error(f"Error checking proactive interject: {e}")

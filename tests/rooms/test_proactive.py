@@ -7,6 +7,10 @@ import pytest
 from muaddib.rooms import ProactiveDebouncer
 
 
+async def noop_sender(_: str) -> None:
+    return None
+
+
 class TestProactiveDebouncer:
     """Test proactive debouncing behavior."""
 
@@ -23,21 +27,19 @@ class TestProactiveDebouncer:
         async def track_callback(
             server: str,
             chan_name: str,
-            target: str | None,
             nick: str,
             message: str,
             mynick: str,
-            reply_context,
+            sender,
         ):
             calls.append(
                 {
                     "server": server,
                     "chan_name": chan_name,
-                    "target": target,
                     "nick": nick,
                     "message": message,
                     "mynick": mynick,
-                    "reply_context": reply_context,
+                    "sender": sender,
                 }
             )
 
@@ -50,11 +52,10 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
-            "#test",
             "alice",
             "hello world",
             "bot",
-            None,
+            noop_sender,
             callback_tracker,
         )
 
@@ -78,31 +79,28 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
-            "#test",
             "alice",
             "first message",
             "bot",
-            None,
+            noop_sender,
             callback_tracker,
         )
         await debouncer.schedule_check(
             "freenode",
-            "#test",
             "#test",
             "bob",
             "second message",
             "bot",
-            None,
+            noop_sender,
             callback_tracker,
         )
         await debouncer.schedule_check(
             "freenode",
             "#test",
-            "#test",
             "charlie",
             "third message",
             "bot",
-            None,
+            noop_sender,
             callback_tracker,
         )
 
@@ -125,21 +123,19 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test1",
-            "#test1",
             "alice",
             "message1",
             "bot",
-            None,
+            noop_sender,
             callback_tracker,
         )
         await debouncer.schedule_check(
             "freenode",
             "#test2",
-            "#test2",
             "bob",
             "message2",
             "bot",
-            None,
+            noop_sender,
             callback_tracker,
         )
 
@@ -168,11 +164,10 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
-            "#test",
             "alice",
             "first",
             "bot",
-            None,
+            noop_sender,
             callback_tracker,
         )
 
@@ -183,11 +178,10 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
-            "#test",
             "bob",
             "second",
             "bot",
-            None,
+            noop_sender,
             callback_tracker,
         )
 
@@ -209,21 +203,19 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test1",
-            "#test1",
             "alice",
             "message1",
             "bot",
-            None,
+            noop_sender,
             callback_tracker,
         )
         await debouncer.schedule_check(
             "freenode",
             "#test2",
-            "#test2",
             "bob",
             "message2",
             "bot",
-            None,
+            noop_sender,
             callback_tracker,
         )
 
@@ -249,11 +241,10 @@ class TestProactiveDebouncer:
         async def failing_callback(
             server: str,
             chan_name: str,
-            target: str | None,
             nick: str,
             message: str,
             mynick: str,
-            reply_context,
+            sender,
         ):
             raise ValueError("Test error")
 
@@ -261,11 +252,10 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
-            "#test",
             "alice",
             "hello",
             "bot",
-            None,
+            noop_sender,
             failing_callback,
         )
 
@@ -283,11 +273,10 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
-            "#test",
             "alice",
             "instant",
             "bot",
-            None,
+            noop_sender,
             callback_tracker,
         )
 
@@ -305,11 +294,10 @@ class TestProactiveDebouncer:
             task = debouncer.schedule_check(
                 "freenode",
                 "#test",
-                "#test",
                 f"user{i}",
                 f"message{i}",
                 "bot",
-                None,
+                noop_sender,
                 callback_tracker,
             )
             tasks.append(task)
@@ -331,21 +319,19 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test1",
-            "#test1",
             "alice",
             "message1",
             "bot",
-            None,
+            noop_sender,
             callback_tracker,
         )
         await debouncer.schedule_check(
             "freenode",
             "#test2",
-            "#test2",
             "bob",
             "message2",
             "bot",
-            None,
+            noop_sender,
             callback_tracker,
         )
 
@@ -384,11 +370,10 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
-            "#test",
             "alice",
             "message",
             "bot",
-            None,
+            noop_sender,
             callback_tracker,
         )
 

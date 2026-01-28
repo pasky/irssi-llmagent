@@ -7,7 +7,6 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from ..message_logging import MessageLoggingContext
 
@@ -20,11 +19,10 @@ class PendingMessage:
 
     server: str
     chan_name: str
-    target: str | None
     nick: str
     message: str
     mynick: str
-    reply_context: Any | None
+    sender: Callable[[str], Awaitable[None]]
     timestamp: float
 
 
@@ -57,13 +55,12 @@ class ProactiveDebouncer:
         self,
         server: str,
         chan_name: str,
-        target: str | None,
         nick: str,
         message: str,
         mynick: str,
-        reply_context: Any | None,
+        sender: Callable[[str], Awaitable[None]],
         check_callback: Callable[
-            [str, str, str | None, str, str, str, Any | None], Awaitable[None]
+            [str, str, str, str, str, Callable[[str], Awaitable[None]]], Awaitable[None]
         ],
     ) -> None:
         """Schedule a debounced proactive check for this channel.
@@ -71,11 +68,10 @@ class ProactiveDebouncer:
         Args:
             server: IRC server tag
             chan_name: Channel name
-            target: Reply target or channel
             nick: Nick who sent the message
             message: Message content
             mynick: Bot's nickname
-            reply_context: Optional reply context object
+            sender: Send function for replies
             check_callback: Async function to call with message data after debounce
         """
         channel_lock = self._get_channel_lock(chan_name)
@@ -88,7 +84,7 @@ class ProactiveDebouncer:
 
             # Store latest message
             self._pending_messages[chan_name] = PendingMessage(
-                server, chan_name, target, nick, message, mynick, reply_context, time.time()
+                server, chan_name, nick, message, mynick, sender, time.time()
             )
             logger.debug(f"Scheduled debounced check for {chan_name}: {message[:100]}...")
 
@@ -101,7 +97,7 @@ class ProactiveDebouncer:
         self,
         chan_name: str,
         check_callback: Callable[
-            [str, str, str | None, str, str, str, Any | None], Awaitable[None]
+            [str, str, str, str, str, Callable[[str], Awaitable[None]]], Awaitable[None]
         ],
     ) -> None:
         """Execute the debounced check after delay."""
@@ -124,11 +120,10 @@ class ProactiveDebouncer:
                         await check_callback(
                             msg.server,
                             msg.chan_name,
-                            msg.target,
                             msg.nick,
                             msg.message,
                             msg.mynick,
-                            msg.reply_context,
+                            msg.sender,
                         )
 
                     # Cleanup

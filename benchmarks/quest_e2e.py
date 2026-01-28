@@ -84,13 +84,21 @@ async def run_benchmark(config_path: str, timeout: float) -> None:
         print(f"<{USER}> {MYNICK}: {SCENARIO_GOAL}")
         print("\n--- Processing through IRC monitor ---\n")
 
-        await agent.irc_monitor.handle_command(
-            server=SERVER,
-            chan_name=CHANNEL,
-            target=CHANNEL,
+        trigger_message_id = await agent.history.add_message(
+            SERVER, CHANNEL, SCENARIO_GOAL, USER, MYNICK
+        )
+
+        async def send(text: str) -> None:
+            await agent.irc_monitor.varlink_sender.send_message(CHANNEL, text, SERVER)
+
+        await agent.irc_monitor.command_handler.handle_command(
+            server_tag=SERVER,
+            channel_name=CHANNEL,
             nick=USER,
-            message=SCENARIO_GOAL,
             mynick=MYNICK,
+            message=SCENARIO_GOAL,
+            trigger_message_id=trigger_message_id,
+            sender=send,
         )
 
         # Wait for all quests to complete or timeout

@@ -35,19 +35,6 @@ class ParsedPrefix:
     error: str | None = None
 
 
-class RoomSenderFactory(Protocol):
-    """Creates a send function for a room message."""
-
-    def __call__(
-        self,
-        *,
-        server_tag: str,
-        channel_name: str,
-        target: str | None,
-        reply_context: Any | None,
-    ) -> Callable[[str], Awaitable[None]]: ...
-
-
 class ResponseCleaner(Protocol):
     """Optional response cleanup hook."""
 
@@ -103,13 +90,11 @@ class RoomCommandHandler:
         agent: Any,
         room_name: str,
         room_config: dict[str, Any],
-        sender_factory: RoomSenderFactory,
         response_cleaner: ResponseCleaner | None = None,
     ) -> None:
         self.agent = agent
         self.room_name = room_name
         self.room_config = room_config
-        self.sender_factory = sender_factory
         self.response_cleaner = response_cleaner
 
         command_config = self.room_config["command"]
@@ -133,21 +118,6 @@ class RoomCommandHandler:
     def should_ignore_user(self, nick: str) -> bool:
         ignore_list = self.command_config.get("ignore_users", [])
         return any(nick.lower() == ignored.lower() for ignored in ignore_list)
-
-    def _make_sender(
-        self,
-        *,
-        server_tag: str,
-        channel_name: str,
-        target: str | None,
-        reply_context: Any | None,
-    ) -> Callable[[str], Awaitable[None]]:
-        return self.sender_factory(
-            server_tag=server_tag,
-            channel_name=channel_name,
-            target=target,
-            reply_context=reply_context,
-        )
 
     def build_system_prompt(self, mode: str, mynick: str, model_override: str | None = None) -> str:
         """Build a command system prompt with standard substitutions."""
@@ -339,11 +309,10 @@ class RoomCommandHandler:
         self,
         server_tag: str,
         chan_name: str,
-        target: str | None,
         nick: str,
         message: str,
         mynick: str,
-        reply_context: Any | None,
+        sender: Callable[[str], Awaitable[None]],
     ) -> None:
         try:
             if not self.proactive_rate_limiter.check_limit():
@@ -424,12 +393,6 @@ class RoomCommandHandler:
                     classified_mode,
                     chan_name,
                     response_text,
-                )
-                sender = self._make_sender(
-                    server_tag=server_tag,
-                    channel_name=chan_name,
-                    target=target,
-                    reply_context=reply_context,
                 )
                 await sender(response_text)
                 await self.agent.history.add_message(
@@ -534,20 +497,12 @@ class RoomCommandHandler:
         *,
         server_tag: str,
         channel_name: str,
-        target: str | None,
         nick: str,
         mynick: str,
         message: str,
         trigger_message_id: int,
-        reply_context: Any | None = None,
+        sender: Callable[[str], Awaitable[None]],
     ) -> None:
-        sender = self._make_sender(
-            server_tag=server_tag,
-            channel_name=channel_name,
-            target=target,
-            reply_context=reply_context,
-        )
-
         if not self.rate_limiter.check_limit():
             logger.warning("Rate limiting triggered for %s", nick)
             rate_msg = f"{nick}: Slow down a little, will you? (rate limiting)"
@@ -660,11 +615,10 @@ class RoomCommandHandler:
         *,
         server_tag: str,
         channel_name: str,
-        target: str | None,
         nick: str,
         mynick: str,
         message: str,
-        reply_context: Any | None = None,
+        sender: Callable[[str], Awaitable[None]],
     ) -> None:
         if (
             channel_name
@@ -673,11 +627,10 @@ class RoomCommandHandler:
             await self.proactive_debouncer.schedule_check(
                 server_tag,
                 channel_name,
-                target,
                 nick,
                 message,
                 mynick,
-                reply_context,
+                sender,
                 self._handle_debounced_proactive_check,
             )
 

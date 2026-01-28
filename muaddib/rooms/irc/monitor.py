@@ -31,7 +31,6 @@ class IRCRoomMonitor:
             self.agent,
             "irc",
             self.room_config,
-            sender_factory=self._sender_factory,
         )
         self.server_nicks: dict[str, str] = {}
 
@@ -67,11 +66,9 @@ class IRCRoomMonitor:
         *,
         server_tag: str,
         channel_name: str,
-        target: str | None,
-        reply_context: Any | None,
     ):
         async def send(text: str) -> None:
-            await self.varlink_sender.send_message(target or channel_name, text, server_tag)
+            await self.varlink_sender.send_message(channel_name, text, server_tag)
 
         return send
 
@@ -118,29 +115,29 @@ class IRCRoomMonitor:
             server, chan_name, message, nick, mynick
         )
 
+        sender = self._sender_factory(server_tag=server, channel_name=chan_name)
+
         if is_direct:
             arc = f"{server}#{chan_name}"
             with MessageLoggingContext(arc, nick, message, Path("logs")):
                 await self.command_handler.handle_command(
                     server_tag=server,
                     channel_name=chan_name,
-                    target=target,
                     nick=nick,
                     mynick=mynick,
                     message=cleaned_msg,
                     trigger_message_id=trigger_message_id,
-                    reply_context=None,
+                    sender=sender,
                 )
             return
 
         await self.command_handler.handle_passive_message(
             server_tag=server,
             channel_name=chan_name,
-            target=target,
             nick=nick,
             mynick=mynick,
             message=message,
-            reply_context=None,
+            sender=sender,
         )
 
     async def _connect_with_retry(self, max_retries: int = 5) -> bool:
