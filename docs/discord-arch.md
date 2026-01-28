@@ -1,4 +1,7 @@
-# Discord Frontend Plan (Phase 1)
+# Discord Frontend Plan (Phase 1 - Beta)
+
+## Status
+Phase 1 is implemented and the Discord frontend is now in **beta**.
 
 ## Goal
 Add a Discord frontend in parallel to the IRC/irssi frontend with minimal feature parity. The initial scope is **agentic actor on @mention** only, while keeping the design extensible for future Slack integration and Discord threads/replies/inline images.

@@ -1,6 +1,6 @@
 # Discord Setup Guide
 
-This guide walks you through creating a Discord bot, obtaining a token, and enabling the Muaddib Discord frontend.
+This guide walks you through creating a Discord bot, obtaining a token, and enabling the Muaddib Discord frontend (currently **beta**).
 
 ## Prerequisites
 - You are a Discord server owner (or have admin permissions).
