@@ -229,6 +229,8 @@ class ChatHistory:
         """
         inference_limit = limit if limit is not None else self.inference_limit
 
+        assert thread_id or thread_starter_id is None
+
         if thread_id:
             if thread_starter_id is not None:
                 query = """
