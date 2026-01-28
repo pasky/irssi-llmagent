@@ -14,6 +14,10 @@ async def noop_reply_sender(_: str) -> None:
 noop_sender = noop_reply_sender
 
 
+def channel_key(server: str, chan_name: str) -> str:
+    return f"{server}#{chan_name}"
+
+
 class TestProactiveDebouncer:
     """Test proactive debouncing behavior."""
 
@@ -55,6 +59,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
+            channel_key("freenode", "#test"),
             "alice",
             "hello world",
             "bot",
@@ -63,14 +68,14 @@ class TestProactiveDebouncer:
         )
 
         # Should be pending
-        assert debouncer.is_pending("#test")
-        assert "#test" in debouncer.get_pending_channels()
+        assert debouncer.is_pending(channel_key("freenode", "#test"))
+        assert channel_key("freenode", "#test") in debouncer.get_pending_channels()
 
         # Wait for debounce
         await asyncio.sleep(0.15)
 
         # Should have been processed
-        assert not debouncer.is_pending("#test")
+        assert not debouncer.is_pending(channel_key("freenode", "#test"))
         assert len(callback_tracker.calls) == 1
         assert callback_tracker.calls[0]["message"] == "hello world"
         assert callback_tracker.calls[0]["chan_name"] == "#test"
@@ -82,6 +87,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
+            channel_key("freenode", "#test"),
             "alice",
             "first message",
             "bot",
@@ -91,6 +97,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
+            channel_key("freenode", "#test"),
             "bob",
             "second message",
             "bot",
@@ -100,6 +107,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
+            channel_key("freenode", "#test"),
             "charlie",
             "third message",
             "bot",
@@ -108,13 +116,13 @@ class TestProactiveDebouncer:
         )
 
         # Should still be pending
-        assert debouncer.is_pending("#test")
+        assert debouncer.is_pending(channel_key("freenode", "#test"))
 
         # Wait for debounce
         await asyncio.sleep(0.15)
 
         # Only the last message should have been processed
-        assert not debouncer.is_pending("#test")
+        assert not debouncer.is_pending(channel_key("freenode", "#test"))
         assert len(callback_tracker.calls) == 1
         assert callback_tracker.calls[0]["message"] == "third message"
         assert callback_tracker.calls[0]["nick"] == "charlie"
@@ -126,6 +134,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test1",
+            channel_key("freenode", "#test1"),
             "alice",
             "message1",
             "bot",
@@ -135,6 +144,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test2",
+            channel_key("freenode", "#test2"),
             "bob",
             "message2",
             "bot",
@@ -143,16 +153,16 @@ class TestProactiveDebouncer:
         )
 
         # Both should be pending
-        assert debouncer.is_pending("#test1")
-        assert debouncer.is_pending("#test2")
+        assert debouncer.is_pending(channel_key("freenode", "#test1"))
+        assert debouncer.is_pending(channel_key("freenode", "#test2"))
         assert len(debouncer.get_pending_channels()) == 2
 
         # Wait for debounce
         await asyncio.sleep(0.15)
 
         # Both should have been processed
-        assert not debouncer.is_pending("#test1")
-        assert not debouncer.is_pending("#test2")
+        assert not debouncer.is_pending(channel_key("freenode", "#test1"))
+        assert not debouncer.is_pending(channel_key("freenode", "#test2"))
         assert len(callback_tracker.calls) == 2
 
         # Check both messages were processed
@@ -167,6 +177,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
+            channel_key("freenode", "#test"),
             "alice",
             "first",
             "bot",
@@ -181,6 +192,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
+            channel_key("freenode", "#test"),
             "bob",
             "second",
             "bot",
@@ -206,6 +218,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test1",
+            channel_key("freenode", "#test1"),
             "alice",
             "message1",
             "bot",
@@ -215,6 +228,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test2",
+            channel_key("freenode", "#test2"),
             "bob",
             "message2",
             "bot",
@@ -230,8 +244,8 @@ class TestProactiveDebouncer:
 
         # Should be cleared
         assert len(debouncer.get_pending_channels()) == 0
-        assert not debouncer.is_pending("#test1")
-        assert not debouncer.is_pending("#test2")
+        assert not debouncer.is_pending(channel_key("freenode", "#test1"))
+        assert not debouncer.is_pending(channel_key("freenode", "#test2"))
 
         # Wait to ensure no callbacks fire
         await asyncio.sleep(0.15)
@@ -255,6 +269,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
+            channel_key("freenode", "#test"),
             "alice",
             "hello",
             "bot",
@@ -266,7 +281,7 @@ class TestProactiveDebouncer:
         await asyncio.sleep(0.15)
 
         # Debouncer should still work after exception
-        assert not debouncer.is_pending("#test")
+        assert not debouncer.is_pending(channel_key("freenode", "#test"))
 
     @pytest.mark.asyncio
     async def test_zero_debounce_time(self, callback_tracker):
@@ -276,6 +291,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
+            channel_key("freenode", "#test"),
             "alice",
             "instant",
             "bot",
@@ -297,6 +313,7 @@ class TestProactiveDebouncer:
             task = debouncer.schedule_check(
                 "freenode",
                 "#test",
+                channel_key("freenode", "#test"),
                 f"user{i}",
                 f"message{i}",
                 "bot",
@@ -322,6 +339,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test1",
+            channel_key("freenode", "#test1"),
             "alice",
             "message1",
             "bot",
@@ -331,6 +349,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test2",
+            channel_key("freenode", "#test2"),
             "bob",
             "message2",
             "bot",
@@ -339,16 +358,16 @@ class TestProactiveDebouncer:
         )
 
         # Both should be pending
-        assert debouncer.is_pending("#test1")
-        assert debouncer.is_pending("#test2")
+        assert debouncer.is_pending(channel_key("freenode", "#test1"))
+        assert debouncer.is_pending(channel_key("freenode", "#test2"))
         assert len(debouncer.get_pending_channels()) == 2
 
         # Cancel only one channel
-        await debouncer.cancel_channel("#test1")
+        await debouncer.cancel_channel(channel_key("freenode", "#test1"))
 
         # Only test1 should be cancelled
-        assert not debouncer.is_pending("#test1")
-        assert debouncer.is_pending("#test2")
+        assert not debouncer.is_pending(channel_key("freenode", "#test1"))
+        assert debouncer.is_pending(channel_key("freenode", "#test2"))
         assert len(debouncer.get_pending_channels()) == 1
 
         # Wait for remaining debounce
@@ -363,8 +382,8 @@ class TestProactiveDebouncer:
     async def test_cancel_channel_no_pending(self, debouncer):
         """Test cancelling a channel with no pending check."""
         # Should not raise exception
-        await debouncer.cancel_channel("#nonexistent")
-        assert not debouncer.is_pending("#nonexistent")
+        await debouncer.cancel_channel(channel_key("freenode", "#nonexistent"))
+        assert not debouncer.is_pending(channel_key("freenode", "#nonexistent"))
 
     @pytest.mark.asyncio
     async def test_cancel_channel_during_debounce(self, debouncer, callback_tracker):
@@ -373,6 +392,7 @@ class TestProactiveDebouncer:
         await debouncer.schedule_check(
             "freenode",
             "#test",
+            channel_key("freenode", "#test"),
             "alice",
             "message",
             "bot",
@@ -380,16 +400,16 @@ class TestProactiveDebouncer:
             callback_tracker,
         )
 
-        assert debouncer.is_pending("#test")
+        assert debouncer.is_pending(channel_key("freenode", "#test"))
 
         # Wait partway through debounce
         await asyncio.sleep(0.05)
 
         # Cancel the channel
-        await debouncer.cancel_channel("#test")
+        await debouncer.cancel_channel(channel_key("freenode", "#test"))
 
         # Should be cancelled immediately
-        assert not debouncer.is_pending("#test")
+        assert not debouncer.is_pending(channel_key("freenode", "#test"))
 
         # Wait for original debounce time to complete
         await asyncio.sleep(0.1)

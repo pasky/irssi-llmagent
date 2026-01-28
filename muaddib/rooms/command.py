@@ -119,6 +119,16 @@ class RoomCommandHandler:
         ignore_list = self.command_config.get("ignore_users", [])
         return any(nick.lower() == ignored.lower() for ignored in ignore_list)
 
+    @staticmethod
+    def _normalize_proactive_server_tag(server_tag: str) -> str:
+        if server_tag.startswith("discord:"):
+            return server_tag.split("discord:", 1)[1]
+        return server_tag
+
+    def _get_proactive_channel_key(self, server_tag: str, channel_name: str) -> str:
+        normalized_server = self._normalize_proactive_server_tag(server_tag)
+        return f"{normalized_server}#{channel_name}"
+
     def build_system_prompt(self, mode: str, mynick: str, model_override: str | None = None) -> str:
         """Build a command system prompt with standard substitutions."""
 
@@ -331,12 +341,13 @@ class RoomCommandHandler:
             if not should_interject:
                 return
 
+            channel_key = self._get_proactive_channel_key(server_tag, chan_name)
             classified_mode = await self.classify_mode(context)
             if not classified_mode.endswith("SERIOUS"):
                 test_channels = self.agent.config.get("behavior", {}).get(
                     "proactive_interjecting_test", []
                 )
-                is_test_channel = test_channels and chan_name in test_channels
+                is_test_channel = test_channels and channel_key in test_channels
                 mode_desc = "[TEST MODE] " if is_test_channel else ""
                 logger.warning(
                     "%sProactive interjection suggested but not serious mode: %s. Reason: %s",
@@ -349,7 +360,7 @@ class RoomCommandHandler:
             test_channels = self.agent.config.get("behavior", {}).get(
                 "proactive_interjecting_test", []
             )
-            is_test_channel = test_channels and chan_name in test_channels
+            is_test_channel = test_channels and channel_key in test_channels
             if is_test_channel or forced_test_mode:
                 test_reason = "[BARELY TRIGGERED]" if forced_test_mode else "[TEST CHANNEL]"
                 logger.info(
@@ -549,7 +560,9 @@ class RoomCommandHandler:
             trigger_message_id,
             reply_sender,
         )
-        await self.proactive_debouncer.cancel_channel(channel_name)
+        await self.proactive_debouncer.cancel_channel(
+            self._get_proactive_channel_key(server_tag, channel_name)
+        )
         await self.autochronicler.check_and_chronicle(
             mynick, server_tag, channel_name, default_size
         )
@@ -620,13 +633,15 @@ class RoomCommandHandler:
         message: str,
         reply_sender: Callable[[str], Awaitable[None]],
     ) -> None:
+        channel_key = self._get_proactive_channel_key(server_tag, channel_name)
         if (
-            channel_name
+            channel_key
             in self.proactive_config["interjecting"] + self.proactive_config["interjecting_test"]
         ):
             await self.proactive_debouncer.schedule_check(
                 server_tag,
                 channel_name,
+                channel_key,
                 nick,
                 message,
                 mynick,

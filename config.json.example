@@ -150,8 +150,8 @@
         }
       },
       "proactive": {
-        "interjecting": ["#programming", "#tech"],
-        "interjecting_test": ["#test-channel"]
+        "interjecting": ["testserver##programming", "libera##tech"],
+        "interjecting_test": ["libera##test-channel"]
       }
     },
 
@@ -165,7 +165,7 @@
       },
       "proactive": {
         "debounce_seconds": 60.0,
-        "interjecting": [],
+        "interjecting": ["muaddib#general"],
         "interjecting_test": []
       }
     }

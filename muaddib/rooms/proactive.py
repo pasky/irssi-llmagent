@@ -19,6 +19,7 @@ class PendingMessage:
 
     server: str
     chan_name: str
+    channel_key: str
     nick: str
     message: str
     mynick: str
@@ -45,16 +46,17 @@ class ProactiveDebouncer:
         self._pending_messages: dict[str, PendingMessage] = {}
         self._channel_locks: dict[str, asyncio.Lock] = {}
 
-    def _get_channel_lock(self, chan_name: str) -> asyncio.Lock:
+    def _get_channel_lock(self, channel_key: str) -> asyncio.Lock:
         """Get or create a lock for the specific channel."""
-        if chan_name not in self._channel_locks:
-            self._channel_locks[chan_name] = asyncio.Lock()
-        return self._channel_locks[chan_name]
+        if channel_key not in self._channel_locks:
+            self._channel_locks[channel_key] = asyncio.Lock()
+        return self._channel_locks[channel_key]
 
     async def schedule_check(
         self,
         server: str,
         chan_name: str,
+        channel_key: str,
         nick: str,
         message: str,
         mynick: str,
@@ -68,34 +70,35 @@ class ProactiveDebouncer:
         Args:
             server: IRC server tag
             chan_name: Channel name
+            channel_key: Server-qualified channel key
             nick: Nick who sent the message
             message: Message content
             mynick: Bot's nickname
             reply_sender: Send function for replies
             check_callback: Async function to call with message data after debounce
         """
-        channel_lock = self._get_channel_lock(chan_name)
+        channel_lock = self._get_channel_lock(channel_key)
 
         async with channel_lock:
             # Cancel existing timer for this channel
-            if chan_name in self._pending_timers:
-                self._pending_timers[chan_name].cancel()
-                logger.debug(f"Cancelled previous debounce timer for {chan_name}")
+            if channel_key in self._pending_timers:
+                self._pending_timers[channel_key].cancel()
+                logger.debug(f"Cancelled previous debounce timer for {channel_key}")
 
             # Store latest message
-            self._pending_messages[chan_name] = PendingMessage(
-                server, chan_name, nick, message, mynick, reply_sender, time.time()
+            self._pending_messages[channel_key] = PendingMessage(
+                server, chan_name, channel_key, nick, message, mynick, reply_sender, time.time()
             )
-            logger.debug(f"Scheduled debounced check for {chan_name}: {message[:100]}...")
+            logger.debug(f"Scheduled debounced check for {channel_key}: {message[:100]}...")
 
             # Schedule new debounced check
-            self._pending_timers[chan_name] = asyncio.create_task(
-                self._debounced_check(chan_name, check_callback)
+            self._pending_timers[channel_key] = asyncio.create_task(
+                self._debounced_check(channel_key, check_callback)
             )
 
     async def _debounced_check(
         self,
-        chan_name: str,
+        channel_key: str,
         check_callback: Callable[
             [str, str, str, str, str, Callable[[str], Awaitable[None]]], Awaitable[None]
         ],
@@ -104,12 +107,14 @@ class ProactiveDebouncer:
         try:
             await asyncio.sleep(self.debounce_seconds)
 
-            channel_lock = self._get_channel_lock(chan_name)
+            channel_lock = self._get_channel_lock(channel_key)
             async with channel_lock:
-                if chan_name in self._pending_messages:
-                    msg = self._pending_messages[chan_name]
+                if channel_key in self._pending_messages:
+                    msg = self._pending_messages[channel_key]
                     logger.debug(
-                        f"Executing debounced proactive check for {chan_name}: {msg.message[:100]}..."
+                        "Executing debounced proactive check for %s: %s...",
+                        channel_key,
+                        msg.message[:100],
                     )
 
                     # Execute with fresh logging context for this proactive check
@@ -127,22 +132,22 @@ class ProactiveDebouncer:
                         )
 
                     # Cleanup
-                    del self._pending_messages[chan_name]
-                    if chan_name in self._pending_timers:
-                        del self._pending_timers[chan_name]
+                    del self._pending_messages[channel_key]
+                    if channel_key in self._pending_timers:
+                        del self._pending_timers[channel_key]
 
         except asyncio.CancelledError:
-            logger.debug(f"Debounced check cancelled for {chan_name}")
+            logger.debug(f"Debounced check cancelled for {channel_key}")
             raise
         except Exception as e:
-            logger.error(f"Error in debounced check for {chan_name}: {e}")
+            logger.error(f"Error in debounced check for {channel_key}: {e}")
             # Cleanup even on exception
-            channel_lock = self._get_channel_lock(chan_name)
+            channel_lock = self._get_channel_lock(channel_key)
             async with channel_lock:
-                if chan_name in self._pending_messages:
-                    del self._pending_messages[chan_name]
-                if chan_name in self._pending_timers:
-                    del self._pending_timers[chan_name]
+                if channel_key in self._pending_messages:
+                    del self._pending_messages[channel_key]
+                if channel_key in self._pending_timers:
+                    del self._pending_timers[channel_key]
 
     async def cancel_all(self) -> None:
         """Cancel all pending debounced checks."""
@@ -161,28 +166,31 @@ class ProactiveDebouncer:
         """Get list of channels with pending debounced checks."""
         return list(self._pending_messages.keys())
 
-    def is_pending(self, chan_name: str) -> bool:
+    def is_pending(self, channel_key: str) -> bool:
         """Check if a channel has a pending debounced check."""
-        return chan_name in self._pending_messages
+        return channel_key in self._pending_messages
 
-    async def cancel_channel(self, chan_name: str) -> None:
+    async def cancel_channel(self, channel_key: str) -> None:
         """Cancel pending debounced check for a specific channel.
 
         Args:
-            chan_name: Channel name to cancel check for
+            channel_key: Server-qualified channel key to cancel check for
         """
-        channel_lock = self._get_channel_lock(chan_name)
+        channel_lock = self._get_channel_lock(channel_key)
 
         async with channel_lock:
-            if chan_name in self._pending_timers:
-                self._pending_timers[chan_name].cancel()
-                logger.debug(f"Cancelled debounced check for {chan_name} due to command processing")
+            if channel_key in self._pending_timers:
+                self._pending_timers[channel_key].cancel()
+                logger.debug(
+                    "Cancelled debounced check for %s due to command processing",
+                    channel_key,
+                )
 
                 # Wait for the task to complete cancellation
                 with contextlib.suppress(asyncio.CancelledError):
-                    await self._pending_timers[chan_name]
+                    await self._pending_timers[channel_key]
 
                 # Cleanup
-                del self._pending_timers[chan_name]
-                if chan_name in self._pending_messages:
-                    del self._pending_messages[chan_name]
+                del self._pending_timers[channel_key]
+                if channel_key in self._pending_messages:
+                    del self._pending_messages[channel_key]
