@@ -83,7 +83,7 @@ class DiscordRoomMonitor:
         if message.author.bot:
             return
 
-        content = message.content or ""
+        content = message.clean_content or message.content or ""
         if not content:
             return
 
@@ -133,7 +133,7 @@ class DiscordRoomMonitor:
             logger.warning("Rate limiting triggered for %s", nick)
             await message.reply(
                 f"{nick}: Slow down a little, will you? (rate limiting)",
-                mention_author=False,
+                mention_author=True,
             )
             return
 
@@ -149,6 +149,11 @@ class DiscordRoomMonitor:
 
         if agent_result and agent_result.text:
             response_text = agent_result.text
+            cleaned_text = response_text.lstrip()
+            prefix = f"{nick}:"
+            if cleaned_text.lower().startswith(prefix.lower()):
+                cleaned_text = cleaned_text[len(prefix) :].lstrip()
+            response_text = cleaned_text or response_text
             cost_str = f"${agent_result.total_cost:.4f}" if agent_result.total_cost else "?"
             logger.info("Sending serious response (%s) to %s: %s", cost_str, arc, response_text)
 
@@ -169,7 +174,7 @@ class DiscordRoomMonitor:
                 except ValueError:
                     logger.warning("Could not parse model spec: %s", agent_result.primary_model)
 
-            await message.reply(response_text, mention_author=False)
+            await message.reply(response_text, mention_author=True)
             response_message_id = await self.agent.history.add_message(
                 server_tag,
                 channel_name,
