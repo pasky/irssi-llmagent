@@ -1,6 +1,6 @@
 import pytest
 
-from irssi_llmagent.chronicler.chronicle import Chronicle
+from muaddib.chronicler.chronicle import Chronicle
 
 
 @pytest.mark.asyncio

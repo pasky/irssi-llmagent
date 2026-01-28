@@ -1,16 +1,16 @@
-# irssi-llmagent Agent Guide
+# muaddib Agent Guide
 
 ## Build/Test Commands
 - Install dependencies: `uv sync --dev`
 - Run tests: `uv run pytest` - all tests must always succeed! You must assume any test failure is related to your changes, even if it doesn't appear to be at first.
-- Full e2e test in CLI mode: `uv run irssi-llmagent --message "your message here"`
+- Full e2e test in CLI mode: `uv run muaddib --message "your message here"`
 - Run linting: `uv run ruff check .`
 - Run formatting: `uv run ruff format .`
 - Run type checking: `uv run pyright`
 - NEVER use `git add -A` blindly, there may be untracked files that must not be committed; use `git add -u` instead
 
 ## Architecture
-- **Main Service**: `irssi_llmagent/main.py` - Core application coordinator managing shared resources (config, history, model router)
+- **Main Service**: `muaddib/main.py` - Core application coordinator managing shared resources (config, history, model router)
 - **Room Isolation**: IRC-specific functionality isolated in `rooms/irc/monitor.py` (IRCRoomMonitor class)
 - **Modular Structure**: Clean separation between platform-agnostic core and IRC-specific implementation
 - **Varlink Protocol**: Dual async socket architecture (events + sender) over UNIX socket at `~/.irssi/varlink.sock`
@@ -35,7 +35,7 @@
 ## Code Style
 - **Language**: Python 3.11+ with modern type hints (`dict`, `list`, ...), following PEP8
 - **Async**: Full async/await support for non-blocking message processing
-- **Background Tasks**: Use `irssi_llmagent.spawn(coro)` for fire-and-forget tasks (not bare `asyncio.create_task`) to prevent GC of unreferenced tasks
+- **Background Tasks**: Use `muaddib.spawn(coro)` for fire-and-forget tasks (not bare `asyncio.create_task`) to prevent GC of unreferenced tasks
 - **Imports**: Standard library first, then third-party (`aiohttp`, `aiosqlite`), local modules
 - **Naming**: snake_case for functions/variables, PascalCase for classes
 - **Docstrings**: Brief docstrings for classes and key methods

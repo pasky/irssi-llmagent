@@ -1,4 +1,4 @@
-# Docker Setup for irssi-llmagent
+# Docker Setup for muaddib
 
 ## Quick Start
 
@@ -26,16 +26,16 @@
 
 ## Development Workflow
 
-### Restart llmagent during development:
+### Restart muaddib during development:
 ```bash
 # Quick restart (preserves irssi session)
-docker-compose restart llmagent
+docker-compose restart muaddib
 
 # Or rebuild and restart if you changed dependencies
-docker-compose up --build -d llmagent
+docker-compose up --build -d muaddib
 
 # View logs
-docker-compose logs -f llmagent
+docker-compose logs -f muaddib
 ```
 
 ### Full restart:
@@ -54,5 +54,5 @@ docker-compose up -d
 ## Troubleshooting
 
 - Check varlink socket: `ls -la ./irssi-data/varlink.sock`
-- View llmagent logs: `docker-compose logs llmagent`
-- Connect to llmagent container: `docker exec -it irssi-llmagent bash`
+- View muaddib logs: `docker-compose logs muaddib`
+- Connect to muaddib container: `docker exec -it muaddib bash`

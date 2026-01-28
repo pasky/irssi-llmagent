@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import aiohttp
 import pytest
 
-from irssi_llmagent.agentic_actor.actor import AgentResult
-from irssi_llmagent.agentic_actor.tools import (
+from muaddib.agentic_actor.actor import AgentResult
+from muaddib.agentic_actor.tools import (
     CodeExecutorE2B,
     EditArtifactExecutor,
     JinaSearchExecutor,
@@ -396,7 +396,7 @@ class TestToolExecutors:
         from pathlib import Path
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            from irssi_llmagent.agentic_actor.tools import ArtifactStore
+            from muaddib.agentic_actor.tools import ArtifactStore
 
             artifacts_path = str(Path(temp_dir) / "artifacts")
             artifacts_url = "https://example.com/artifacts"
@@ -448,7 +448,7 @@ class TestToolExecutors:
         from pathlib import Path
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            from irssi_llmagent.agentic_actor.tools import ArtifactStore
+            from muaddib.agentic_actor.tools import ArtifactStore
 
             artifacts_path = str(Path(temp_dir) / "artifacts")
             artifacts_url = "https://example.com/artifacts"
@@ -548,7 +548,7 @@ class TestToolExecutors:
         from unittest.mock import AsyncMock
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            from irssi_llmagent.agentic_actor.tools import ArtifactStore, WebpageVisitorExecutor
+            from muaddib.agentic_actor.tools import ArtifactStore, WebpageVisitorExecutor
 
             artifacts_path = str(Path(temp_dir) / "artifacts")
             artifacts_url = "https://example.com/artifacts"
@@ -657,7 +657,7 @@ class TestToolExecutors:
         from unittest.mock import AsyncMock
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            from irssi_llmagent.agentic_actor.tools import ArtifactStore, WebpageVisitorExecutor
+            from muaddib.agentic_actor.tools import ArtifactStore, WebpageVisitorExecutor
 
             artifacts_path = str(Path(temp_dir) / "artifacts")
             artifacts_url = "https://example.com/artifacts"
@@ -740,7 +740,7 @@ class TestToolExecutors:
             artifacts_path = str(Path(temp_dir) / "artifacts")
             artifacts_url = "https://example.com/artifacts"
 
-            from irssi_llmagent.agentic_actor.tools import ArtifactStore
+            from muaddib.agentic_actor.tools import ArtifactStore
 
             store = ArtifactStore(artifacts_path=artifacts_path, artifacts_url=artifacts_url)
             executor = ShareArtifactExecutor(store=store)
@@ -777,7 +777,7 @@ class TestToolExecutors:
     @pytest.mark.asyncio
     async def test_share_artifact_executor_missing_config(self):
         """Test artifact sharing with missing configuration."""
-        from irssi_llmagent.agentic_actor.tools import ArtifactStore
+        from muaddib.agentic_actor.tools import ArtifactStore
 
         store = ArtifactStore(artifacts_path=None, artifacts_url=None)
         executor = ShareArtifactExecutor(store=store)
@@ -789,7 +789,7 @@ class TestToolExecutors:
     @pytest.mark.asyncio
     async def test_share_artifact_executor_write_error(self):
         """Test artifact sharing with write error."""
-        from irssi_llmagent.agentic_actor.tools import ArtifactStore
+        from muaddib.agentic_actor.tools import ArtifactStore
 
         store = ArtifactStore(
             artifacts_path="/nonexistent/readonly/path",
@@ -1046,7 +1046,7 @@ class TestToolDefinitions:
 
     def test_make_plan_tool_in_tools_list(self):
         """Test that make_plan tool is included in TOOLS list."""
-        from irssi_llmagent.agentic_actor.tools import TOOLS
+        from muaddib.agentic_actor.tools import TOOLS
 
         tool_names = [tool["name"] for tool in TOOLS]
         assert "make_plan" in tool_names
@@ -1062,7 +1062,7 @@ class TestToolDefinitions:
 
     def test_share_artifact_tool_in_tools_list(self):
         """Test that share_artifact tool is included in TOOLS list."""
-        from irssi_llmagent.agentic_actor.tools import TOOLS
+        from muaddib.agentic_actor.tools import TOOLS
 
         tool_names = [tool["name"] for tool in TOOLS]
         assert "share_artifact" in tool_names
@@ -1081,8 +1081,8 @@ class TestToolDefinitions:
 
     def test_tools_have_persist_field(self):
         """Test that all tools have the required persist field."""
-        from irssi_llmagent.agentic_actor.tools import TOOLS
-        from irssi_llmagent.chronicler.tools import chronicle_tools_defs
+        from muaddib.agentic_actor.tools import TOOLS
+        from muaddib.chronicler.tools import chronicle_tools_defs
 
         # Test main tools
         for tool in TOOLS:
@@ -1106,7 +1106,7 @@ class TestToolDefinitions:
 
     def test_anthropic_filters_custom_tool_fields(self):
         """Test that Anthropic provider filters out custom fields like 'persist'."""
-        from irssi_llmagent.providers.anthropic import AnthropicClient
+        from muaddib.providers.anthropic import AnthropicClient
 
         # Create a mock client (just for testing the filter method)
         config = {"providers": {"anthropic": {"url": "test", "key": "test"}}}
@@ -1151,7 +1151,7 @@ class TestToolDefinitions:
 
     def test_get_tools_for_arc_quests_filtering(self):
         """Test that chronicle_append is only available when quests are enabled for the arc."""
-        from irssi_llmagent.agentic_actor.actor import get_tools_for_arc
+        from muaddib.agentic_actor.actor import get_tools_for_arc
 
         # Config with quests enabled for specific arc
         config = {"chronicler": {"quests": {"arcs": ["server#quests-channel"]}}}
@@ -1222,7 +1222,7 @@ class TestOracleExecutor:
             conversation_context=conversation,
         )
 
-        with patch("irssi_llmagent.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
+        with patch("muaddib.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
             mock_actor = AsyncMock()
             mock_actor.run_agent = AsyncMock(
                 return_value=AgentResult(
@@ -1269,7 +1269,7 @@ class TestOracleExecutor:
             conversation_context=[],
         )
 
-        with patch("irssi_llmagent.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
+        with patch("muaddib.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
             mock_actor = AsyncMock()
             mock_actor.run_agent = AsyncMock(
                 return_value=AgentResult(
@@ -1315,7 +1315,7 @@ class TestOracleExecutor:
             conversation_context=[],
         )
 
-        with patch("irssi_llmagent.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
+        with patch("muaddib.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
             mock_actor = AsyncMock()
             mock_actor.run_agent = AsyncMock(side_effect=RuntimeError("something went wrong"))
             mock_actor_class.return_value = mock_actor
@@ -1344,7 +1344,7 @@ class TestOracleExecutor:
             progress_callback=progress_cb,
         )
 
-        with patch("irssi_llmagent.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
+        with patch("muaddib.agentic_actor.actor.AgenticLLMActor") as mock_actor_class:
             mock_actor = AsyncMock()
             mock_actor.run_agent = AsyncMock(
                 return_value=AgentResult(

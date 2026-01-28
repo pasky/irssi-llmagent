@@ -44,7 +44,7 @@ class PerplexityClient:
                     headers={
                         "Authorization": f"Bearer {self.config['key']}",
                         "Content-Type": "application/json",
-                        "User-Agent": "irssi-llmagent/1.0",
+                        "User-Agent": "muaddib/1.0",
                     }
                 ) as session,
                 session.post(self.config["url"], json=payload) as response,

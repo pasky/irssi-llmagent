@@ -1,12 +1,12 @@
 import pytest
 
-from irssi_llmagent.chronicler.tools import ChapterAppendExecutor, ChapterRenderExecutor
+from muaddib.chronicler.tools import ChapterAppendExecutor, ChapterRenderExecutor
 
 
 @pytest.mark.asyncio
 async def test_chapter_append_executor(temp_config_file):
     """Test ChapterAppendExecutor directly."""
-    from irssi_llmagent.main import IRSSILLMAgent
+    from muaddib.main import IRSSILLMAgent
 
     # Create agent instance
     agent = IRSSILLMAgent(temp_config_file)
@@ -27,7 +27,7 @@ async def test_chapter_append_executor(temp_config_file):
 @pytest.mark.asyncio
 async def test_chapter_render_executor(temp_config_file):
     """Test ChapterRenderExecutor with relative chapter IDs."""
-    from irssi_llmagent.main import IRSSILLMAgent
+    from muaddib.main import IRSSILLMAgent
 
     # Create agent instance
     agent = IRSSILLMAgent(temp_config_file)
@@ -55,7 +55,7 @@ async def test_chapter_render_executor(temp_config_file):
 @pytest.mark.asyncio
 async def test_chapter_render_executor_multiple_chapters(temp_config_file):
     """Test ChapterRenderExecutor with multiple chapters for relative navigation."""
-    from irssi_llmagent.main import IRSSILLMAgent
+    from muaddib.main import IRSSILLMAgent
 
     # Create agent instance
     agent = IRSSILLMAgent(temp_config_file)
@@ -68,7 +68,7 @@ async def test_chapter_render_executor_multiple_chapters(temp_config_file):
     await agent.chronicle.append_paragraph(arc, "Chapter 1 paragraph 2")
 
     # Close current chapter and start a new one
-    from irssi_llmagent.chronicler.chapters import _close_chapter
+    from muaddib.chronicler.chapters import _close_chapter
 
     current_ch = await agent.chronicle.get_or_open_current_chapter(arc)
     await _close_chapter(agent.chronicle, current_ch["id"], "First chapter summary")

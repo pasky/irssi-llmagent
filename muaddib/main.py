@@ -1,4 +1,4 @@
-"""Main application entry point for irssi-llmagent."""
+"""Main application entry point for muaddib."""
 
 import argparse
 import asyncio
@@ -252,7 +252,7 @@ async def cli_chronicler(arc: str, instructions: str, config_path: str | None = 
 
 def main() -> None:
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="irssi-llmagent - IRC chatbot with AI and tools")
+    parser = argparse.ArgumentParser(description="muaddib - IRC chatbot with AI and tools")
     parser.add_argument(
         "--message", type=str, help="Run in CLI mode to simulate handling an IRC message"
     )

@@ -14,11 +14,11 @@ services:
     tty: true
     restart: unless-stopped
 
-  llmagent:
+  muaddib:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: irssi-llmagent
+    container_name: muaddib
     working_dir: /app
     volumes:
       - ./irssi-data:/home/irssi/.irssi
@@ -33,7 +33,7 @@ services:
     depends_on:
       - irssi
     restart: unless-stopped
-    command: uv run python -m irssi_llmagent.main
+    command: uv run python -m muaddib.main
 
 networks:
   irssi-net:

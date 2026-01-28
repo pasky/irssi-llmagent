@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
-from irssi_llmagent.history import ChatHistory
-from irssi_llmagent.rooms.irc.autochronicler import AutoChronicler
+from muaddib.history import ChatHistory
+from muaddib.rooms.irc.autochronicler import AutoChronicler
 
 
 class TestAutoChronicler:
@@ -60,7 +60,7 @@ class TestAutoChronicler:
         )
 
     @pytest.mark.asyncio
-    @patch("irssi_llmagent.rooms.irc.autochronicler.chapter_append_paragraph")
+    @patch("muaddib.rooms.irc.autochronicler.chapter_append_paragraph")
     async def test_chronicling_triggered(
         self, mock_chapter_append, mock_history, mock_monitor, mock_model_call
     ):
@@ -109,7 +109,7 @@ class TestAutoChronicler:
         mock_history.mark_chronicled.assert_called_once_with([1, 2], 123)
 
     @pytest.mark.asyncio
-    @patch("irssi_llmagent.rooms.irc.autochronicler.chapter_append_paragraph")
+    @patch("muaddib.rooms.irc.autochronicler.chapter_append_paragraph")
     async def test_run_chronicler_creates_proper_context(
         self, mock_chapter_append, mock_history, mock_monitor, mock_model_call
     ):

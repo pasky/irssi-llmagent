@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from irssi_llmagent.context_reducer import ContextReducer
+from muaddib.context_reducer import ContextReducer
 
 
 class TestContextReducer:

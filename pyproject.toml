@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "irssi-llmagent"
+name = "muaddib"
 version = "1.0.0"
 description = "AI chatbot for IRC via irssi-varlink"
 authors = [
@@ -31,7 +31,7 @@ dev = [
 ]
 
 [project.scripts]
-irssi-llmagent = "irssi_llmagent.main:main"
+muaddib = "muaddib.main:main"
 
 [tool.ruff]
 line-length = 100
@@ -55,7 +55,7 @@ ignore = [
 "tests/*" = ["SIM"]
 
 [tool.pyright]
-include = ["irssi_llmagent", "tests"]
+include = ["muaddib", "tests"]
 exclude = ["**/node_modules", "**/__pycache__"]
 typeCheckingMode = "basic"
 pythonVersion = "3.11"
@@ -63,7 +63,7 @@ venvPath = "."
 venv = ".venv"
 
 [tool.hatch.build.targets.wheel]
-packages = ["irssi_llmagent"]
+packages = ["muaddib"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"

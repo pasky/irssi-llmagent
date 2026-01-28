@@ -17,7 +17,7 @@ WORKDIR /app
 
 # Copy project files
 COPY pyproject.toml uv.lock README.md ./
-COPY irssi_llmagent/ ./irssi_llmagent/
+COPY muaddib/ ./muaddib/
 
 # Install Python dependencies
 RUN uv sync --frozen
@@ -25,4 +25,4 @@ RUN uv sync --frozen
 RUN mkdir -p artifacts/ logs/ /home/irssi/.irssi
 
 # Default command
-CMD ["uv", "run", "python", "-m", "irssi_llmagent.main"]
+CMD ["uv", "run", "python", "-m", "muaddib.main"]

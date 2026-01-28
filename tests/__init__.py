@@ -1,1 +1,1 @@
-"""Tests for irssi-llmagent."""
+"""Tests for muaddib."""

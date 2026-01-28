@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from irssi_llmagent.rooms import ProactiveDebouncer
+from muaddib.rooms import ProactiveDebouncer
 
 
 class TestProactiveDebouncer:

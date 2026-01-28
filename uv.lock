@@ -411,7 +411,7 @@ wheels = [
 ]
 
 [[package]]
-name = "irssi-llmagent"
+name = "muaddib"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [

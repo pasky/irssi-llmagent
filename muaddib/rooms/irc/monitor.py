@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import irssi_llmagent
+import muaddib
 
 if TYPE_CHECKING:
     from ...main import IRSSILLMAgent
@@ -932,7 +932,7 @@ class IRCRoomMonitor:
                 logger.error("Could not establish connection, exiting")
                 return
 
-            logger.info("irssi-llmagent started, waiting for IRC events...")
+            logger.info("muaddib started, waiting for IRC events...")
 
             while True:
                 try:
@@ -952,7 +952,7 @@ class IRCRoomMonitor:
                     if "parameters" in response and "event" in response["parameters"]:
                         event = response["parameters"]["event"]
                         # Process events concurrently
-                        irssi_llmagent.spawn(self.process_message_event(event))
+                        muaddib.spawn(self.process_message_event(event))
                     elif "error" in response:
                         logger.error(f"Varlink error: {response['error']}")
                         break

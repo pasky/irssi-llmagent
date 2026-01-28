@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from irssi_llmagent.agentic_actor import AgenticLLMActor
-from irssi_llmagent.providers import ModelRouter, ModelSpec, UsageInfo, parse_model_spec
+from muaddib.agentic_actor import AgenticLLMActor
+from muaddib.providers import ModelRouter, ModelSpec, UsageInfo, parse_model_spec
 
 
 class TestAPIAgent:
@@ -214,7 +214,7 @@ class TestAPIAgent:
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ) as mock_call:
             with patch(
-                "irssi_llmagent.agentic_actor.actor.execute_tool", new_callable=AsyncMock
+                "muaddib.agentic_actor.actor.execute_tool", new_callable=AsyncMock
             ) as mock_tool:
                 mock_tool.return_value = "Search results: Python is a programming language..."
 
@@ -280,7 +280,7 @@ class TestAPIAgent:
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ) as mock_call:
             with patch(
-                "irssi_llmagent.agentic_actor.actor.execute_tool", new_callable=AsyncMock
+                "muaddib.agentic_actor.actor.execute_tool", new_callable=AsyncMock
             ) as mock_tool:
                 mock_tool.return_value = "Tool result"
 
@@ -301,7 +301,7 @@ class TestAPIAgent:
         with patch.object(
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ):
-            from irssi_llmagent.agentic_actor.actor import AgentIterationLimitError
+            from muaddib.agentic_actor.actor import AgentIterationLimitError
 
             with pytest.raises(AgentIterationLimitError, match="too many turns"):
                 await agent.run_agent([{"role": "user", "content": "Test query"}], arc="test")
@@ -312,7 +312,7 @@ class TestAPIAgent:
 
         # Mock call_raw_with_model to return refusal (converted to error by provider)
         async def fake_call_raw_with_model(*args, **kwargs):
-            from irssi_llmagent.providers.anthropic import AnthropicClient
+            from muaddib.providers.anthropic import AnthropicClient
 
             client = AnthropicClient({"anthropic": {"key": "test", "url": "http://test"}})
             # Simulate what call_raw does - convert refusal to error
@@ -375,7 +375,7 @@ class TestAPIAgent:
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ):
             with patch(
-                "irssi_llmagent.agentic_actor.actor.execute_tool", new_callable=AsyncMock
+                "muaddib.agentic_actor.actor.execute_tool", new_callable=AsyncMock
             ) as mock_tool:
                 mock_tool.return_value = "Tool execution failed: Network error"
 
@@ -607,8 +607,8 @@ class TestAPIAgent:
         )
 
         # Build actor with openrouter base and anthropic vision
-        from irssi_llmagent.agentic_actor import AgenticLLMActor
-        from irssi_llmagent.providers import ModelRouter
+        from muaddib.agentic_actor import AgenticLLMActor
+        from muaddib.providers import ModelRouter
 
         model_calls: list[str] = []
 
@@ -689,7 +689,7 @@ class TestAPIAgent:
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ):
             with patch(
-                "irssi_llmagent.agentic_actor.actor.execute_tool", new_callable=AsyncMock
+                "muaddib.agentic_actor.actor.execute_tool", new_callable=AsyncMock
             ) as mock_tool:
                 # Return Anthropic content blocks with image
                 mock_tool.return_value = [
@@ -763,7 +763,7 @@ class TestAPIAgent:
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ):
             with patch(
-                "irssi_llmagent.agentic_actor.actor.execute_tool", new_callable=AsyncMock
+                "muaddib.agentic_actor.actor.execute_tool", new_callable=AsyncMock
             ) as mock_tool:
                 mock_tool.side_effect = ["Search result", "Page content"]
 
@@ -1128,7 +1128,7 @@ class TestAPIAgent:
             return response, mock_client, parse_model_spec(model), UsageInfo(None, None, None)
 
         with patch(
-            "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
+            "muaddib.agentic_actor.actor.ModelRouter.call_raw_with_model",
             new=AsyncMock(side_effect=mock_call_raw_with_model),
         ):
             result = await agent.run_agent([{"role": "user", "content": "test"}], arc="test")
@@ -1442,7 +1442,7 @@ class TestAPIAgent:
             ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
         ):
             with patch(
-                "irssi_llmagent.agentic_actor.actor.execute_tool", new_callable=AsyncMock
+                "muaddib.agentic_actor.actor.execute_tool", new_callable=AsyncMock
             ) as mock_tool:
                 mock_tool.side_effect = ["Search results", "test\n"]
 

@@ -62,7 +62,7 @@ Recommended: See [Docker instructions](docs/docker.md) for running a Muaddib ser
 Manual ("bring your own irssi"):
 1. Ensure `irssi-varlink` is loaded in your irssi
 2. Install dependencies: `uv sync --dev`
-3. Run the service: `uv run irssi-llmagent`
+3. Run the service: `uv run muaddib`
 
 ### Commands
 
@@ -70,8 +70,6 @@ Manual ("bring your own irssi"):
 - `mynick: !h` - Show help and info about other modes
 
 ## Development
-
-Note: A rebrand from old name "irssi-llmagent" is in progress.
 
 ```bash
 # Install development dependencies
@@ -96,10 +94,10 @@ uv run pre-commit install
 You can test the bot's message handling including command parsing from the command line:
 
 ```bash
-uv run irssi-llmagent --message "!h"
-uv run irssi-llmagent --message "tell me a joke"
-uv run irssi-llmagent --message "!d tell me a joke"
-uv run irssi-llmagent --message "!a summarize https://python.org" --config /path/to/config.json
+uv run muaddib --message "!h"
+uv run muaddib --message "tell me a joke"
+uv run muaddib --message "!d tell me a joke"
+uv run muaddib --message "!a summarize https://python.org" --config /path/to/config.json
 ```
 
 This simulates full IRC message handling including command parsing and automatic mode classification, useful for testing your configuration and API keys without setting up the full IRC bot.
@@ -110,10 +108,10 @@ The Chronicler maintains persistent memory across conversations using a Chronicl
 
 ```bash
 # Record information
-uv run irssi-llmagent --chronicler "Record: Completed API migration" --arc "project-x"
+uv run muaddib --chronicler "Record: Completed API migration" --arc "project-x"
 
 # View current chapter
-uv run irssi-llmagent --chronicler "Show me the current chapter" --arc "project-x"
+uv run muaddib --chronicler "Show me the current chapter" --arc "project-x"
 ```
 
 ### Classifier Analysis

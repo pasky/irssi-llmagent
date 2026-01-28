@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from irssi_llmagent.agentic_actor.tools import ArtifactStore, EditArtifactExecutor
+from muaddib.agentic_actor.tools import ArtifactStore, EditArtifactExecutor
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def artifact_store(tmp_path, artifacts_url):
 @pytest.fixture
 def webpage_visitor(artifact_store):
     """WebpageVisitorExecutor with artifact store configured."""
-    from irssi_llmagent.agentic_actor.tools import WebpageVisitorExecutor
+    from muaddib.agentic_actor.tools import WebpageVisitorExecutor
 
     return WebpageVisitorExecutor(artifact_store=artifact_store)
 

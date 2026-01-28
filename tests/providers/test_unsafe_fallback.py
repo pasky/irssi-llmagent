@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from irssi_llmagent.agentic_actor import AgenticLLMActor
-from irssi_llmagent.providers import ModelRouter, ModelSpec, UsageInfo
+from muaddib.agentic_actor import AgenticLLMActor
+from muaddib.providers import ModelRouter, ModelSpec, UsageInfo
 
 
 class TestRefusalFallback:

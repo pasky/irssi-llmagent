@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from irssi_llmagent.providers.openai import OpenAIClient
+from muaddib.providers.openai import OpenAIClient
 
 
 class TestOpenAISpecificBehavior:
@@ -17,7 +17,7 @@ class TestOpenAISpecificBehavior:
         """Test OpenAI's handling when reasoning effort is set with non-auto tool_choice."""
 
         # Create an OpenAI client instance for direct testing
-        from irssi_llmagent.providers.openai import OpenAIClient
+        from muaddib.providers.openai import OpenAIClient
 
         test_config = {"providers": {"openai": {"key": "test-key"}}}
 
@@ -62,7 +62,7 @@ class TestOpenAISpecificBehavior:
         # Test the scenario: reasoning effort + non-auto tool_choice
         messages = [{"role": "user", "content": "Test query"}]
 
-        with patch("irssi_llmagent.providers.openai._AsyncOpenAI", MockAsyncOpenAI):
+        with patch("muaddib.providers.openai._AsyncOpenAI", MockAsyncOpenAI):
             openai_client = OpenAIClient(test_config)
             await openai_client.call_raw(
                 messages,
@@ -100,7 +100,7 @@ class TestOpenAISpecificBehavior:
     @pytest.mark.asyncio
     async def test_openai_api_reasoning_vs_legacy_model_handling(self):
         """Test OpenAI API handles reasoning models vs legacy models differently."""
-        from irssi_llmagent.providers.openai import OpenAIClient
+        from muaddib.providers.openai import OpenAIClient
 
         config = {"providers": {"openai": {"key": "test-key"}}}
 
@@ -127,7 +127,7 @@ class TestOpenAISpecificBehavior:
         # Test legacy model (gpt-4o)
         captured_kwargs.clear()
 
-        with patch("irssi_llmagent.providers.openai._AsyncOpenAI", MockAsyncOpenAI):
+        with patch("muaddib.providers.openai._AsyncOpenAI", MockAsyncOpenAI):
             client = OpenAIClient(config)
             await client.call_raw(
                 [{"role": "user", "content": "Test message"}],
@@ -164,7 +164,7 @@ class TestOpenAISpecificBehavior:
         # Test reasoning model (gpt-5)
         captured_kwargs.clear()
 
-        with patch("irssi_llmagent.providers.openai._AsyncOpenAI", MockAsyncOpenAI):
+        with patch("muaddib.providers.openai._AsyncOpenAI", MockAsyncOpenAI):
             client = OpenAIClient(config)
             await client.call_raw(
                 [{"role": "user", "content": "Test message"}],
@@ -196,7 +196,7 @@ class TestOpenRouterClient:
     @pytest.mark.asyncio
     async def test_openrouter_reasoning_details_preservation(self):
         """Test that reasoning_details are preserved in assistant messages."""
-        from irssi_llmagent.providers.openai import OpenRouterClient
+        from muaddib.providers.openai import OpenRouterClient
 
         test_config = {"providers": {"openrouter": {"key": "test-key"}}}
         client = OpenRouterClient(test_config)
@@ -284,7 +284,7 @@ class TestOpenRouterClient:
     @pytest.mark.asyncio
     async def test_openrouter_provider_routing_parsing(self):
         """Test OpenRouter provider routing syntax parsing."""
-        from irssi_llmagent.providers.openai import OpenRouterClient
+        from muaddib.providers.openai import OpenRouterClient
 
         test_config = {"providers": {"openrouter": {"key": "test-key"}}}
         client = OpenRouterClient(test_config)
@@ -315,7 +315,7 @@ class TestOpenRouterClient:
     @pytest.mark.asyncio
     async def test_openrouter_call_raw_with_provider_routing(self):
         """Test OpenRouter call_raw method with provider routing."""
-        from irssi_llmagent.providers.openai import OpenRouterClient
+        from muaddib.providers.openai import OpenRouterClient
 
         test_config = {"providers": {"openrouter": {"key": "test-key"}}}
         client = OpenRouterClient(test_config)
@@ -430,7 +430,7 @@ class TestOpenAIContentSafetyRefusal:
         """Test that OpenAI content safety errors are converted to refusal format."""
         from openai import BadRequestError
 
-        from irssi_llmagent.providers.openai import OpenAIClient
+        from muaddib.providers.openai import OpenAIClient
 
         test_config = {"providers": {"openai": {"key": "test-key"}}}
         client = OpenAIClient(test_config)
@@ -482,7 +482,7 @@ class TestOpenAIContentSafetyRefusal:
         """Test that non-safety OpenAI errors are not converted to refusal format."""
         from openai import BadRequestError
 
-        from irssi_llmagent.providers.openai import OpenAIClient
+        from muaddib.providers.openai import OpenAIClient
 
         test_config = {"providers": {"openai": {"key": "test-key"}}}
         client = OpenAIClient(test_config)
@@ -533,7 +533,7 @@ class TestOpenAIRetry:
     @pytest.mark.asyncio
     async def test_retry_on_500_error_in_response(self):
         """Test retry when 200 OK response contains 500 error code (OpenRouter style)."""
-        from irssi_llmagent.providers.openai import OpenAIClient
+        from muaddib.providers.openai import OpenAIClient
 
         test_config = {"providers": {"openai": {"key": "test-key"}}}
         client = OpenAIClient(test_config)
@@ -587,7 +587,7 @@ class TestOpenAIRetry:
     @pytest.mark.asyncio
     async def test_retry_on_500_exception(self):
         """Test retry when API raises 500 status exception."""
-        from irssi_llmagent.providers.openai import OpenAIClient
+        from muaddib.providers.openai import OpenAIClient
 
         test_config = {"providers": {"openai": {"key": "test-key"}}}
         client = OpenAIClient(test_config)

@@ -4,15 +4,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from irssi_llmagent.agentic_actor.actor import AgentResult
-from irssi_llmagent.chronicler.chapters import chapter_append_paragraph
-from irssi_llmagent.chronicler.tools import (
+from muaddib.agentic_actor.actor import AgentResult
+from muaddib.chronicler.chapters import chapter_append_paragraph
+from muaddib.chronicler.tools import (
     QuestSnoozeExecutor,
     QuestStartExecutor,
     SubquestStartExecutor,
     _validate_quest_id,
 )
-from irssi_llmagent.providers import ModelSpec, UsageInfo
+from muaddib.providers import ModelSpec, UsageInfo
 
 
 @pytest.mark.asyncio
@@ -64,7 +64,7 @@ async def test_quest_operator_triggers_and_announces(shared_agent):
                 tool_calls_count=2,
             )
 
-    with patch("irssi_llmagent.main.AgenticLLMActor", new=DummyActor):
+    with patch("muaddib.main.AgenticLLMActor", new=DummyActor):
         # Ensure varlink sender mock
         agent.irc_monitor.varlink_sender = AsyncMock()
         agent.irc_monitor.get_mynick = AsyncMock(return_value="botnick")
@@ -121,7 +121,7 @@ async def test_quest_operator_triggers_and_announces(shared_agent):
 @pytest.mark.asyncio
 async def test_heartbeat_triggers_open_quests(shared_agent):
     """Test that heartbeat tick finds and prods ongoing quests."""
-    from irssi_llmagent.chronicler import QuestStatus
+    from muaddib.chronicler import QuestStatus
 
     agent = shared_agent
     arc = "srv#chan"
@@ -154,7 +154,7 @@ async def test_heartbeat_triggers_open_quests(shared_agent):
                 tool_calls_count=2,
             )
 
-    with patch("irssi_llmagent.main.AgenticLLMActor", new=DummyActor2):
+    with patch("muaddib.main.AgenticLLMActor", new=DummyActor2):
         agent.irc_monitor.varlink_sender = AsyncMock()
         agent.irc_monitor.get_mynick = AsyncMock(return_value="botnick")
 
@@ -216,8 +216,8 @@ async def test_chapter_rollover_copies_unresolved_quests(shared_agent):
             )
 
     with (
-        patch("irssi_llmagent.main.AgenticLLMActor", new=DummyActor3),
-        patch("irssi_llmagent.providers.ModelRouter.call_raw_with_model") as mock_router,
+        patch("muaddib.main.AgenticLLMActor", new=DummyActor3),
+        patch("muaddib.providers.ModelRouter.call_raw_with_model") as mock_router,
     ):
         # Mock the model router to avoid network calls during chronicle summarization
         mock_client = MagicMock()
@@ -357,7 +357,7 @@ async def test_subquest_finish_resumes_parent(shared_agent):
                 tool_calls_count=2,
             )
 
-    with patch("irssi_llmagent.main.AgenticLLMActor", new=TrackingActor):
+    with patch("muaddib.main.AgenticLLMActor", new=TrackingActor):
         agent.irc_monitor.varlink_sender = AsyncMock()
         agent.irc_monitor.get_mynick = AsyncMock(return_value="botnick")
 
@@ -391,7 +391,7 @@ async def test_subquest_finish_resumes_parent(shared_agent):
 @pytest.mark.asyncio
 async def test_quest_start_with_make_plan_and_final_answer(shared_agent):
     """make_plan + quest_start + final_answer in same turn all execute."""
-    from irssi_llmagent.agentic_actor import AgenticLLMActor
+    from muaddib.agentic_actor import AgenticLLMActor
 
     agent = shared_agent
     arc = "srv#chan"
@@ -454,7 +454,7 @@ async def test_quest_start_with_make_plan_and_final_answer(shared_agent):
 
     # Wrap executors to track calls
     original_create = __import__(
-        "irssi_llmagent.agentic_actor.tools", fromlist=["create_tool_executors"]
+        "muaddib.agentic_actor.tools", fromlist=["create_tool_executors"]
     ).create_tool_executors
 
     def tracking_create(*args, **kwargs):
@@ -476,11 +476,11 @@ async def test_quest_start_with_make_plan_and_final_answer(shared_agent):
 
     with (
         patch(
-            "irssi_llmagent.agentic_actor.actor.ModelRouter.call_raw_with_model",
+            "muaddib.agentic_actor.actor.ModelRouter.call_raw_with_model",
             new=AsyncMock(side_effect=mock_call_raw),
         ),
         patch(
-            "irssi_llmagent.agentic_actor.actor.create_tool_executors",
+            "muaddib.agentic_actor.actor.create_tool_executors",
             side_effect=tracking_create,
         ),
     ):

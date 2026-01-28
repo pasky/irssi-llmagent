@@ -10,7 +10,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from irssi_llmagent.main import IRSSILLMAgent
+from muaddib.main import IRSSILLMAgent
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -197,7 +197,9 @@ async def should_interject_proactively_with_reason(
     """Use IRSSILLMAgent method to determine if bot should interject proactively."""
     try:
         # Use the actual agent method - it now returns decision, reason, and test_mode flag
-        should_interject, reason, test_mode = await agent.should_interject_proactively(context)
+        should_interject, reason, test_mode = await agent.irc_monitor.should_interject_proactively(
+            context
+        )
         return should_interject, reason
     except Exception as e:
         logger.error(f"Error checking proactive interject: {e}")

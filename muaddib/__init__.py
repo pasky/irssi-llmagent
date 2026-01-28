@@ -1,4 +1,4 @@
-"""IRSSI LLM Agent - AI chatbot for IRC via irssi-varlink."""
+"""Muaddib - AI chatbot for IRC via irssi-varlink."""
 
 import asyncio
 import logging

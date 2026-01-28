@@ -1,7 +1,7 @@
 import pytest
 
-from irssi_llmagent.agentic_actor import AgenticLLMActor
-from irssi_llmagent.providers import UsageInfo, parse_model_spec
+from muaddib.agentic_actor import AgenticLLMActor
+from muaddib.providers import UsageInfo, parse_model_spec
 
 
 class FakeAPIClient:
@@ -149,7 +149,7 @@ async def test_progress_report_tool_emits_callback(monkeypatch, mock_agent):
     from unittest.mock import patch as _patch
 
     with _patch(
-        "irssi_llmagent.providers.ModelRouter.call_raw_with_model",
+        "muaddib.providers.ModelRouter.call_raw_with_model",
         new=_AsyncMock(side_effect=fake_call_raw_with_model),
     ):
         # Context can be emptyish; agent ensures a user msg
@@ -203,7 +203,7 @@ async def test_persistence_callback_receives_tool_summary(mock_agent):
     from unittest.mock import AsyncMock as _AsyncMock
     from unittest.mock import patch as _patch
 
-    from irssi_llmagent.agentic_actor import AgenticLLMActor
+    from muaddib.agentic_actor import AgenticLLMActor
 
     agent = AgenticLLMActor(
         config=config,

@@ -19,7 +19,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from irssi_llmagent.main import IRSSILLMAgent  # noqa: E402
+from muaddib.main import IRSSILLMAgent  # noqa: E402
 
 # Fixed scenario for benchmarking
 SCENARIO_GOAL = """start a quest with the goal of:

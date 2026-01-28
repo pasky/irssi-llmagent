@@ -223,7 +223,7 @@ def mock_model_call():
     """Fixture that provides a mock model call function for testing."""
 
     def _mock_model_call(response_text: str = "Mock response"):
-        from irssi_llmagent.providers import ModelSpec, UsageInfo
+        from muaddib.providers import ModelSpec, UsageInfo
 
         async def fake_call_raw_with_model(*args, **kwargs):
             resp = {"output_text": response_text}
@@ -244,7 +244,7 @@ async def shared_agent(temp_config_file):
     """Shared agent fixture that can be reused across tests."""
     from unittest.mock import AsyncMock
 
-    from irssi_llmagent.main import IRSSILLMAgent
+    from muaddib.main import IRSSILLMAgent
 
     agent = IRSSILLMAgent(temp_config_file)
     agent.irc_monitor.varlink_sender = AsyncMock()
@@ -267,8 +267,8 @@ async def shared_agent_with_db(temp_config_file, temp_db_path):
     """Shared agent fixture with isolated database."""
     from unittest.mock import AsyncMock
 
-    from irssi_llmagent.history import ChatHistory
-    from irssi_llmagent.main import IRSSILLMAgent
+    from muaddib.history import ChatHistory
+    from muaddib.main import IRSSILLMAgent
 
     agent = IRSSILLMAgent(temp_config_file)
     agent.irc_monitor.varlink_sender = AsyncMock()

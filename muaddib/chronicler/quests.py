@@ -22,7 +22,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-import irssi_llmagent
+import muaddib
 
 from ..message_logging import MessageLoggingContext
 from . import QuestStatus
@@ -98,7 +98,7 @@ class QuestOperator:
         """Start the heartbeat task that periodically prods ongoing quests."""
         if self._heartbeat_task is not None:
             return
-        self._heartbeat_task = irssi_llmagent.spawn(self._heartbeat_loop())
+        self._heartbeat_task = muaddib.spawn(self._heartbeat_loop())
         logger.info("Quest heartbeat started")
 
     async def stop_heartbeat(self) -> None:
@@ -133,7 +133,7 @@ class QuestOperator:
                 quest_id = quest["id"]
                 last_state = quest["last_state"]
                 logger.info(f"Heartbeat prodding quest {quest_id}")
-                irssi_llmagent.spawn(self._run_step(arc, quest_id, last_state))
+                muaddib.spawn(self._run_step(arc, quest_id, last_state))
 
     async def _run_step(self, arc: str, quest_id: str, paragraph_text: str) -> None:
         """Run one quest step via Agent.run_actor and handle results."""

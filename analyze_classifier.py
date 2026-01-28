@@ -10,7 +10,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from irssi_llmagent.main import IRSSILLMAgent
+from muaddib.main import IRSSILLMAgent
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -156,7 +156,7 @@ async def classify_message_with_agent(
         if not context or context[-1]["content"] != message:
             context = context + [{"role": "user", "content": message}]
 
-        return await agent.classify_mode(context)
+        return await agent.irc_monitor.classify_mode(context)
     except Exception as e:
         logger.error(f"Error classifying message '{message}': {e}")
         return "ERROR"
