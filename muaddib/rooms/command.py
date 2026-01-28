@@ -312,7 +312,7 @@ class RoomCommandHandler:
         nick: str,
         message: str,
         mynick: str,
-        sender: Callable[[str], Awaitable[None]],
+        reply_sender: Callable[[str], Awaitable[None]],
     ) -> None:
         try:
             if not self.proactive_rate_limiter.check_limit():
@@ -394,7 +394,7 @@ class RoomCommandHandler:
                     chan_name,
                     response_text,
                 )
-                await sender(response_text)
+                await reply_sender(response_text)
                 await self.agent.history.add_message(
                     server_tag,
                     chan_name,
@@ -501,12 +501,12 @@ class RoomCommandHandler:
         mynick: str,
         message: str,
         trigger_message_id: int,
-        sender: Callable[[str], Awaitable[None]],
+        reply_sender: Callable[[str], Awaitable[None]],
     ) -> None:
         if not self.rate_limiter.check_limit():
             logger.warning("Rate limiting triggered for %s", nick)
             rate_msg = f"{nick}: Slow down a little, will you? (rate limiting)"
-            await sender(rate_msg)
+            await reply_sender(rate_msg)
             await self.agent.history.add_message(
                 server_tag, channel_name, rate_msg, mynick, mynick, True
             )
@@ -547,7 +547,7 @@ class RoomCommandHandler:
             context,
             default_size,
             trigger_message_id,
-            sender,
+            reply_sender,
         )
         await self.proactive_debouncer.cancel_channel(channel_name)
         await self.autochronicler.check_and_chronicle(
@@ -618,7 +618,7 @@ class RoomCommandHandler:
         nick: str,
         mynick: str,
         message: str,
-        sender: Callable[[str], Awaitable[None]],
+        reply_sender: Callable[[str], Awaitable[None]],
     ) -> None:
         if (
             channel_name
@@ -630,7 +630,7 @@ class RoomCommandHandler:
                 nick,
                 message,
                 mynick,
-                sender,
+                reply_sender,
                 self._handle_debounced_proactive_check,
             )
 
@@ -647,14 +647,14 @@ class RoomCommandHandler:
         context: list[dict[str, str]],
         default_size: int,
         trigger_message_id: int,
-        sender: Callable[[str], Awaitable[None]],
+        reply_sender: Callable[[str], Awaitable[None]],
     ) -> None:
         modes_config = self.command_config["modes"]
         parsed = self._parse_prefix(cleaned_msg)
 
         if parsed.error:
             logger.warning("Command parse error from %s: %s (%s)", nick, parsed.error, cleaned_msg)
-            await sender(f"{nick}: {parsed.error}")
+            await reply_sender(f"{nick}: {parsed.error}")
             return
 
         no_context = parsed.no_context
@@ -694,7 +694,7 @@ class RoomCommandHandler:
                 )
 
             help_msg = f"default is {default_desc}, !c disables context"
-            await sender(help_msg)
+            await reply_sender(help_msg)
             await self.agent.history.add_message(
                 server_tag, channel_name, help_msg, mynick, mynick, True
             )
@@ -744,7 +744,7 @@ class RoomCommandHandler:
                 logger.debug("Auto-classified message as %s mode", mode)
 
         async def progress_cb(text: str) -> None:
-            await sender(text)
+            await reply_sender(text)
             await self.agent.history.add_message(
                 server_tag, channel_name, text, mynick, mynick, True
             )
@@ -832,7 +832,7 @@ class RoomCommandHandler:
                 except ValueError:
                     logger.warning("Could not parse model spec: %s", agent_result.primary_model)
 
-            await sender(response_text)
+            await reply_sender(response_text)
             response_message_id = await self.agent.history.add_message(
                 server_tag,
                 channel_name,
@@ -855,7 +855,7 @@ class RoomCommandHandler:
                     f"and cost ${agent_result.total_cost:.4f})"
                 )
                 logger.info("Cost followup for %s: %s", channel_name, cost_msg)
-                await sender(cost_msg)
+                await reply_sender(cost_msg)
                 await self.agent.history.add_message(
                     server_tag, channel_name, cost_msg, mynick, mynick, True
                 )
@@ -870,7 +870,7 @@ class RoomCommandHandler:
                     total_today = cost_before + agent_result.total_cost
                     fun_msg = f"(fun fact: my messages in this channel have already cost ${total_today:.4f} today)"
                     logger.info("Daily cost milestone for %s: %s", arc_name, fun_msg)
-                    await sender(fun_msg)
+                    await reply_sender(fun_msg)
                     await self.agent.history.add_message(
                         server_tag, channel_name, fun_msg, mynick, mynick, True
                     )

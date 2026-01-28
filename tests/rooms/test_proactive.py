@@ -7,8 +7,11 @@ import pytest
 from muaddib.rooms import ProactiveDebouncer
 
 
-async def noop_sender(_: str) -> None:
+async def noop_reply_sender(_: str) -> None:
     return None
+
+
+noop_sender = noop_reply_sender
 
 
 class TestProactiveDebouncer:
@@ -30,7 +33,7 @@ class TestProactiveDebouncer:
             nick: str,
             message: str,
             mynick: str,
-            sender,
+            reply_sender,
         ):
             calls.append(
                 {
@@ -39,7 +42,7 @@ class TestProactiveDebouncer:
                     "nick": nick,
                     "message": message,
                     "mynick": mynick,
-                    "sender": sender,
+                    "reply_sender": reply_sender,
                 }
             )
 
@@ -244,7 +247,7 @@ class TestProactiveDebouncer:
             nick: str,
             message: str,
             mynick: str,
-            sender,
+            reply_sender,
         ):
             raise ValueError("Test error")
 

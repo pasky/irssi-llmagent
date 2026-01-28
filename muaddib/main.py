@@ -214,7 +214,7 @@ async def cli_message(message: str, config_path: str | None = None) -> None:
             "testserver", "#testchannel", message, "testuser", "testbot"
         )
 
-        async def send(text: str) -> None:
+        async def reply_sender(text: str) -> None:
             print(f"📤 Bot response: {text}")
 
         await agent.irc_monitor.command_handler.handle_command(
@@ -224,7 +224,7 @@ async def cli_message(message: str, config_path: str | None = None) -> None:
             mynick="testbot",
             message=message,
             trigger_message_id=trigger_message_id,
-            sender=send,
+            reply_sender=reply_sender,
         )
 
     except Exception as e:

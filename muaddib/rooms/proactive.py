@@ -22,7 +22,7 @@ class PendingMessage:
     nick: str
     message: str
     mynick: str
-    sender: Callable[[str], Awaitable[None]]
+    reply_sender: Callable[[str], Awaitable[None]]
     timestamp: float
 
 
@@ -58,7 +58,7 @@ class ProactiveDebouncer:
         nick: str,
         message: str,
         mynick: str,
-        sender: Callable[[str], Awaitable[None]],
+        reply_sender: Callable[[str], Awaitable[None]],
         check_callback: Callable[
             [str, str, str, str, str, Callable[[str], Awaitable[None]]], Awaitable[None]
         ],
@@ -71,7 +71,7 @@ class ProactiveDebouncer:
             nick: Nick who sent the message
             message: Message content
             mynick: Bot's nickname
-            sender: Send function for replies
+            reply_sender: Send function for replies
             check_callback: Async function to call with message data after debounce
         """
         channel_lock = self._get_channel_lock(chan_name)
@@ -84,7 +84,7 @@ class ProactiveDebouncer:
 
             # Store latest message
             self._pending_messages[chan_name] = PendingMessage(
-                server, chan_name, nick, message, mynick, sender, time.time()
+                server, chan_name, nick, message, mynick, reply_sender, time.time()
             )
             logger.debug(f"Scheduled debounced check for {chan_name}: {message[:100]}...")
 
@@ -123,7 +123,7 @@ class ProactiveDebouncer:
                             msg.nick,
                             msg.message,
                             msg.mynick,
-                            msg.sender,
+                            msg.reply_sender,
                         )
 
                     # Cleanup

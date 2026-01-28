@@ -61,17 +61,6 @@ class IRCRoomMonitor:
         pattern = rf"^\s*(<?.*?>\s*)?{re.escape(mynick)}[,:]\s*(.*?)$"
         return re.match(pattern, message, re.IGNORECASE)
 
-    def _sender_factory(
-        self,
-        *,
-        server_tag: str,
-        channel_name: str,
-    ):
-        async def send(text: str) -> None:
-            await self.varlink_sender.send_message(channel_name, text, server_tag)
-
-        return send
-
     async def process_message_event(self, event: dict[str, Any]) -> None:
         """Process incoming IRC message events."""
         msg_type = event.get("type")
@@ -115,7 +104,8 @@ class IRCRoomMonitor:
             server, chan_name, message, nick, mynick
         )
 
-        sender = self._sender_factory(server_tag=server, channel_name=chan_name)
+        async def reply_sender(text: str) -> None:
+            await self.varlink_sender.send_message(chan_name, text, server)
 
         if is_direct:
             arc = f"{server}#{chan_name}"
@@ -127,7 +117,7 @@ class IRCRoomMonitor:
                     mynick=mynick,
                     message=cleaned_msg,
                     trigger_message_id=trigger_message_id,
-                    sender=sender,
+                    reply_sender=reply_sender,
                 )
             return
 
@@ -137,7 +127,7 @@ class IRCRoomMonitor:
             nick=nick,
             mynick=mynick,
             message=message,
-            sender=sender,
+            reply_sender=reply_sender,
         )
 
     async def _connect_with_retry(self, max_retries: int = 5) -> bool:

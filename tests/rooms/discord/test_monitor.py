@@ -73,6 +73,7 @@ async def test_discord_sender_chains_replies(test_config):
     agent = SimpleNamespace()
     agent.config = test_config
     agent.history = AsyncMock()
+    agent.history.add_message = AsyncMock(return_value=1)
 
     monitor = DiscordRoomMonitor(cast(MuaddibAgent, agent))
 
@@ -82,14 +83,26 @@ async def test_discord_sender_chains_replies(test_config):
     original_message.reply = AsyncMock(return_value=first_reply)
     first_reply.reply = AsyncMock(return_value=second_reply)
 
-    sender = monitor._sender_factory(
-        server_tag="discord:_DM",
-        channel_name="dm",
-        reply_context=original_message,
-    )
+    async def handle_command(**kwargs):
+        reply_sender = kwargs["reply_sender"]
+        await reply_sender("first")
+        await reply_sender("second")
 
-    await sender("first")
-    await sender("second")
+    monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
+
+    bot_user = MagicMock()
+    bot_user.display_name = "Muaddib"
+    bot_user.id = 999
+    monitor.client._connection.user = bot_user
+
+    original_message.author.display_name = "pasky"
+    original_message.author.id = 1
+    original_message.author.bot = False
+    original_message.guild = None
+    original_message.clean_content = "hello"
+    original_message.content = "hello"
+
+    await monitor.process_message_event(original_message)
 
     original_message.reply.assert_awaited_once_with("first", mention_author=True)
     first_reply.reply.assert_awaited_once_with("second", mention_author=False)

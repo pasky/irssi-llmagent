@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import discord
 
@@ -106,28 +105,6 @@ class DiscordRoomMonitor:
 
         return content
 
-    def _sender_factory(
-        self,
-        *,
-        server_tag: str,
-        channel_name: str,
-        reply_context: Any | None,
-    ) -> Callable[[str], Awaitable[None]]:
-        last_reply: discord.Message | None = None
-
-        async def send(text: str) -> None:
-            nonlocal last_reply
-            reply_target = last_reply or reply_context
-            if reply_target is not None and hasattr(reply_target, "reply"):
-                mention_author = last_reply is None
-                sent_message = await reply_target.reply(text, mention_author=mention_author)
-                if sent_message is not None:
-                    last_reply = sent_message
-                return
-            logger.warning("Missing reply context for Discord send to %s", channel_name)
-
-        return send
-
     async def process_message_event(self, message: discord.Message) -> None:
         """Process incoming Discord message events."""
 
@@ -164,11 +141,18 @@ class DiscordRoomMonitor:
             server_tag, channel_name, content, nick, mynick
         )
 
-        sender = self._sender_factory(
-            server_tag=server_tag,
-            channel_name=channel_name,
-            reply_context=message,
-        )
+        last_reply: discord.Message | None = None
+
+        async def reply_sender(text: str) -> None:
+            nonlocal last_reply
+            reply_target = last_reply or message
+            if reply_target is not None and hasattr(reply_target, "reply"):
+                mention_author = last_reply is None
+                sent_message = await reply_target.reply(text, mention_author=mention_author)
+                if sent_message is not None:
+                    last_reply = sent_message
+                return
+            logger.warning("Missing reply context for Discord send to %s", channel_name)
 
         if self._is_highlight(message):
             cleaned_content = self._strip_leading_mention(message, mynick)
@@ -180,7 +164,7 @@ class DiscordRoomMonitor:
                     mynick=mynick,
                     message=cleaned_content,
                     trigger_message_id=trigger_message_id,
-                    sender=sender,
+                    reply_sender=reply_sender,
                 )
             return
 
@@ -190,7 +174,7 @@ class DiscordRoomMonitor:
             nick=nick,
             mynick=mynick,
             message=content,
-            sender=sender,
+            reply_sender=reply_sender,
         )
 
     async def run(self) -> None:
