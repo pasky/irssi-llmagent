@@ -18,6 +18,7 @@ from .context_reducer import ContextReducer
 from .history import ChatHistory
 from .message_logging import MessageContextHandler
 from .providers import ModelRouter
+from .rooms.command import get_room_config
 from .rooms.irc import IRCRoomMonitor
 
 # Set up logging
@@ -64,8 +65,7 @@ class MuaddibAgent:
     def __init__(self, config_path: str = "config.json"):
         self.config = self.load_config(config_path)
         self.model_router: ModelRouter = ModelRouter(self.config)
-        # Get IRC config section
-        irc_config = self.config["rooms"]["irc"]
+        irc_config = get_room_config(self.config, "irc")
         self.irc_enabled = irc_config.get("enabled", True)
         self.history = ChatHistory(
             self.config.get("history", {}).get("database", {}).get("path", "chat_history.db"),
@@ -210,14 +210,19 @@ async def cli_message(message: str, config_path: str | None = None) -> None:
 
         agent.irc_monitor.varlink_sender = MockSender()  # type: ignore
 
-        # Simulate message handling
-        await agent.irc_monitor.handle_command(
-            server="testserver",
-            chan_name="#testchannel",
+        trigger_message_id = await agent.history.add_message(
+            "testserver", "#testchannel", message, "testuser", "testbot"
+        )
+
+        await agent.irc_monitor.command_handler.handle_command(
+            server_tag="testserver",
+            channel_name="#testchannel",
             target="#testchannel",
             nick="testuser",
-            message=message,
             mynick="testbot",
+            message=message,
+            trigger_message_id=trigger_message_id,
+            reply_context=None,
         )
 
     except Exception as e:

@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
+import re
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import discord
 
 from ...message_logging import MessageLoggingContext
-from ...providers import parse_model_spec
-from ...rate_limiter import RateLimiter
+from ..command import RoomCommandHandler, get_room_config
 
 if TYPE_CHECKING:
     from ...main import MuaddibAgent
@@ -35,17 +36,9 @@ class DiscordClient(discord.Client):
 class DiscordRoomMonitor:
     """Discord-specific room monitor that handles Discord events and message processing."""
 
-    def __init__(self, agent: MuaddibAgent):
+    def __init__(self, agent: MuaddibAgent) -> None:
         self.agent = agent
-        self.discord_config = self.agent.config["rooms"]["discord"]
-
-        command_config = self.discord_config.get("command", {})
-        irc_command_config = self.agent.config["rooms"]["irc"]["command"]
-        rate_limit = command_config.get("rate_limit", irc_command_config["rate_limit"])
-        rate_period = command_config.get("rate_period", irc_command_config["rate_period"])
-        self.history_size = command_config.get("history_size", irc_command_config["history_size"])
-
-        self.rate_limiter = RateLimiter(rate_limit, rate_period)
+        self.room_config = get_room_config(self.agent.config, "discord")
 
         intents = discord.Intents.default()
         intents.message_content = True
@@ -53,9 +46,25 @@ class DiscordRoomMonitor:
         intents.messages = True
         self.client = DiscordClient(self, intents=intents)
 
+        self.command_handler = RoomCommandHandler(
+            self.agent,
+            "discord",
+            self.room_config,
+            sender_factory=self._sender_factory,
+            response_cleaner=self._strip_nick_prefix,
+        )
+
     @staticmethod
     def _normalize_name(name: str) -> str:
         return "_".join(name.strip().split())
+
+    @staticmethod
+    def _strip_nick_prefix(text: str, nick: str) -> str:
+        cleaned_text = text.lstrip()
+        prefix = f"{nick}:"
+        if cleaned_text.lower().startswith(prefix.lower()):
+            cleaned_text = cleaned_text[len(prefix) :].lstrip()
+        return cleaned_text or text
 
     def _get_channel_name(self, channel: discord.abc.Messageable) -> str:
         if isinstance(channel, discord.Thread) and channel.parent:
@@ -78,16 +87,54 @@ class DiscordRoomMonitor:
             return False
         return self.client.user in message.mentions
 
+    def _strip_leading_mention(self, message: discord.Message, mynick: str) -> str:
+        content = message.clean_content or message.content or ""
+        if not content:
+            return content
+
+        if self.client.user is None:
+            return content
+
+        mention_pattern = rf"^\s*(?:<@!?{self.client.user.id}>|{re.escape(mynick)})[:,]?\s*(.*)$"
+        match = re.match(mention_pattern, message.content)
+        if match:
+            return match.group(1).strip()
+
+        clean_pattern = rf"^\s*{re.escape(mynick)}[:,]?\s*(.*)$"
+        match = re.match(clean_pattern, content)
+        if match:
+            return match.group(1).strip()
+
+        return content
+
+    def _sender_factory(
+        self,
+        *,
+        server_tag: str,
+        channel_name: str,
+        target: str | None,
+        reply_context: Any | None,
+    ) -> Callable[[str], Awaitable[None]]:
+        async def send(text: str) -> None:
+            if reply_context is not None and hasattr(reply_context, "reply"):
+                await reply_context.reply(text, mention_author=True)
+                return
+            logger.warning("Missing reply context for Discord send to %s", channel_name)
+
+        return send
+
     async def process_message_event(self, message: discord.Message) -> None:
         """Process incoming Discord message events."""
-        if message.author.bot:
-            return
+
+        logger.debug("Processing message event: %s", message)
 
         content = message.clean_content or message.content or ""
         if not content:
+            logger.debug(f"No content in message {message}")
             return
 
         if self.client.user is None:
+            logger.debug(f"No user set in client {self.client} for message {message}")
             return
 
         server_tag = self._get_server_tag(message)
@@ -100,99 +147,42 @@ class DiscordRoomMonitor:
         nick = message.author.display_name
         mynick = self.client.user.display_name
 
+        if self.command_handler.should_ignore_user(nick):
+            logger.debug("Ignoring user: %s", nick)
+            return
+
         trigger_message_id = await self.agent.history.add_message(
             server_tag, channel_name, content, nick, mynick
         )
 
-        if not self._is_highlight(message):
+        if self._is_highlight(message):
+            cleaned_content = self._strip_leading_mention(message, mynick)
+            with MessageLoggingContext(arc, nick, content, Path("logs")):
+                await self.command_handler.handle_command(
+                    server_tag=server_tag,
+                    channel_name=channel_name,
+                    target=None,
+                    nick=nick,
+                    mynick=mynick,
+                    message=cleaned_content,
+                    trigger_message_id=trigger_message_id,
+                    reply_context=message,
+                )
             return
 
-        with MessageLoggingContext(arc, nick, content, Path("logs")):
-            await self.handle_highlight(
-                message,
-                server_tag,
-                channel_name,
-                arc,
-                nick,
-                mynick,
-                trigger_message_id,
-            )
-
-    async def handle_highlight(
-        self,
-        message: discord.Message,
-        server_tag: str,
-        channel_name: str,
-        arc: str,
-        nick: str,
-        mynick: str,
-        trigger_message_id: int,
-    ) -> None:
-        """Handle Discord highlights and generate responses."""
-        if not self.rate_limiter.check_limit():
-            logger.warning("Rate limiting triggered for %s", nick)
-            await message.reply(
-                f"{nick}: Slow down a little, will you? (rate limiting)",
-                mention_author=True,
-            )
-            return
-
-        context = await self.agent.history.get_context(server_tag, channel_name, self.history_size)
-
-        agent_result = await self.agent.irc_monitor._run_actor(
-            context[-self.history_size :],
-            mynick,
-            mode="serious",
-            reasoning_effort="low",
-            arc=arc,
+        await self.command_handler.handle_passive_message(
+            server_tag=server_tag,
+            channel_name=channel_name,
+            target=None,
+            nick=nick,
+            mynick=mynick,
+            message=content,
+            reply_context=message,
         )
-
-        if agent_result and agent_result.text:
-            response_text = agent_result.text
-            cleaned_text = response_text.lstrip()
-            prefix = f"{nick}:"
-            if cleaned_text.lower().startswith(prefix.lower()):
-                cleaned_text = cleaned_text[len(prefix) :].lstrip()
-            response_text = cleaned_text or response_text
-            cost_str = f"${agent_result.total_cost:.4f}" if agent_result.total_cost else "?"
-            logger.info("Sending serious response (%s) to %s: %s", cost_str, arc, response_text)
-
-            llm_call_id = None
-            if agent_result.primary_model:
-                try:
-                    spec = parse_model_spec(agent_result.primary_model)
-                    llm_call_id = await self.agent.history.log_llm_call(
-                        provider=spec.provider,
-                        model=spec.name,
-                        input_tokens=agent_result.total_input_tokens,
-                        output_tokens=agent_result.total_output_tokens,
-                        cost=agent_result.total_cost,
-                        call_type="agent_run",
-                        arc_name=arc,
-                        trigger_message_id=trigger_message_id,
-                    )
-                except ValueError:
-                    logger.warning("Could not parse model spec: %s", agent_result.primary_model)
-
-            await message.reply(response_text, mention_author=True)
-            response_message_id = await self.agent.history.add_message(
-                server_tag,
-                channel_name,
-                response_text,
-                mynick,
-                mynick,
-                True,
-                mode="EASY_SERIOUS",
-                llm_call_id=llm_call_id,
-            )
-            if llm_call_id:
-                await self.agent.history.update_llm_call_response(llm_call_id, response_message_id)
-        else:
-            logger.info("Agent chose not to answer for %s", arc)
 
     async def run(self) -> None:
         """Run the main Discord monitor loop."""
-        token = self.discord_config.get("token")
+        token = self.room_config.get("token")
         if not token:
             logger.error("Discord token missing in config; skipping Discord monitor")
             return
@@ -200,4 +190,5 @@ class DiscordRoomMonitor:
         try:
             await self.client.start(token)
         finally:
+            await self.command_handler.proactive_debouncer.cancel_all()
             await self.client.close()

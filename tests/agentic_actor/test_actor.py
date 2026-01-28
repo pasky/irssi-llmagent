@@ -16,7 +16,7 @@ class TestAPIAgent:
     def agent(self, test_config, mock_agent):
         """Create agent instance for testing."""
         # Update serious prompt for agent tests (config structure already has the prompt)
-        test_config["rooms"]["irc"]["command"]["modes"]["serious"]["prompt"] = (
+        test_config["rooms"]["common"]["command"]["modes"]["serious"]["prompt"] = (
             "You are IRC user {mynick}. Be helpful and informative. Available models: serious={serious_model}, sarcastic={sarcastic_model}."
         )
 
@@ -24,7 +24,7 @@ class TestAPIAgent:
             from datetime import datetime
 
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
-            return test_config["rooms"]["irc"]["command"]["modes"]["serious"]["prompt"].format(
+            return test_config["rooms"]["common"]["command"]["modes"]["serious"]["prompt"].format(
                 mynick="testbot",
                 current_time=current_time,
                 sarcastic_model="anthropic:claude-3-5-haiku",
@@ -33,7 +33,9 @@ class TestAPIAgent:
             )
 
         def get_prompt_reminder():
-            return test_config["rooms"]["irc"]["command"]["modes"]["serious"].get("prompt_reminder")
+            return test_config["rooms"]["common"]["command"]["modes"]["serious"].get(
+                "prompt_reminder"
+            )
 
         return AgenticLLMActor(
             config=test_config,
@@ -111,7 +113,7 @@ class TestAPIAgent:
         mock_response = self.create_text_response(api_type, "This is a simple answer.")
 
         # Add prompt reminder to test config and capture messages
-        agent.config["rooms"]["irc"]["command"]["modes"]["serious"]["prompt_reminder"] = (
+        agent.config["rooms"]["common"]["command"]["modes"]["serious"]["prompt_reminder"] = (
             "Be helpful!"
         )
         captured_messages = []
@@ -602,7 +604,7 @@ class TestAPIAgent:
     async def test_vision_fallback_switches_model_and_appends_suffix(self, test_config, mock_agent):
         """Image via visit_webpage triggers switching to vision_model and suffix in final text."""
         # Minimal prompt wiring
-        test_config["rooms"]["irc"]["command"]["modes"]["serious"]["prompt"] = (
+        test_config["rooms"]["common"]["command"]["modes"]["serious"]["prompt"] = (
             "You are IRC user {mynick}."
         )
 
@@ -672,7 +674,7 @@ class TestAPIAgent:
         actor = AgenticLLMActor(
             config=test_config,
             model="openrouter:gpt-4o-mini",
-            system_prompt_generator=lambda: test_config["rooms"]["irc"]["command"]["modes"][
+            system_prompt_generator=lambda: test_config["rooms"]["common"]["command"]["modes"][
                 "serious"
             ]["prompt"].format(
                 mynick="testbot",

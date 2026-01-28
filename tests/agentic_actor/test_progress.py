@@ -84,7 +84,7 @@ async def test_progress_report_tool_emits_callback(monkeypatch, mock_agent):
         "providers": {"anthropic": {"url": "http://example.com", "key": "dummy"}},
         "tools": {},
         "rooms": {
-            "irc": {
+            "common": {
                 "command": {
                     "modes": {
                         "serious": {
@@ -100,8 +100,30 @@ async def test_progress_report_tool_emits_callback(monkeypatch, mock_agent):
                         "model": "anthropic:dummy-classifier",
                         "prompt": "Classifier prompt",
                     },
-                }
-            }
+                },
+                "proactive": {
+                    "history_size": 1,
+                    "interject_threshold": 9,
+                    "rate_limit": 1,
+                    "rate_period": 60,
+                    "debounce_seconds": 0.0,
+                    "models": {
+                        "serious": "anthropic:dummy-serious",
+                        "validation": ["anthropic:dummy-classifier"],
+                    },
+                    "prompts": {
+                        "interject": "Prompt",
+                        "serious_extra": "Extra",
+                    },
+                },
+            },
+            "irc": {
+                "command": {},
+                "proactive": {
+                    "interjecting": [],
+                    "interjecting_test": [],
+                },
+            },
         },
         "actor": {
             "max_iterations": 5,
@@ -177,7 +199,7 @@ async def test_persistence_callback_receives_tool_summary(mock_agent):
         "providers": {"anthropic": {"url": "http://example.com", "key": "dummy"}},
         "tools": {},
         "rooms": {
-            "irc": {
+            "common": {
                 "command": {
                     "modes": {
                         "serious": {
@@ -185,8 +207,30 @@ async def test_persistence_callback_receives_tool_summary(mock_agent):
                             "prompt": "Test prompt",
                         }
                     }
-                }
-            }
+                },
+                "proactive": {
+                    "history_size": 1,
+                    "interject_threshold": 9,
+                    "rate_limit": 1,
+                    "rate_period": 60,
+                    "debounce_seconds": 0.0,
+                    "models": {
+                        "serious": "anthropic:dummy-serious",
+                        "validation": ["anthropic:dummy-serious"],
+                    },
+                    "prompts": {
+                        "interject": "Prompt",
+                        "serious_extra": "Extra",
+                    },
+                },
+            },
+            "irc": {
+                "command": {},
+                "proactive": {
+                    "interjecting": [],
+                    "interjecting_test": [],
+                },
+            },
         },
         "actor": {
             "max_iterations": 5,

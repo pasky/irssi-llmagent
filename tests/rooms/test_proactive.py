@@ -20,14 +20,24 @@ class TestProactiveDebouncer:
         """Track callback invocations."""
         calls = []
 
-        async def track_callback(server: str, chan_name: str, nick: str, message: str, mynick: str):
+        async def track_callback(
+            server: str,
+            chan_name: str,
+            target: str | None,
+            nick: str,
+            message: str,
+            mynick: str,
+            reply_context,
+        ):
             calls.append(
                 {
                     "server": server,
                     "chan_name": chan_name,
+                    "target": target,
                     "nick": nick,
                     "message": message,
                     "mynick": mynick,
+                    "reply_context": reply_context,
                 }
             )
 
@@ -38,7 +48,14 @@ class TestProactiveDebouncer:
     async def test_single_message_processed(self, debouncer, callback_tracker):
         """Test that a single message gets processed after debounce."""
         await debouncer.schedule_check(
-            "freenode", "#test", "alice", "hello world", "bot", callback_tracker
+            "freenode",
+            "#test",
+            "#test",
+            "alice",
+            "hello world",
+            "bot",
+            None,
+            callback_tracker,
         )
 
         # Should be pending
@@ -59,13 +76,34 @@ class TestProactiveDebouncer:
         """Test that only the last message in a burst gets processed."""
         # Send three messages quickly
         await debouncer.schedule_check(
-            "freenode", "#test", "alice", "first message", "bot", callback_tracker
+            "freenode",
+            "#test",
+            "#test",
+            "alice",
+            "first message",
+            "bot",
+            None,
+            callback_tracker,
         )
         await debouncer.schedule_check(
-            "freenode", "#test", "bob", "second message", "bot", callback_tracker
+            "freenode",
+            "#test",
+            "#test",
+            "bob",
+            "second message",
+            "bot",
+            None,
+            callback_tracker,
         )
         await debouncer.schedule_check(
-            "freenode", "#test", "charlie", "third message", "bot", callback_tracker
+            "freenode",
+            "#test",
+            "#test",
+            "charlie",
+            "third message",
+            "bot",
+            None,
+            callback_tracker,
         )
 
         # Should still be pending
@@ -85,10 +123,24 @@ class TestProactiveDebouncer:
         """Test that different channels are processed independently."""
         # Send messages to different channels
         await debouncer.schedule_check(
-            "freenode", "#test1", "alice", "message1", "bot", callback_tracker
+            "freenode",
+            "#test1",
+            "#test1",
+            "alice",
+            "message1",
+            "bot",
+            None,
+            callback_tracker,
         )
         await debouncer.schedule_check(
-            "freenode", "#test2", "bob", "message2", "bot", callback_tracker
+            "freenode",
+            "#test2",
+            "#test2",
+            "bob",
+            "message2",
+            "bot",
+            None,
+            callback_tracker,
         )
 
         # Both should be pending
@@ -114,7 +166,14 @@ class TestProactiveDebouncer:
         """Test that a new message during debounce resets the timer."""
         # Send first message
         await debouncer.schedule_check(
-            "freenode", "#test", "alice", "first", "bot", callback_tracker
+            "freenode",
+            "#test",
+            "#test",
+            "alice",
+            "first",
+            "bot",
+            None,
+            callback_tracker,
         )
 
         # Wait halfway through debounce
@@ -122,7 +181,14 @@ class TestProactiveDebouncer:
 
         # Send second message (should reset timer)
         await debouncer.schedule_check(
-            "freenode", "#test", "bob", "second", "bot", callback_tracker
+            "freenode",
+            "#test",
+            "#test",
+            "bob",
+            "second",
+            "bot",
+            None,
+            callback_tracker,
         )
 
         # Wait for original debounce time (should not have triggered yet)
@@ -141,10 +207,24 @@ class TestProactiveDebouncer:
         """Test cancelling all pending debounced checks."""
         # Schedule multiple checks
         await debouncer.schedule_check(
-            "freenode", "#test1", "alice", "message1", "bot", callback_tracker
+            "freenode",
+            "#test1",
+            "#test1",
+            "alice",
+            "message1",
+            "bot",
+            None,
+            callback_tracker,
         )
         await debouncer.schedule_check(
-            "freenode", "#test2", "bob", "message2", "bot", callback_tracker
+            "freenode",
+            "#test2",
+            "#test2",
+            "bob",
+            "message2",
+            "bot",
+            None,
+            callback_tracker,
         )
 
         # Should be pending
@@ -167,13 +247,26 @@ class TestProactiveDebouncer:
         """Test that callback exceptions are handled gracefully."""
 
         async def failing_callback(
-            server: str, chan_name: str, nick: str, message: str, mynick: str
+            server: str,
+            chan_name: str,
+            target: str | None,
+            nick: str,
+            message: str,
+            mynick: str,
+            reply_context,
         ):
             raise ValueError("Test error")
 
         # Should not raise exception
         await debouncer.schedule_check(
-            "freenode", "#test", "alice", "hello", "bot", failing_callback
+            "freenode",
+            "#test",
+            "#test",
+            "alice",
+            "hello",
+            "bot",
+            None,
+            failing_callback,
         )
 
         # Wait for debounce
@@ -188,7 +281,14 @@ class TestProactiveDebouncer:
         debouncer = ProactiveDebouncer(debounce_seconds=0.0)
 
         await debouncer.schedule_check(
-            "freenode", "#test", "alice", "instant", "bot", callback_tracker
+            "freenode",
+            "#test",
+            "#test",
+            "alice",
+            "instant",
+            "bot",
+            None,
+            callback_tracker,
         )
 
         # Should process immediately
@@ -203,7 +303,14 @@ class TestProactiveDebouncer:
         tasks = []
         for i in range(5):
             task = debouncer.schedule_check(
-                "freenode", "#test", f"user{i}", f"message{i}", "bot", callback_tracker
+                "freenode",
+                "#test",
+                "#test",
+                f"user{i}",
+                f"message{i}",
+                "bot",
+                None,
+                callback_tracker,
             )
             tasks.append(task)
 
@@ -222,10 +329,24 @@ class TestProactiveDebouncer:
         """Test cancelling a specific channel's debounced check."""
         # Schedule checks for multiple channels
         await debouncer.schedule_check(
-            "freenode", "#test1", "alice", "message1", "bot", callback_tracker
+            "freenode",
+            "#test1",
+            "#test1",
+            "alice",
+            "message1",
+            "bot",
+            None,
+            callback_tracker,
         )
         await debouncer.schedule_check(
-            "freenode", "#test2", "bob", "message2", "bot", callback_tracker
+            "freenode",
+            "#test2",
+            "#test2",
+            "bob",
+            "message2",
+            "bot",
+            None,
+            callback_tracker,
         )
 
         # Both should be pending
@@ -261,7 +382,14 @@ class TestProactiveDebouncer:
         """Test cancelling a channel while its debounce is in progress."""
         # Schedule a check
         await debouncer.schedule_check(
-            "freenode", "#test", "alice", "message", "bot", callback_tracker
+            "freenode",
+            "#test",
+            "#test",
+            "alice",
+            "message",
+            "bot",
+            None,
+            callback_tracker,
         )
 
         assert debouncer.is_pending("#test")

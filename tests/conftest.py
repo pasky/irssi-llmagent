@@ -47,9 +47,8 @@ def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict
             "progress": {"threshold_seconds": 10, "min_interval_seconds": 8},
         },
         "rooms": {
-            "irc": {
-                "enabled": True,
-                "varlink": {"socket_path": "/tmp/test_varlink.sock"},
+            "common": {
+                "prompt_note": "",
                 "command": {
                     "history_size": 5,
                     "rate_limit": 30,
@@ -76,8 +75,6 @@ def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict
                 },
                 "proactive": {
                     "history_size": 3,
-                    "interjecting": [],
-                    "interjecting_test": [],
                     "interject_threshold": 9,
                     "rate_limit": 10,
                     "rate_period": 60,
@@ -92,10 +89,23 @@ def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict
                     },
                 },
             },
+            "irc": {
+                "enabled": True,
+                "varlink": {"socket_path": "/tmp/test_varlink.sock"},
+                "command": {},
+                "proactive": {
+                    "interjecting": [],
+                    "interjecting_test": [],
+                },
+            },
             "discord": {
                 "enabled": False,
                 "token": "mock-token",
                 "command": {"history_size": 5, "rate_limit": 30, "rate_period": 900},
+                "proactive": {
+                    "interjecting": [],
+                    "interjecting_test": [],
+                },
             },
         },
         "chronicler": {

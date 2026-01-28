@@ -84,25 +84,14 @@
   },
 
   "rooms": {
-    "irc": {
-      "enabled": true,
+    "common": {
       "prompt_note": "",
-
-      "varlink": {
-        "socket_path": "~/.irssi/varlink.sock"
-      },
-
       "command": {
         "history_size": 40,
         "rate_limit": 30,
         "rate_period": 900,
         "debounce": 1.5,
-        "ignore_users": [],
         "default_mode": "serious",
-        "channel_modes": {
-          "#random": "classifier",
-          "#sarcasm-corner": "sarcastic"
-        },
         "modes": {
           "sarcastic": {
             "model": "openrouter:google/gemini-3-flash-preview",
@@ -130,8 +119,6 @@
 
       "proactive": {
         "history_size": 10,
-        "interjecting": ["#programming", "#tech"],
-        "interjecting_test": ["#test-channel"],
         "interject_threshold": 9,
         "rate_limit": 10,
         "rate_period": 60,
@@ -149,13 +136,37 @@
         }
       }
     },
+
+    "irc": {
+      "enabled": true,
+      "varlink": {
+        "socket_path": "~/.irssi/varlink.sock"
+      },
+      "command": {
+        "ignore_users": [],
+        "channel_modes": {
+          "#random": "classifier",
+          "#sarcasm-corner": "sarcastic"
+        }
+      },
+      "proactive": {
+        "interjecting": ["#programming", "#tech"],
+        "interjecting_test": ["#test-channel"]
+      }
+    },
+
     "discord": {
       "enabled": false,
       "token": "your-discord-bot-token-here",
       "command": {
-        "history_size": 40,
-        "rate_limit": 30,
-        "rate_period": 900
+        "history_size": 20,
+        "debounce": 3,
+        "ignore_users": []
+      },
+      "proactive": {
+        "debounce_seconds": 60.0,
+        "interjecting": [],
+        "interjecting_test": []
       }
     }
   }
