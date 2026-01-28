@@ -1354,7 +1354,7 @@ class TestParsePrefixParser:
 
     def test_all_mode_tokens(self, temp_config_file):
         agent = IRSSILLMAgent(temp_config_file)
-        for token in ["!s", "!S", "!a", "!d", "!D", "!u", "!p", "!h"]:
+        for token in ["!s", "!S", "!a", "!d", "!D", "!u", "!h"]:
             result = agent.irc_monitor._parse_prefix(f"{token} query")
             assert result.mode_token == token, f"Failed for {token}"
             assert result.query_text == "query"

@@ -34,7 +34,7 @@ _(Note that this particular task is on the edge of raw Opus 4.5 capability and a
 
 ## Features
 
-- **AI Integrations**: Anthropic Claude (Opus 4.5 recommended), OpenAI, DeepSeek, any OpenRouter model (including Gemini models), Perplexity AI
+- **AI Integrations**: Anthropic Claude (Opus 4.5 recommended), OpenAI, DeepSeek, any OpenRouter model (including Gemini models)
 - **Agentic Capability**: Ability to visit websites, view images, perform deep research, execute Python code, publish artifacts
 - **Restartable and Persistent Memory**: All state is persisted; AI agent maintains a continuous chronicle of events and experiences to refer to
 - **Command System**: Automatic model routing (to balance cost, speed and intelligence) plus extensible command-based interaction with prefixes for various modes
