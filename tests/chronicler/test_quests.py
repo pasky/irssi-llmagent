@@ -385,7 +385,13 @@ async def test_subquest_finish_resumes_parent(shared_agent):
 
         # Parent should now be ONGOING again (child finished), heartbeat resumes it
         await agent.quests._heartbeat_tick()
-        await asyncio.sleep(0.05)
+
+        # Wait briefly for async heartbeat task to complete
+        for _ in range(20):
+            parent_triggers = [q for q in triggered_quest_ids if q == "parent"]
+            if len(parent_triggers) >= 2:
+                break
+            await asyncio.sleep(0.01)
 
         # Verify parent was triggered again after child finished
         parent_triggers = [q for q in triggered_quest_ids if q == "parent"]

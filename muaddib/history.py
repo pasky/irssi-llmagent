@@ -76,13 +76,6 @@ class ChatHistory:
                 pass
             async with db.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_platform_id
-                ON chat_messages (server_tag, channel_name, platform_id)
-            """
-            ) as _:
-                pass
-            async with db.execute(
-                """
                 CREATE INDEX IF NOT EXISTS idx_llm_calls_arc
                 ON llm_calls (arc_name, timestamp)
             """
@@ -99,6 +92,13 @@ class ChatHistory:
                 await db.execute("ALTER TABLE chat_messages ADD COLUMN platform_id TEXT NULL")
             if "thread_id" not in columns:
                 await db.execute("ALTER TABLE chat_messages ADD COLUMN thread_id TEXT NULL")
+            async with db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_platform_id
+                ON chat_messages (server_tag, channel_name, platform_id)
+            """
+            ) as _:
+                pass
             # Migrate llm_calls: add trigger/response message links
             async with db.execute("PRAGMA table_info(llm_calls)") as cursor:
                 llm_columns = [row[1] for row in await cursor.fetchall()]
