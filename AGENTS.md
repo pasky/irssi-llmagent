@@ -46,3 +46,4 @@
 - Tests should avoid mocking low-level API client constructors when validating control flow. Prefer patching router calls to inject fake responses, and ensure provider configs are referenced via `providers.*`.
 - Do NOT introduce compatibility shims for legacy config fields; update tests and fixtures instead.
 - When changing tests, prefer modifying/extending existing test files and cases rather than adding new test files, unless there is a compelling reason.
+- For AI agents: When user is frustrated, stop and think why and consider whether not to append an additional behavioral instruction to this AGENTS.md file.
