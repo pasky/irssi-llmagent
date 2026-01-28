@@ -38,6 +38,8 @@ class TestProactiveDebouncer:
             message: str,
             mynick: str,
             reply_sender,
+            thread_id: str | None,
+            thread_starter_id: int | None,
         ):
             calls.append(
                 {
@@ -47,6 +49,8 @@ class TestProactiveDebouncer:
                     "message": message,
                     "mynick": mynick,
                     "reply_sender": reply_sender,
+                    "thread_id": thread_id,
+                    "thread_starter_id": thread_starter_id,
                 }
             )
 
@@ -262,6 +266,8 @@ class TestProactiveDebouncer:
             message: str,
             mynick: str,
             reply_sender,
+            thread_id: str | None,
+            thread_starter_id: int | None,
         ):
             raise ValueError("Test error")
 

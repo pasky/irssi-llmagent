@@ -25,6 +25,8 @@ class PendingMessage:
     mynick: str
     reply_sender: Callable[[str], Awaitable[None]]
     timestamp: float
+    thread_id: str | None = None
+    thread_starter_id: int | None = None
 
 
 class ProactiveDebouncer:
@@ -62,8 +64,20 @@ class ProactiveDebouncer:
         mynick: str,
         reply_sender: Callable[[str], Awaitable[None]],
         check_callback: Callable[
-            [str, str, str, str, str, Callable[[str], Awaitable[None]]], Awaitable[None]
+            [
+                str,
+                str,
+                str,
+                str,
+                str,
+                Callable[[str], Awaitable[None]],
+                str | None,
+                int | None,
+            ],
+            Awaitable[None],
         ],
+        thread_id: str | None = None,
+        thread_starter_id: int | None = None,
     ) -> None:
         """Schedule a debounced proactive check for this channel.
 
@@ -76,6 +90,8 @@ class ProactiveDebouncer:
             mynick: Bot's nickname
             reply_sender: Send function for replies
             check_callback: Async function to call with message data after debounce
+            thread_id: Optional platform thread identifier
+            thread_starter_id: Internal ID of the thread starter message
         """
         channel_lock = self._get_channel_lock(channel_key)
 
@@ -87,7 +103,16 @@ class ProactiveDebouncer:
 
             # Store latest message
             self._pending_messages[channel_key] = PendingMessage(
-                server, chan_name, channel_key, nick, message, mynick, reply_sender, time.time()
+                server,
+                chan_name,
+                channel_key,
+                nick,
+                message,
+                mynick,
+                reply_sender,
+                time.time(),
+                thread_id=thread_id,
+                thread_starter_id=thread_starter_id,
             )
             logger.debug(f"Scheduled debounced check for {channel_key}: {message[:100]}...")
 
@@ -100,7 +125,17 @@ class ProactiveDebouncer:
         self,
         channel_key: str,
         check_callback: Callable[
-            [str, str, str, str, str, Callable[[str], Awaitable[None]]], Awaitable[None]
+            [
+                str,
+                str,
+                str,
+                str,
+                str,
+                Callable[[str], Awaitable[None]],
+                str | None,
+                int | None,
+            ],
+            Awaitable[None],
         ],
     ) -> None:
         """Execute the debounced check after delay."""
@@ -129,6 +164,8 @@ class ProactiveDebouncer:
                             msg.message,
                             msg.mynick,
                             msg.reply_sender,
+                            msg.thread_id,
+                            msg.thread_starter_id,
                         )
 
                     # Cleanup

@@ -158,8 +158,23 @@ class DiscordRoomMonitor:
             logger.debug("Ignoring user: %s", nick)
             return
 
+        platform_id = str(message.id) if getattr(message, "id", None) is not None else None
+        thread_id: str | None = None
+        thread_starter_id: int | None = None
+        if isinstance(message.channel, discord.Thread):
+            thread_id = str(message.channel.id)
+            thread_starter_id = await self.agent.history.get_message_id_by_platform_id(
+                server_tag, channel_name, thread_id
+            )
+
         trigger_message_id = await self.agent.history.add_message(
-            server_tag, channel_name, content, nick, mynick
+            server_tag,
+            channel_name,
+            content,
+            nick,
+            mynick,
+            platform_id=platform_id,
+            thread_id=thread_id,
         )
 
         last_reply: discord.Message | None = None
@@ -187,6 +202,8 @@ class DiscordRoomMonitor:
                         message=cleaned_content,
                         trigger_message_id=trigger_message_id,
                         reply_sender=reply_sender,
+                        thread_id=thread_id,
+                        thread_starter_id=thread_starter_id,
                     )
             return
 
@@ -197,6 +214,8 @@ class DiscordRoomMonitor:
             mynick=mynick,
             message=content,
             reply_sender=reply_sender,
+            thread_id=thread_id,
+            thread_starter_id=thread_starter_id,
         )
 
     async def run(self) -> None:

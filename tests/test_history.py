@@ -144,6 +144,51 @@ class TestChatHistory:
         assert other_followups[0]["message"] == "unrelated"
 
     @pytest.mark.asyncio
+    async def test_thread_context_filters_channel_messages(self, temp_db_path):
+        """Test that thread context includes channel history up to starter only."""
+        history = ChatHistory(temp_db_path, inference_limit=10)
+        await history.initialize()
+
+        server = "discord:test"
+        channel = "#general"
+        mynick = "bot"
+
+        await history.add_message(server, channel, "before 1", "user1", mynick, platform_id="1")
+        await history.add_message(server, channel, "before 2", "user2", mynick, platform_id="2")
+        await history.add_message(server, channel, "starter", "user1", mynick, platform_id="100")
+        starter_id = await history.get_message_id_by_platform_id(server, channel, "100")
+        assert starter_id is not None
+
+        await history.add_message(server, channel, "after", "user3", mynick, platform_id="3")
+        await history.add_message(
+            server, channel, "thread 1", "user1", mynick, thread_id="100", platform_id="101"
+        )
+        await history.add_message(
+            server, channel, "thread 2", "user2", mynick, thread_id="100", platform_id="102"
+        )
+
+        thread_context = await history.get_context(
+            server,
+            channel,
+            limit=10,
+            thread_id="100",
+            thread_starter_id=starter_id,
+        )
+        thread_contents = [entry["content"] for entry in thread_context]
+        assert any("before 1" in content for content in thread_contents)
+        assert any("before 2" in content for content in thread_contents)
+        assert any("starter" in content for content in thread_contents)
+        assert any("thread 1" in content for content in thread_contents)
+        assert any("thread 2" in content for content in thread_contents)
+        assert not any("after" in content for content in thread_contents)
+
+        channel_context = await history.get_context(server, channel, limit=10)
+        channel_contents = [entry["content"] for entry in channel_context]
+        assert any("after" in content for content in channel_contents)
+        assert any("starter" in content for content in channel_contents)
+        assert not any("thread 1" in content for content in channel_contents)
+
+    @pytest.mark.asyncio
     async def test_add_message_with_custom_template(self, temp_db_path):
         """Test adding messages with custom role (for assistant_silent)."""
         history = ChatHistory(temp_db_path, inference_limit=5)

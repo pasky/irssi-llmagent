@@ -327,6 +327,8 @@ class RoomCommandHandler:
         message: str,
         mynick: str,
         reply_sender: Callable[[str], Awaitable[None]],
+        thread_id: str | None = None,
+        thread_starter_id: int | None = None,
     ) -> None:
         try:
             if not self.proactive_rate_limiter.check_limit():
@@ -337,7 +339,11 @@ class RoomCommandHandler:
                 return
 
             context = await self.agent.history.get_context(
-                server_tag, chan_name, self.proactive_config["history_size"]
+                server_tag,
+                chan_name,
+                self.proactive_config["history_size"],
+                thread_id=thread_id,
+                thread_starter_id=thread_starter_id,
             )
             should_interject, reason, forced_test_mode = await self.should_interject_proactively(
                 context
@@ -418,6 +424,7 @@ class RoomCommandHandler:
                     mynick,
                     True,
                     mode=classified_mode,
+                    thread_id=thread_id,
                 )
                 await self.autochronicler.check_and_chronicle(
                     mynick, server_tag, chan_name, self.command_config["history_size"]
@@ -517,13 +524,21 @@ class RoomCommandHandler:
         message: str,
         trigger_message_id: int,
         reply_sender: Callable[[str], Awaitable[None]],
+        thread_id: str | None = None,
+        thread_starter_id: int | None = None,
     ) -> None:
         if not self.rate_limiter.check_limit():
             logger.warning("Rate limiting triggered for %s", nick)
             rate_msg = f"{nick}: Slow down a little, will you? (rate limiting)"
             await reply_sender(rate_msg)
             await self.agent.history.add_message(
-                server_tag, channel_name, rate_msg, mynick, mynick, True
+                server_tag,
+                channel_name,
+                rate_msg,
+                mynick,
+                mynick,
+                True,
+                thread_id=thread_id,
             )
             return
 
@@ -538,7 +553,13 @@ class RoomCommandHandler:
             default_size,
             *(mode.get("history_size", 0) for mode in self.command_config["modes"].values()),
         )
-        context = await self.agent.history.get_context(server_tag, channel_name, max_size)
+        context = await self.agent.history.get_context(
+            server_tag,
+            channel_name,
+            max_size,
+            thread_id=thread_id,
+            thread_starter_id=thread_starter_id,
+        )
 
         # Debounce briefly to consolidate quick followups e.g. due to automatic IRC message splits
         debounce = self.command_config.get("debounce", 0)
@@ -547,7 +568,7 @@ class RoomCommandHandler:
             await asyncio.sleep(debounce)
 
             followups = await self.agent.history.get_recent_messages_since(
-                server_tag, channel_name, nick, original_timestamp
+                server_tag, channel_name, nick, original_timestamp, thread_id=thread_id
             )
             if followups:
                 logger.debug("Debounced %s followup messages from %s", len(followups), nick)
@@ -563,6 +584,7 @@ class RoomCommandHandler:
             default_size,
             trigger_message_id,
             reply_sender,
+            thread_id=thread_id,
         )
         await self.proactive_debouncer.cancel_channel(
             self._get_proactive_channel_key(server_tag, channel_name)
@@ -636,6 +658,8 @@ class RoomCommandHandler:
         mynick: str,
         message: str,
         reply_sender: Callable[[str], Awaitable[None]],
+        thread_id: str | None = None,
+        thread_starter_id: int | None = None,
     ) -> None:
         channel_key = self._get_proactive_channel_key(server_tag, channel_name)
         if (
@@ -651,6 +675,8 @@ class RoomCommandHandler:
                 mynick,
                 reply_sender,
                 self._handle_debounced_proactive_check,
+                thread_id=thread_id,
+                thread_starter_id=thread_starter_id,
             )
 
         max_size = self.command_config["history_size"]
@@ -667,6 +693,7 @@ class RoomCommandHandler:
         default_size: int,
         trigger_message_id: int,
         reply_sender: Callable[[str], Awaitable[None]],
+        thread_id: str | None = None,
     ) -> None:
         modes_config = self.command_config["modes"]
         parsed = self._parse_prefix(cleaned_msg)
@@ -715,7 +742,13 @@ class RoomCommandHandler:
             help_msg = f"default is {default_desc}, !c disables context"
             await reply_sender(help_msg)
             await self.agent.history.add_message(
-                server_tag, channel_name, help_msg, mynick, mynick, True
+                server_tag,
+                channel_name,
+                help_msg,
+                mynick,
+                mynick,
+                True,
+                thread_id=thread_id,
             )
             return
 
@@ -765,7 +798,13 @@ class RoomCommandHandler:
         async def progress_cb(text: str) -> None:
             await reply_sender(text)
             await self.agent.history.add_message(
-                server_tag, channel_name, text, mynick, mynick, True
+                server_tag,
+                channel_name,
+                text,
+                mynick,
+                mynick,
+                True,
+                thread_id=thread_id,
             )
 
         async def persistence_cb(text: str) -> None:
@@ -777,6 +816,7 @@ class RoomCommandHandler:
                 mynick,
                 False,
                 content_template="[internal monologue] {message}",
+                thread_id=thread_id,
             )
 
         if mode == "SARCASTIC":
@@ -861,6 +901,7 @@ class RoomCommandHandler:
                 True,
                 mode=mode,
                 llm_call_id=llm_call_id,
+                thread_id=thread_id,
             )
             if llm_call_id:
                 await self.agent.history.update_llm_call_response(llm_call_id, response_message_id)
@@ -876,7 +917,13 @@ class RoomCommandHandler:
                 logger.info("Cost followup for %s: %s", channel_name, cost_msg)
                 await reply_sender(cost_msg)
                 await self.agent.history.add_message(
-                    server_tag, channel_name, cost_msg, mynick, mynick, True
+                    server_tag,
+                    channel_name,
+                    cost_msg,
+                    mynick,
+                    mynick,
+                    True,
+                    thread_id=thread_id,
                 )
 
             if agent_result.total_cost:
@@ -891,7 +938,13 @@ class RoomCommandHandler:
                     logger.info("Daily cost milestone for %s: %s", arc_name, fun_msg)
                     await reply_sender(fun_msg)
                     await self.agent.history.add_message(
-                        server_tag, channel_name, fun_msg, mynick, mynick, True
+                        server_tag,
+                        channel_name,
+                        fun_msg,
+                        mynick,
+                        mynick,
+                        True,
+                        thread_id=thread_id,
                     )
         else:
             logger.info("Agent in %s mode chose not to answer for %s", mode, channel_name)

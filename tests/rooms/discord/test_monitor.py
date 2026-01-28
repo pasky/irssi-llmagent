@@ -47,6 +47,7 @@ async def test_discord_reply_mentions_author_and_strips_prefix(test_config):
     message.guild = None
     message.clean_content = "!s hi"
     message.content = "!s hi"
+    message.id = 123
     message.channel = MagicMock()
 
     bot_user = MagicMock()
@@ -101,6 +102,7 @@ async def test_discord_sender_chains_replies(test_config):
     original_message.guild = None
     original_message.clean_content = "hello"
     original_message.content = "hello"
+    original_message.id = 321
 
     await monitor.process_message_event(original_message)
 
@@ -136,6 +138,7 @@ async def test_discord_attachments_are_appended_to_message_text(test_config):
     message.guild = MagicMock()
     message.clean_content = "hello"
     message.content = "hello"
+    message.id = 456
     message.attachments = [attachment]
     message.channel = MagicMock()
     message.mentions = []
@@ -175,6 +178,7 @@ async def test_discord_custom_emoji_are_normalized(test_config):
     message.guild = MagicMock()
     message.clean_content = "<a:blobDance:590880199063896084> wow <:blobWave:1234>"
     message.content = "<a:blobDance:590880199063896084> wow <:blobWave:1234>"
+    message.id = 789
     message.attachments = []
     message.channel = MagicMock()
     message.mentions = []
@@ -208,6 +212,7 @@ async def test_discord_ignores_own_messages(test_config):
     message.guild = None
     message.clean_content = "hello"
     message.content = "hello"
+    message.id = 900
     message.channel = MagicMock()
 
     await monitor.process_message_event(message)

@@ -37,7 +37,9 @@ class ChatHistory:
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                     chapter_id INTEGER NULL,
                     mode TEXT NULL,
-                    llm_call_id INTEGER NULL
+                    llm_call_id INTEGER NULL,
+                    platform_id TEXT NULL,
+                    thread_id TEXT NULL
                 )
             """
             ) as _:
@@ -74,6 +76,13 @@ class ChatHistory:
                 pass
             async with db.execute(
                 """
+                CREATE INDEX IF NOT EXISTS idx_platform_id
+                ON chat_messages (server_tag, channel_name, platform_id)
+            """
+            ) as _:
+                pass
+            async with db.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_llm_calls_arc
                 ON llm_calls (arc_name, timestamp)
             """
@@ -86,6 +95,10 @@ class ChatHistory:
                 await db.execute("ALTER TABLE chat_messages ADD COLUMN mode TEXT NULL")
             if "llm_call_id" not in columns:
                 await db.execute("ALTER TABLE chat_messages ADD COLUMN llm_call_id INTEGER NULL")
+            if "platform_id" not in columns:
+                await db.execute("ALTER TABLE chat_messages ADD COLUMN platform_id TEXT NULL")
+            if "thread_id" not in columns:
+                await db.execute("ALTER TABLE chat_messages ADD COLUMN thread_id TEXT NULL")
             # Migrate llm_calls: add trigger/response message links
             async with db.execute("PRAGMA table_info(llm_calls)") as cursor:
                 llm_columns = [row[1] for row in await cursor.fetchall()]
@@ -168,6 +181,8 @@ class ChatHistory:
         role: str | None = None,
         mode: str | None = None,
         llm_call_id: int | None = None,
+        platform_id: str | None = None,
+        thread_id: str | None = None,
     ) -> int:
         """Add a message to the chat history. Returns the message ID."""
         if role is None:
@@ -178,10 +193,20 @@ class ChatHistory:
             async with db.execute(
                 """
                 INSERT INTO chat_messages
-                (server_tag, channel_name, nick, message, role, mode, llm_call_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (server_tag, channel_name, nick, message, role, mode, llm_call_id, platform_id, thread_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (server_tag, channel_name, nick, content, role, mode, llm_call_id),
+                (
+                    server_tag,
+                    channel_name,
+                    nick,
+                    content,
+                    role,
+                    mode,
+                    llm_call_id,
+                    platform_id,
+                    thread_id,
+                ),
             ) as cursor:
                 message_id = cursor.lastrowid
             await db.commit()
@@ -190,7 +215,12 @@ class ChatHistory:
         return message_id or 0
 
     async def get_context(
-        self, server_tag: str, channel_name: str, limit: int | None = None
+        self,
+        server_tag: str,
+        channel_name: str,
+        limit: int | None = None,
+        thread_id: str | None = None,
+        thread_starter_id: int | None = None,
     ) -> list[dict[str, str]]:
         """Get recent chat context for inference (limited by inference_limit or provided limit).
 
@@ -198,19 +228,42 @@ class ChatHistory:
         (e.g. !s for sarcastic) before the timestamp so models can learn/reproduce routing.
         """
         inference_limit = limit if limit is not None else self.inference_limit
-        async with (
-            self._lock,
-            aiosqlite.connect(self.db_path) as db,
-            db.execute(
-                """
+
+        if thread_id:
+            if thread_starter_id is not None:
+                query = """
                     SELECT message, role, strftime('%H:%M', timestamp) as time_only, mode
                     FROM chat_messages
                     WHERE server_tag = ? AND channel_name = ?
-                    ORDER BY timestamp DESC
+                    AND ((thread_id IS NULL AND id <= ?) OR thread_id = ?)
+                    ORDER BY id DESC
                     LIMIT ?
-                    """,
-                (server_tag, channel_name, inference_limit),
-            ) as cursor,
+                    """
+                params = (server_tag, channel_name, thread_starter_id, thread_id, inference_limit)
+            else:
+                query = """
+                    SELECT message, role, strftime('%H:%M', timestamp) as time_only, mode
+                    FROM chat_messages
+                    WHERE server_tag = ? AND channel_name = ?
+                    AND (thread_id IS NULL OR thread_id = ?)
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """
+                params = (server_tag, channel_name, thread_id, inference_limit)
+        else:
+            query = """
+                SELECT message, role, strftime('%H:%M', timestamp) as time_only, mode
+                FROM chat_messages
+                WHERE server_tag = ? AND channel_name = ? AND thread_id IS NULL
+                ORDER BY timestamp DESC
+                LIMIT ?
+                """
+            params = (server_tag, channel_name, inference_limit)
+
+        async with (
+            self._lock,
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(query, params) as cursor,
         ):
             rows = await cursor.fetchall()
 
@@ -285,22 +338,35 @@ class ChatHistory:
             return cursor.rowcount
 
     async def get_recent_messages_since(
-        self, server_tag: str, channel_name: str, nick: str, timestamp: float
+        self,
+        server_tag: str,
+        channel_name: str,
+        nick: str,
+        timestamp: float,
+        thread_id: str | None = None,
     ) -> list[dict[str, str]]:
         """Get messages from a specific user since a given timestamp."""
+        if thread_id:
+            query = """
+                SELECT message, timestamp FROM chat_messages
+                WHERE server_tag = ? AND channel_name = ? AND nick = ?
+                AND strftime('%s', timestamp) > ? AND thread_id = ?
+                ORDER BY timestamp ASC
+                """
+            params = (server_tag, channel_name, nick, str(int(timestamp)), thread_id)
+        else:
+            query = """
+                SELECT message, timestamp FROM chat_messages
+                WHERE server_tag = ? AND channel_name = ? AND nick = ?
+                AND strftime('%s', timestamp) > ? AND thread_id IS NULL
+                ORDER BY timestamp ASC
+                """
+            params = (server_tag, channel_name, nick, str(int(timestamp)))
+
         async with (
             self._lock,
             aiosqlite.connect(self.db_path) as db,
-            db.execute(
-                """
-                SELECT message, timestamp FROM chat_messages
-                WHERE server_tag = ? AND channel_name = ? AND nick = ?
-                AND strftime('%s', timestamp) > ?
-                ORDER BY timestamp ASC
-                """,
-                # strftime('%s', timestamp) converts SQLite datetime to Unix timestamp for comparison
-                (server_tag, channel_name, nick, str(int(timestamp))),
-            ) as cursor,
+            db.execute(query, params) as cursor,
         ):
             rows = await cursor.fetchall()
 
@@ -315,6 +381,26 @@ class ChatHistory:
 
         logger.debug(f"Found {len(messages)} followup messages from {nick} since {timestamp}")
         return messages
+
+    async def get_message_id_by_platform_id(
+        self, server_tag: str, channel_name: str, platform_id: str
+    ) -> int | None:
+        """Look up internal message ID by platform message ID."""
+        async with (
+            self._lock,
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                """
+                SELECT id FROM chat_messages
+                WHERE server_tag = ? AND channel_name = ? AND platform_id = ?
+                LIMIT 1
+                """,
+                (server_tag, channel_name, platform_id),
+            ) as cursor,
+        ):
+            row = await cursor.fetchone()
+
+        return int(row[0]) if row else None
 
     async def count_recent_unchronicled(
         self, server_tag: str, channel_name: str, days: int = 7
