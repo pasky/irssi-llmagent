@@ -1,66 +1,77 @@
-# irssi-llmagent
+# 🐁 Muaddib - a secure, multi-user AI assistant
 
-A modern Python-based agentic LLM chatbot service that connects to irssi via varlink protocol.
+**Muaddib** is an AI assistant that's been built from the ground up *not* as a private single-user assistant (such as the amazing Clawdbot / Moltbot), but as a resilient entity operating in an inherently untrusted public environment (public IRC servers).
+
+What does it take to talk to many strangers?
+
+1. It operates sandboxed, and with complete channel isolation.
+2. It has been optimized for high cost and token efficiency (using a variety of context engineering etc. techniques).
+3. It operates in "lurk" mode by default (rather than replying to everything, Muaddib replies when highlighted, but can also interject proactively when it seems useful).
+
+Other work-in-progress features are also going to be tailored to this scenario (e.g. per-user token usage tracking and limiting / billing, per-channel code secrets and persistent workspaces, ...).
+
+Of course, this means a tradeoff. Muaddib is not designed to sift through your email and manage your personal calendar!
+It is tailored for **public and team environments, where it's useful to have an AI agent as a "virtual teammate"** - both as an AI colleague in chat for public many-to-many collaboration, and allowing personal or per-channel contexts.
+
+## Quick Demo
+
+Muaddib maintains a refreshing, very un-assistanty tone of voice that **optimizes for short, curt responses** (sometimes sarcastic, always informative) with great information density.
+And you may quickly find that Muaddib (in this case equipped with Opus 4.5) can [do things](https://x.com/xpasky/status/2009380722855890959?s=20) that official Claude app does much worse (let alone other apps like ChatGPT or Gemini!).
+
+![An example interaction](https://pbs.twimg.com/media/G-LAw3NXIAA-uSm?format=jpg&name=large)
+
+[➜ Generated image](https://pbs.twimg.com/media/G-LAy5yXcAAhV4d?format=jpg&name=large)
+
+_(By the way, the token usage has been optimized since!)_
+
+Of course, as with any AI agent, the real magic is in chatting back and forth. (Multiple conversations with several people involved can go on simultaneously on a channel and Muaddib will keep track!)
+
+![A followup discussion](https://pbs.twimg.com/media/G-LA59SXAAAv_5w?format=png&name=4096x4096)
+
+[(➜ Generated image, in case you are curious)](https://pbs.twimg.com/media/G-LA8VGWAAED6sn?format=jpg&name=large)
+
+_(Note that this particular task is on the edge of raw Opus 4.5 capability and all other harnesses and apps I tried failed it completely.)_
 
 ## Features
 
-- **AI Integrations**: Anthropic Claude, OpenAI, DeepSeek, any OpenRouter model, Perplexity AI
+- **AI Integrations**: Anthropic Claude (Opus 4.5 recommended), OpenAI, DeepSeek, any OpenRouter model (including Gemini models), Perplexity AI
 - **Agentic Capability**: Ability to visit websites, view images, perform deep research, execute Python code, publish artifacts
-- **Command System**: Extensible command-based interaction with prefixes for various modes
-- **Proactive Interjecting**: Channel-based whitelist system for automatic participation in relevant conversations
 - **Restartable and Persistent Memory**: All state is persisted; AI agent maintains a continuous chronicle of events and experiences to refer to
-- **Async Architecture**: Non-blocking message processing with concurrent handling
-- **Modern Python**: Built with uv, type safety, and comprehensive testing
-- **Rate Limiting**: Configurable rate limiting and user management
+- **Command System**: Automatic model routing (to balance cost, speed and intelligence) plus extensible command-based interaction with prefixes for various modes
+- **Proactive Interjecting**: Channel-based whitelist system for automatic participation in relevant conversations
+- [BETA] **Long-running Projects**: A *quest* mode (opt-in) that enables Muaddib to work on longer-horizon, many-step tasks in public, using the channel for long-term context and external steering
 
-## Installation
+Muaddib has been **battle-tested since July 2025** in a (slightly) hostile IRC environment, lurking at a variety of [libera.chat](https://libera.chat/) channels.  However, bugs are possible (no warranty etc.) and LLM usage carries some inherent risks (e.g. an E2B code execution sandbox with your API keys preloaded *plus* an access to the internet [*can* be fooled](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/) by a highly crafted malicious website that the agent visits to upload these API keys somewhere).
 
+Currently, only an IRC backend (using irssi connected via a varlink protocol) is implemented, but **Discord and Slack backends are coming _very_ soon.**
+
+## Getting Started
+
+### Configuration
+
+Copy `config.json.example` to `config.json` and set your:
+- API keys (you can get started with just a small subset)
+- Paths for tools and artifacts
+- Custom prompts for various modes
+- IRC integration settings such as channel modes
+
+### Installation
+
+Recommended: See [Docker instructions](docs/docker.md) for running a Muaddib service + irssi in tandem in a Docker compose setup.
+
+Manual ("bring your own irssi"):
 1. Ensure `irssi-varlink` is loaded in your irssi
 2. Install dependencies: `uv sync --dev`
-3. Copy `config.json.example` to `config.json` and configure your API keys
-4. Run the service: `uv run irssi-llmagent`
+3. Run the service: `uv run irssi-llmagent`
 
-Alternatively, see `docs/docker.md` for running this + irssi in a Docker compose setup.
-
-## Configuration
-
-Edit `config.json` based on `config.json.example` to set:
-- API keys
-- Paths for tools
-- Custom prompts for various modes
-- IRC integration settings
-
-## Commands
+### Commands
 
 - `mynick: message` - Automatic mode
 - `mynick: !h` - Show help and info about other modes
 
-## CLI Testing Mode
-
-You can test the bot's message handling including command parsing from the command line:
-
-```bash
-uv run irssi-llmagent --message "!h"
-uv run irssi-llmagent --message "tell me a joke"
-uv run irssi-llmagent --message "!d tell me a joke"
-uv run irssi-llmagent --message "!a summarize https://python.org" --config /path/to/config.json
-```
-
-This simulates full IRC message handling including command parsing and automatic mode classification, useful for testing your configuration and API keys without setting up the full IRC bot.
-
-### Chronicler
-
-The Chronicler maintains persistent memory across conversations using a Chronicle (arcs → chapters → paragraphs) provided via a NLI-based subagent.
-
-```bash
-# Record information
-uv run irssi-llmagent --chronicler "Record: Completed API migration" --arc "project-x"
-
-# View current chapter
-uv run irssi-llmagent --chronicler "Show me the current chapter" --arc "project-x"
-```
-
 ## Development
+
+Note: A rebrand from old name "irssi-llmagent" is in progress.
 
 ```bash
 # Install development dependencies
@@ -80,7 +91,30 @@ uv run pyright
 uv run pre-commit install
 ```
 
-## Evaluation of some internal components
+### CLI Testing Mode
+
+You can test the bot's message handling including command parsing from the command line:
+
+```bash
+uv run irssi-llmagent --message "!h"
+uv run irssi-llmagent --message "tell me a joke"
+uv run irssi-llmagent --message "!d tell me a joke"
+uv run irssi-llmagent --message "!a summarize https://python.org" --config /path/to/config.json
+```
+
+This simulates full IRC message handling including command parsing and automatic mode classification, useful for testing your configuration and API keys without setting up the full IRC bot.
+
+#### Chronicler
+
+The Chronicler maintains persistent memory across conversations using a Chronicle (arcs → chapters → paragraphs) provided via a NLI-based subagent.
+
+```bash
+# Record information
+uv run irssi-llmagent --chronicler "Record: Completed API migration" --arc "project-x"
+
+# View current chapter
+uv run irssi-llmagent --chronicler "Show me the current chapter" --arc "project-x"
+```
 
 ### Classifier Analysis
 
