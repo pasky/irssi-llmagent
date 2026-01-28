@@ -157,15 +157,16 @@ class DiscordRoomMonitor:
         if self._is_highlight(message):
             cleaned_content = self._strip_leading_mention(message, mynick)
             with MessageLoggingContext(arc, nick, content, Path("logs")):
-                await self.command_handler.handle_command(
-                    server_tag=server_tag,
-                    channel_name=channel_name,
-                    nick=nick,
-                    mynick=mynick,
-                    message=cleaned_content,
-                    trigger_message_id=trigger_message_id,
-                    reply_sender=reply_sender,
-                )
+                async with message.channel.typing():
+                    await self.command_handler.handle_command(
+                        server_tag=server_tag,
+                        channel_name=channel_name,
+                        nick=nick,
+                        mynick=mynick,
+                        message=cleaned_content,
+                        trigger_message_id=trigger_message_id,
+                        reply_sender=reply_sender,
+                    )
             return
 
         await self.command_handler.handle_passive_message(
