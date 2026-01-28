@@ -71,6 +71,9 @@ minversion = "7.0"
 addopts = "-ra -q --strict-markers -n auto"
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = [
+    "ignore:'audioop' is deprecated and slated for removal in Python 3\\.13:DeprecationWarning:discord\\.player",
+]
 
 [dependency-groups]
 dev = [
