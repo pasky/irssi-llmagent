@@ -69,6 +69,33 @@ async def test_discord_reply_mentions_author_and_strips_prefix(test_config):
 
 
 @pytest.mark.asyncio
+async def test_discord_sender_chains_replies(test_config):
+    agent = SimpleNamespace()
+    agent.config = test_config
+    agent.history = AsyncMock()
+
+    monitor = DiscordRoomMonitor(cast(MuaddibAgent, agent))
+
+    original_message = MagicMock()
+    first_reply = MagicMock()
+    second_reply = MagicMock()
+    original_message.reply = AsyncMock(return_value=first_reply)
+    first_reply.reply = AsyncMock(return_value=second_reply)
+
+    sender = monitor._sender_factory(
+        server_tag="discord:_DM",
+        channel_name="dm",
+        target=None,
+        reply_context=original_message,
+    )
+
+    await sender("first")
+    await sender("second")
+
+    original_message.reply.assert_awaited_once_with("first", mention_author=True)
+    first_reply.reply.assert_awaited_once_with("second", mention_author=False)
+
+
 async def test_discord_ignores_own_messages(test_config):
     agent = SimpleNamespace()
     agent.config = test_config

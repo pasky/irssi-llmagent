@@ -115,9 +115,16 @@ class DiscordRoomMonitor:
         target: str | None,
         reply_context: Any | None,
     ) -> Callable[[str], Awaitable[None]]:
+        last_reply: discord.Message | None = None
+
         async def send(text: str) -> None:
-            if reply_context is not None and hasattr(reply_context, "reply"):
-                await reply_context.reply(text, mention_author=True)
+            nonlocal last_reply
+            reply_target = last_reply or reply_context
+            if reply_target is not None and hasattr(reply_target, "reply"):
+                mention_author = last_reply is None
+                sent_message = await reply_target.reply(text, mention_author=mention_author)
+                if sent_message is not None:
+                    last_reply = sent_message
                 return
             logger.warning("Missing reply context for Discord send to %s", channel_name)
 
