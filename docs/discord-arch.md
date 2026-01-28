@@ -31,3 +31,23 @@ Add a Discord frontend in parallel to the IRC/irssi frontend with minimal featur
 - Support threads/replies as first‑class context in `ChatHistory`.
 - Inline image handling by attaching metadata/URLs to context.
 - Introduce a shared `RoomMessageEvent` abstraction to support Slack.
+
+## TODO: Missing Features vs IRC
+- Command parsing (`!s`, `!a`, `!d`, `!u`, `!h`, `!p`, `!c`, model overrides).
+- Automatic mode classification (sarcastic vs serious vs unsafe).
+- Channel-level mode overrides and per-channel defaults.
+- Proactive interjection (debouncer + validation models).
+- Command debouncing/aggregation for rapid follow-ups.
+- Perplexity integration (`!p` command).
+- Unsafe mode support and explicit unsafe routing.
+- Progress messages (tool progress callbacks are not surfaced to Discord).
+- Tool persistence summaries stored separately (no persistence callback wiring).
+- Auto-chronicling integration (no `AutoChronicler` usage).
+- Cost follow-up messages for expensive requests.
+- Daily cost milestone announcements.
+- Ignore list support for users.
+- Context reduction toggles (no `!c` no-context option).
+- Model override per request (e.g., `@provider:model`).
+- IRC-style help message for available modes and models.
+- Artifact creation on long responses is IRC-only (no Discord-specific artifact behavior).
+- DM-specific handling differences (DMs are logged but no distinct behavior beyond reply).
