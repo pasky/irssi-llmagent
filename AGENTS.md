@@ -2,11 +2,11 @@
 
 ## Build/Test Commands
 - Install dependencies: `uv sync --dev`
+- Any change should be accompanied with tests update. (Always prefer updating existing unit tests over adding new ones.)
+- Any change where viable should be tested by actually running the CLI e2e test: `uv run muaddib --message "your message here"`
+- Run linting, typecheck etc. via pre-commit.
 - Run tests: `uv run pytest` - all tests must always succeed! You must assume any test failure is related to your changes, even if it doesn't appear to be at first.
-- Full e2e test in CLI mode: `uv run muaddib --message "your message here"`
-- Run linting: `uv run ruff check .`
-- Run formatting: `uv run ruff format .`
-- Run type checking: `uv run pyright`
+- You must test and commit your work once finished.
 - NEVER use `git add -A` blindly, there may be untracked files that must not be committed; use `git add -u` instead
 
 ## Architecture
