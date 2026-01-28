@@ -101,6 +101,7 @@ def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict
             "discord": {
                 "enabled": False,
                 "token": "mock-token",
+                "reply_edit_debounce_seconds": 15.0,
                 "command": {"history_size": 5, "rate_limit": 30, "rate_period": 900},
                 "proactive": {
                     "interjecting": [],

@@ -158,13 +158,14 @@
     "discord": {
       "enabled": false,
       "token": "your-discord-bot-token-here",
+      "reply_edit_debounce_seconds": 15.0,
       "command": {
         "history_size": 20,
         "debounce": 3,
         "ignore_users": []
       },
       "proactive": {
-        "debounce_seconds": 60.0,
+        "debounce_seconds": 40.0,
         "interjecting": ["muaddib#general"],
         "interjecting_test": []
       }

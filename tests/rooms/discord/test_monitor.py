@@ -83,11 +83,15 @@ async def test_discord_sender_chains_replies(test_config):
     second_reply = MagicMock()
     original_message.reply = AsyncMock(return_value=first_reply)
     first_reply.reply = AsyncMock(return_value=second_reply)
+    first_reply.edit = AsyncMock(return_value=first_reply)
+    first_reply.content = "first"
+    monitor._now = MagicMock(side_effect=[0.0, 10.0, 30.0])
 
     async def handle_command(**kwargs):
         reply_sender = kwargs["reply_sender"]
         await reply_sender("first")
         await reply_sender("second")
+        await reply_sender("third")
 
     monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
 
@@ -107,7 +111,8 @@ async def test_discord_sender_chains_replies(test_config):
     await monitor.process_message_event(original_message)
 
     original_message.reply.assert_awaited_once_with("first", mention_author=True)
-    first_reply.reply.assert_awaited_once_with("second", mention_author=False)
+    first_reply.edit.assert_awaited_once_with(content="first\nsecond")
+    first_reply.reply.assert_awaited_once_with("third", mention_author=False)
 
 
 @pytest.mark.asyncio

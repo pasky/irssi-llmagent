@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -44,6 +45,10 @@ class DiscordRoomMonitor:
         intents.guilds = True
         intents.messages = True
         self.client = DiscordClient(self, intents=intents)
+
+        self.reply_edit_debounce_seconds = float(
+            self.room_config.get("reply_edit_debounce_seconds", 15.0)
+        )
 
         self.command_handler = RoomCommandHandler(
             self.agent,
@@ -110,6 +115,9 @@ class DiscordRoomMonitor:
             return self._normalize_content(match.group(1).strip())
 
         return self._normalize_content(content)
+
+    def _now(self) -> float:
+        return time.monotonic()
 
     async def process_message_event(self, message: discord.Message) -> None:
         """Process incoming Discord message events."""
@@ -178,15 +186,31 @@ class DiscordRoomMonitor:
         )
 
         last_reply: discord.Message | None = None
+        last_reply_time: float | None = None
 
         async def reply_sender(text: str) -> None:
-            nonlocal last_reply
+            nonlocal last_reply, last_reply_time
+            now = self._now()
+            if (
+                last_reply is not None
+                and last_reply_time is not None
+                and now - last_reply_time < self.reply_edit_debounce_seconds
+            ):
+                existing_content = getattr(last_reply, "content", "") or ""
+                combined = f"{existing_content}\n{text}" if existing_content else text
+                sent_message = await last_reply.edit(content=combined)
+                if sent_message is not None:
+                    last_reply = sent_message
+                    last_reply_time = now
+                return
+
             reply_target = last_reply or message
             if reply_target is not None and hasattr(reply_target, "reply"):
                 mention_author = last_reply is None
                 sent_message = await reply_target.reply(text, mention_author=mention_author)
                 if sent_message is not None:
                     last_reply = sent_message
+                    last_reply_time = now
                 return
             logger.warning("Missing reply context for Discord send to %s", channel_name)
 
