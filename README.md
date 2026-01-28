@@ -1,5 +1,12 @@
 # 🐁 Muaddib - a secure, multi-user AI assistant
 
+<p align="center">
+  <a href="https://github.com/pasky/muaddib/releases"><img src="https://img.shields.io/github/v/release/pasky/muaddib?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
+  <a href="https://deepwiki.com/pasky/muaddib"><img src="https://img.shields.io/badge/DeepWiki-muaddib-111111?style=for-the-badge" alt="DeepWiki"></a>
+  <a href="https://discord.gg/rGABHaDEww"><img src="https://img.shields.io/discord/1466209104866578657?label=Discord&logo=discord&logoColor=white&color=5865F2&style=for-the-badge" alt="Discord"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
+</p>
+
 **Muaddib** is an AI assistant that's been built from the ground up *not* as a private single-user assistant (such as the amazing Clawdbot / Moltbot), but as a resilient entity operating in an inherently untrusted public environment (public IRC servers).
 
 What does it take to talk to many strangers?
