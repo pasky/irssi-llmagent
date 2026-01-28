@@ -53,6 +53,7 @@ def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict
         },
         "rooms": {
             "irc": {
+                "enabled": True,
                 "varlink": {"socket_path": "/tmp/test_varlink.sock"},
                 "command": {
                     "history_size": 5,
@@ -95,7 +96,12 @@ def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict
                         "serious_extra": "NOTE: This is a proactive interjection. If upon reflection you decide your contribution wouldn't add significant factual value (e.g. just an encouragement or general statement), respond with exactly 'NULL' instead of a message.",
                     },
                 },
-            }
+            },
+            "discord": {
+                "enabled": False,
+                "token": "mock-token",
+                "command": {"history_size": 5, "rate_limit": 30, "rate_period": 900},
+            },
         },
         "chronicler": {
             "model": f"{api_type}:dummy-chronicler",

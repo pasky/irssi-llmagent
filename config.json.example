@@ -90,6 +90,7 @@
 
   "rooms": {
     "irc": {
+      "enabled": true,
       "prompt_note": "",
 
       "varlink": {
@@ -151,6 +152,15 @@
           "interject": "You are analyzing IRC chat messages to decide if an AI assistant should interject in the conversation proactively even without being explicitly tagged. Decide based on the current latest message - that is the actual message that you would be shown reacting to.\n\nFirst, analyze these aspects:\n\n1. Will interjecting (a) answer an explicit question, and (b) be as smooth as if a human joined in, rather than interrupt the flow of casual chat, news sharing, social banter, or ongoing discussion between specific people especially when tagging each other?\n2. Does the message contain a question that is technical and needs expert answers you are qualified to research and provide?\n3. Would interjecting add SPECIFIC value to others? (articulate hypothesis on what you could concretely say)\n\nBased on these aspects, on a scale 1 to 10 rate how much your interjection would improve the conversation. Think through your reasoning first, answering 1-2-3 each specifically, then give a final verdict.\n\nYou MUST respond with EXACTLY this format (X being your 1-10 rating, one number):\n[<fill all reasons here>]: X/10\n\nCurrent message to evaluate: {message}",
           "serious_extra": "NOTE: This is a proactive interjection. Include this reflection in your <thinking>, and if you decide you aren't actuall reacting to a *question* or your contribution wouldn't add new significant facts, respond with exactly 'NULL' instead of a message. If your reply is an encouragement, summary, acknowledgement or reinforcement, always respond NULL instead."
         }
+      }
+    },
+    "discord": {
+      "enabled": false,
+      "token": "your-discord-bot-token-here",
+      "command": {
+        "history_size": 40,
+        "rate_limit": 30,
+        "rate_period": 900
       }
     }
   }

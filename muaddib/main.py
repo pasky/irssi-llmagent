@@ -66,6 +66,7 @@ class MuaddibAgent:
         self.model_router: ModelRouter = ModelRouter(self.config)
         # Get IRC config section
         irc_config = self.config["rooms"]["irc"]
+        self.irc_enabled = irc_config.get("enabled", True)
         self.history = ChatHistory(
             self.config.get("history", {}).get("database", {}).get("path", "chat_history.db"),
             irc_config["command"]["history_size"],
@@ -76,6 +77,12 @@ class MuaddibAgent:
         self.chronicle = Chronicle(chronicle_db_path)
         self.context_reducer = ContextReducer(self)
         self.irc_monitor = IRCRoomMonitor(self)
+        self.discord_monitor = None
+        discord_config = self.config.get("rooms", {}).get("discord")
+        if discord_config and discord_config.get("enabled"):
+            from .rooms.discord import DiscordRoomMonitor
+
+            self.discord_monitor = DiscordRoomMonitor(self)
         self.quests = QuestOperator(self)
 
     async def run_actor(
@@ -159,7 +166,15 @@ class MuaddibAgent:
         await self.quests.start_heartbeat()
 
         try:
-            await self.irc_monitor.run()
+            monitors = []
+            if self.irc_enabled:
+                monitors.append(self.irc_monitor.run())
+            if self.discord_monitor:
+                monitors.append(self.discord_monitor.run())
+            if not monitors:
+                logger.warning("No room monitors enabled; exiting")
+                return
+            await asyncio.gather(*monitors)
         finally:
             # Clean up shared resources
             await self.quests.stop_heartbeat()

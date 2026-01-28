@@ -41,6 +41,7 @@ class TestMuaddibAgent:
         assert "providers" in agent.config  # Provider sections exist
         assert "rooms" in agent.config
         assert "irc" in agent.config["rooms"]
+        assert "discord" in agent.config["rooms"]
         assert "varlink" in agent.config["rooms"]["irc"]
 
 
