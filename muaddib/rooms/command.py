@@ -120,14 +120,17 @@ class RoomCommandHandler:
         return any(nick.lower() == ignored.lower() for ignored in ignore_list)
 
     @staticmethod
-    def _normalize_proactive_server_tag(server_tag: str) -> str:
+    def _normalize_server_tag(server_tag: str) -> str:
         if server_tag.startswith("discord:"):
             return server_tag.split("discord:", 1)[1]
         return server_tag
 
-    def _get_proactive_channel_key(self, server_tag: str, channel_name: str) -> str:
-        normalized_server = self._normalize_proactive_server_tag(server_tag)
+    def _get_channel_key(self, server_tag: str, channel_name: str) -> str:
+        normalized_server = self._normalize_server_tag(server_tag)
         return f"{normalized_server}#{channel_name}"
+
+    def _get_proactive_channel_key(self, server_tag: str, channel_name: str) -> str:
+        return self._get_channel_key(server_tag, channel_name)
 
     def build_system_prompt(self, mode: str, mynick: str, model_override: str | None = None) -> str:
         """Build a command system prompt with standard substitutions."""
@@ -158,10 +161,11 @@ class RoomCommandHandler:
             prompt_note=prompt_note,
         )
 
-    def get_channel_mode(self, chan_name: str) -> str:
+    def get_channel_mode(self, server_tag: str, chan_name: str) -> str:
         channel_modes = self.command_config.get("channel_modes", {})
-        if chan_name in channel_modes:
-            return channel_modes[chan_name]
+        channel_key = self._get_channel_key(server_tag, chan_name)
+        if channel_key in channel_modes:
+            return channel_modes[channel_key]
         return self.command_config.get("default_mode", "classifier")
 
     async def classify_mode(self, context: list[dict[str, str]]) -> str:
@@ -688,7 +692,7 @@ class RoomCommandHandler:
             unsafe_model = modes_config["unsafe"]["model"]
             classifier_model = self.command_config["mode_classifier"]["model"]
 
-            channel_mode = self.get_channel_mode(channel_name)
+            channel_mode = self.get_channel_mode(server_tag, channel_name)
             if channel_mode == "serious":
                 default_desc = (
                     f"serious agentic mode with web tools ({serious_model}), "
@@ -739,7 +743,7 @@ class RoomCommandHandler:
         else:
             logger.debug("Processing automatic mode request from %s: %s", nick, query_text)
 
-            channel_mode = self.get_channel_mode(channel_name)
+            channel_mode = self.get_channel_mode(server_tag, channel_name)
             if channel_mode == "serious":
                 mode = await self.classify_mode(context[-default_size:])
                 logger.debug("Auto-classified message as %s mode", mode)

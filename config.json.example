@@ -145,12 +145,12 @@
       "command": {
         "ignore_users": [],
         "channel_modes": {
-          "#random": "classifier",
-          "#sarcasm-corner": "sarcastic"
+          "testserver##random": "classifier",
+          "libera###sarcasm-corner": "sarcastic"
         }
       },
       "proactive": {
-        "interjecting": ["testserver##programming", "libera##tech"],
+        "interjecting": ["testserver##programming", "libera###tech"],
         "interjecting_test": ["libera##test-channel"]
       }
     },
