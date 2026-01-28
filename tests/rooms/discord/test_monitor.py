@@ -153,6 +153,39 @@ async def test_discord_attachments_are_appended_to_message_text(test_config):
     )
 
 
+@pytest.mark.asyncio
+async def test_discord_custom_emoji_are_normalized(test_config):
+    agent = SimpleNamespace()
+    agent.config = test_config
+    agent.history = AsyncMock()
+    agent.history.add_message = AsyncMock(return_value=1)
+
+    monitor = DiscordRoomMonitor(cast(MuaddibAgent, agent))
+    monitor.command_handler.handle_passive_message = AsyncMock()
+
+    bot_user = MagicMock()
+    bot_user.display_name = "Muaddib"
+    bot_user.id = 999
+    monitor.client._connection.user = bot_user
+
+    message = MagicMock()
+    message.author.display_name = "pasky"
+    message.author.id = 1
+    message.author.bot = False
+    message.guild = MagicMock()
+    message.clean_content = "<a:blobDance:590880199063896084> wow <:blobWave:1234>"
+    message.content = "<a:blobDance:590880199063896084> wow <:blobWave:1234>"
+    message.attachments = []
+    message.channel = MagicMock()
+    message.mentions = []
+
+    await monitor.process_message_event(message)
+
+    monitor.command_handler.handle_passive_message.assert_awaited_once()
+    kwargs = monitor.command_handler.handle_passive_message.call_args.kwargs
+    assert kwargs["message"] == ":blobDance: wow :blobWave:"
+
+
 async def test_discord_ignores_own_messages(test_config):
     agent = SimpleNamespace()
     agent.config = test_config

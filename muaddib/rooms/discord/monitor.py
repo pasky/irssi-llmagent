@@ -64,6 +64,12 @@ class DiscordRoomMonitor:
             cleaned_text = cleaned_text[len(prefix) :].lstrip()
         return cleaned_text or text
 
+    @staticmethod
+    def _normalize_content(content: str) -> str:
+        if not content:
+            return content
+        return re.sub(r"<a?:([0-9A-Za-z_]+):\d+>", r":\1:", content)
+
     def _get_channel_name(self, channel: discord.abc.Messageable) -> str:
         if isinstance(channel, discord.Thread) and channel.parent:
             return self._normalize_name(channel.parent.name)
@@ -91,19 +97,19 @@ class DiscordRoomMonitor:
             return content
 
         if self.client.user is None:
-            return content
+            return self._normalize_content(content)
 
         mention_pattern = rf"^\s*(?:<@!?{self.client.user.id}>|{re.escape(mynick)})[:,]?\s*(.*)$"
         match = re.match(mention_pattern, message.content)
         if match:
-            return match.group(1).strip()
+            return self._normalize_content(match.group(1).strip())
 
         clean_pattern = rf"^\s*{re.escape(mynick)}[:,]?\s*(.*)$"
         match = re.match(clean_pattern, content)
         if match:
-            return match.group(1).strip()
+            return self._normalize_content(match.group(1).strip())
 
-        return content
+        return self._normalize_content(content)
 
     async def process_message_event(self, message: discord.Message) -> None:
         """Process incoming Discord message events."""
@@ -111,6 +117,7 @@ class DiscordRoomMonitor:
         logger.debug("Processing message event: %s", message)
 
         content = message.clean_content or message.content or ""
+        content = self._normalize_content(content)
 
         if message.attachments:
             attachment_lines: list[str] = []
