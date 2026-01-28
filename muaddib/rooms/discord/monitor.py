@@ -137,6 +137,10 @@ class DiscordRoomMonitor:
             logger.debug(f"No user set in client {self.client} for message {message}")
             return
 
+        if message.author.id == self.client.user.id:
+            logger.debug("Ignoring message from self: %s", message)
+            return
+
         server_tag = self._get_server_tag(message)
         if message.guild is None:
             normalized_name = self._normalize_name(message.author.display_name)

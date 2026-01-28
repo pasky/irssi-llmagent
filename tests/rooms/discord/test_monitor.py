@@ -66,3 +66,35 @@ async def test_discord_reply_mentions_author_and_strips_prefix(test_config):
     assert history_args[1] == "pasky_1"
     assert history_args[2] == "hello there"
     assert history_kwargs["mode"] == "EASY_SERIOUS"
+
+
+@pytest.mark.asyncio
+async def test_discord_ignores_own_messages(test_config):
+    agent = SimpleNamespace()
+    agent.config = test_config
+    agent.history = AsyncMock()
+    agent.history.add_message = AsyncMock(return_value=1)
+
+    monitor = DiscordRoomMonitor(cast(MuaddibAgent, agent))
+    monitor.command_handler.handle_command = AsyncMock()
+    monitor.command_handler.handle_passive_message = AsyncMock()
+
+    bot_user = MagicMock()
+    bot_user.display_name = "Muaddib"
+    bot_user.id = 999
+    monitor.client._connection.user = bot_user
+
+    message = MagicMock()
+    message.author.display_name = "Muaddib"
+    message.author.id = 999
+    message.author.bot = True
+    message.guild = None
+    message.clean_content = "hello"
+    message.content = "hello"
+    message.channel = MagicMock()
+
+    await monitor.process_message_event(message)
+
+    agent.history.add_message.assert_not_awaited()
+    monitor.command_handler.handle_command.assert_not_awaited()
+    monitor.command_handler.handle_passive_message.assert_not_awaited()
