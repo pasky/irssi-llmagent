@@ -174,6 +174,12 @@ async def test_heartbeat_triggers_open_quests(shared_agent):
             await asyncio.sleep(0.05)
 
         content = await agent.chronicle.render_chapter(arc)
+        for _ in range(20):
+            if "Done X" in content:
+                break
+            await asyncio.sleep(0.05)
+            content = await agent.chronicle.render_chapter(arc)
+
         assert "Do X" in content
         assert "Done X" in content
 

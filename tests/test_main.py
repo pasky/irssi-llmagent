@@ -97,55 +97,6 @@ class TestCLIMode:
                         assert any("Sarcastic response" in call for call in print_calls)
 
     @pytest.mark.asyncio
-    async def test_cli_message_perplexity_message(self, temp_config_file):
-        """Test CLI mode with Perplexity message."""
-        with patch("builtins.print") as mock_print:
-            with patch("muaddib.rooms.irc.monitor.PerplexityClient") as mock_perplexity_class:
-                with patch("muaddib.main.ChatHistory") as mock_history_class:
-                    # Mock history to return only the current message
-                    mock_history = AsyncMock()
-                    mock_history.add_message = AsyncMock()
-                    mock_history.get_context.return_value = [
-                        {"role": "user", "content": "!p what is the weather?"}
-                    ]
-                    # Add new chronicling methods
-                    mock_history.count_recent_unchronicled = AsyncMock(return_value=0)
-                    mock_history.get_recent_unchronicled = AsyncMock(return_value=[])
-                    mock_history.mark_chronicled = AsyncMock()
-                    mock_history_class.return_value = mock_history
-
-                    mock_perplexity = AsyncMock()
-                    mock_perplexity.call_perplexity = AsyncMock(return_value="Weather is sunny")
-                    mock_perplexity_class.return_value = mock_perplexity
-
-                    # Create a real agent
-                    from muaddib.main import MuaddibAgent
-
-                    agent = MuaddibAgent(temp_config_file)
-
-                    # Patch the agent creation in cli_message
-                    with patch("muaddib.main.MuaddibAgent", return_value=agent):
-                        await cli_message("!p what is the weather?", temp_config_file)
-
-                        # Verify Perplexity was called with the actual message in context
-                        mock_perplexity.call_perplexity.assert_called_once()
-                        call_args = mock_perplexity.call_perplexity.call_args
-                        context = call_args[0][0]  # First argument is context
-
-                        # Verify the user message is in the context - should be the last message
-                        assert len(context) >= 1
-                        assert context[-1]["role"] == "user"
-                        assert "!p what is the weather?" in context[-1]["content"]
-
-                        # Verify output
-                        print_calls = [call[0][0] for call in mock_print.call_args_list]
-                        assert any(
-                            "Simulating IRC message: !p what is the weather?" in call
-                            for call in print_calls
-                        )
-                        assert any("Weather is sunny" in call for call in print_calls)
-
-    @pytest.mark.asyncio
     async def test_cli_message_agent_message(self, temp_config_file):
         """Test CLI mode with agent message."""
         with patch("builtins.print") as mock_print:

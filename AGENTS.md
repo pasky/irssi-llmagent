@@ -14,7 +14,7 @@
 - **Room Isolation**: IRC-specific functionality isolated in `rooms/irc/monitor.py` (IRCRoomMonitor class)
 - **Modular Structure**: Clean separation between platform-agnostic core and IRC-specific implementation
 - **Varlink Protocol**: Dual async socket architecture (events + sender) over UNIX socket at `~/.irssi/varlink.sock`
-- **APIs**: Anthropic Claude (sarcastic/serious modes with automatic classification using claude-3-5-haiku), Perplexity AI, E2B sandbox for Python code execution
+- **APIs**: Anthropic Claude (sarcastic/serious modes with automatic classification using claude-3-5-haiku), E2B sandbox for Python code execution
 - **Config**: JSON-based configuration in `config.json` (copy from `config.json.example`)
   - Models MUST be fully-qualified as `provider:model` (e.g., `anthropic:claude-sonnet-4`). No defaults.
   - No backwards compatibility is kept for legacy config keys; tests are aligned to the new schema.
@@ -28,7 +28,7 @@
   - `rooms/irc/autochronicler.py` - AutoChronicler (automatic chronicling of IRC messages when threshold exceeded)
   - `rooms/proactive.py` - ProactiveDebouncer (channel-based proactive interjecting)
   - `history.py` - ChatHistory (persistent SQLite storage)
-  - `providers/` - async API clients (anthropic, openai, perplexity) and base classes
+- `providers/` - async API clients (anthropic, openai) and base classes
   - `rate_limiter.py` - RateLimiter
   - `agentic_actor/` - AgenticLLMActor multi-turn mode with tool system for web search, webpage visiting, and Python code execution
 

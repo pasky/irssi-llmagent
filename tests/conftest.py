@@ -38,11 +38,6 @@ def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict
                 "key": "mock-key",
                 "max_tokens": 2048,
             },
-            "perplexity": {
-                "url": "http://localhost:1/mock",
-                "key": "mock-key",
-                "model": "sonar-pro",
-            },
         },
         "tools": {
             "summary": {"model": f"{api_type}:dummy-summary"},
