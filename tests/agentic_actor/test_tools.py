@@ -787,12 +787,14 @@ class TestToolExecutors:
         assert result == "Error: artifacts.path and artifacts.url must be configured"
 
     @pytest.mark.asyncio
-    async def test_share_artifact_executor_write_error(self):
+    async def test_share_artifact_executor_write_error(self, tmp_path):
         """Test artifact sharing with write error."""
         from muaddib.agentic_actor.tools import ArtifactStore
 
+        blocked_path = tmp_path / "not_a_dir"
+        blocked_path.write_text("content")
         store = ArtifactStore(
-            artifacts_path="/nonexistent/readonly/path",
+            artifacts_path=str(blocked_path),
             artifacts_url="https://example.com/artifacts",
         )
         executor = ShareArtifactExecutor(store=store)

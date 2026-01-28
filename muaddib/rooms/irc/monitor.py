@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 from ...agentic_actor.actor import AgentResult
 from ...message_logging import MessageLoggingContext
 from ...providers import parse_model_spec
-from ...providers.perplexity import PerplexityClient
 from ...rate_limiter import RateLimiter
 from .. import ProactiveDebouncer
 from .autochronicler import AutoChronicler
@@ -26,7 +25,7 @@ from .varlink import VarlinkClient, VarlinkSender
 
 logger = logging.getLogger(__name__)
 
-MODE_TOKENS = {"!s", "!S", "!a", "!d", "!D", "!u", "!p", "!h"}
+MODE_TOKENS = {"!s", "!S", "!a", "!d", "!D", "!u", "!h"}
 FLAG_TOKENS = {"!c"}
 
 
@@ -606,7 +605,7 @@ class IRCRoomMonitor:
 
         Recognized tokens (any order at start):
           - !c: no-context flag
-          - !s/!S/!a/!d/!D/!u/!p/!h: mode commands
+          - !s/!S/!a/!d/!D/!u/!h: mode commands
           - @modelid: model override
 
         Parsing stops at first non-modifier token. Only one mode allowed.
@@ -703,26 +702,9 @@ class IRCRoomMonitor:
             else:
                 default_desc = f"automatic mode ({classifier_model} decides), !d is explicit sarcastic diss mode ({sarcastic_model}), !s (quick, {serious_model}) & !a (thinking{thinking_desc}) is serious agentic mode with web tools, !u is unsafe mode ({unsafe_model}); use @modelid to override model"
 
-            help_msg = f"default is {default_desc}, !p is Perplexity (prefer English!), !c disables context"
+            help_msg = f"default is {default_desc}, !c disables context"
             await self.varlink_sender.send_message(target, help_msg, server)
             await self.agent.history.add_message(server, chan_name, help_msg, mynick, mynick, True)
-            return
-
-        if parsed.mode_token == "!p":
-            logger.debug(f"Processing Perplexity request from {nick}: {query_text}")
-            perplexity = PerplexityClient(self.agent.config)
-            response = await perplexity.call_perplexity(context[-default_size:])
-            if response:
-                lines = response.split("\n")
-                for line in lines:
-                    if line.strip():
-                        logger.info(f"Sending Perplexity response to {target}: {line.strip()}")
-                        await self.varlink_sender.send_message(
-                            target, f"{nick}: {line.strip()}", server
-                        )
-                await self.agent.history.add_message(
-                    server, chan_name, lines[0], mynick, mynick, True
-                )
             return
 
         mode = None
