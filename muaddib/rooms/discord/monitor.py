@@ -111,6 +111,20 @@ class DiscordRoomMonitor:
         logger.debug("Processing message event: %s", message)
 
         content = message.clean_content or message.content or ""
+
+        if message.attachments:
+            attachment_lines: list[str] = []
+            for i, att in enumerate(message.attachments, start=1):
+                meta = att.content_type or "attachment"
+                if att.filename:
+                    meta += f" (filename: {att.filename})"
+                if getattr(att, "size", None):
+                    meta += f" (size: {att.size})"
+                attachment_lines.append(f"{i}. {meta}: {att.url}")
+
+            attachments_block = "\n".join(["[Attachments]", *attachment_lines, "[/Attachments]"])
+            content = f"{content}\n\n{attachments_block}" if content else attachments_block
+
         if not content:
             logger.debug(f"No content in message {message}")
             return
