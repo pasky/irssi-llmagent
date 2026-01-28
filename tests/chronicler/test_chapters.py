@@ -12,10 +12,10 @@ from muaddib.providers import ModelSpec, UsageInfo
 @pytest.mark.asyncio
 async def test_chapter_append_paragraph_under_limit(temp_config_file):
     """Test that paragraphs are appended normally when under limit."""
-    from muaddib.main import IRSSILLMAgent
+    from muaddib.main import MuaddibAgent
 
     # Create agent instance
-    agent = IRSSILLMAgent(temp_config_file)
+    agent = MuaddibAgent(temp_config_file)
     await agent.chronicle.initialize()
 
     # Set config with higher paragraph limit to avoid hitting it
@@ -43,10 +43,10 @@ async def test_chapter_append_paragraph_under_limit(temp_config_file):
 @pytest.mark.asyncio
 async def test_chapter_append_paragraph_over_limit(temp_config_file):
     """Test that new chapter is created when hitting paragraph limit."""
-    from muaddib.main import IRSSILLMAgent
+    from muaddib.main import MuaddibAgent
 
     # Create agent instance
-    agent = IRSSILLMAgent(temp_config_file)
+    agent = MuaddibAgent(temp_config_file)
     await agent.chronicle.initialize()
 
     # Mock model router to return a summary
@@ -113,10 +113,10 @@ async def test_chapter_append_paragraph_empty_text():
 @pytest.mark.asyncio
 async def test_chapter_append_paragraph_default_config(temp_config_file):
     """Test that default paragraph limit is used when not specified in config."""
-    from muaddib.main import IRSSILLMAgent
+    from muaddib.main import MuaddibAgent
 
     # Create agent instance
-    agent = IRSSILLMAgent(temp_config_file)
+    agent = MuaddibAgent(temp_config_file)
     await agent.chronicle.initialize()
 
     # Config without paragraphs_per_chapter (should use default of 10)
@@ -151,10 +151,10 @@ async def test_arc_locking_basic():
 @pytest.mark.asyncio
 async def test_concurrent_appends_same_arc(temp_config_file):
     """Test that concurrent appends to the same arc are properly serialized."""
-    from muaddib.main import IRSSILLMAgent
+    from muaddib.main import MuaddibAgent
 
     # Create agent instance
-    agent = IRSSILLMAgent(temp_config_file)
+    agent = MuaddibAgent(temp_config_file)
     await agent.chronicle.initialize()
 
     # Set low paragraph limit for testing
@@ -215,10 +215,10 @@ async def test_concurrent_appends_same_arc(temp_config_file):
 @pytest.mark.asyncio
 async def test_concurrent_appends_different_arcs(temp_config_file):
     """Test that concurrent appends to different arcs can proceed in parallel."""
-    from muaddib.main import IRSSILLMAgent
+    from muaddib.main import MuaddibAgent
 
     # Create agent instance
-    agent = IRSSILLMAgent(temp_config_file)
+    agent = MuaddibAgent(temp_config_file)
     await agent.chronicle.initialize()
 
     arc1 = "test-arc-1"

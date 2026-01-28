@@ -10,7 +10,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from muaddib.main import IRSSILLMAgent
+from muaddib.main import MuaddibAgent
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -192,9 +192,9 @@ async def extract_non_bot_messages_from_db(
 
 
 async def should_interject_proactively_with_reason(
-    agent: IRSSILLMAgent, context: list[dict]
+    agent: MuaddibAgent, context: list[dict]
 ) -> tuple[bool, str]:
-    """Use IRSSILLMAgent method to determine if bot should interject proactively."""
+    """Use MuaddibAgent method to determine if bot should interject proactively."""
     try:
         # Use the actual agent method - it now returns decision, reason, and test_mode flag
         should_interject, reason, test_mode = await agent.irc_monitor.should_interject_proactively(
@@ -249,7 +249,7 @@ Examples:
         sys.exit(1)
 
     # Create agent instance to use its methods
-    agent = IRSSILLMAgent(str(config_path))
+    agent = MuaddibAgent(str(config_path))
 
     # Set up exclusions
     exclude_channels = ["#news.cz"] if args.exclude_news else []

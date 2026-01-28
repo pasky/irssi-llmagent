@@ -10,7 +10,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from muaddib.main import IRSSILLMAgent
+from muaddib.main import MuaddibAgent
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -145,7 +145,7 @@ def extract_bot_invocations_from_logs(log_path: str) -> list[dict]:
 
 
 async def classify_message_with_agent(
-    agent: IRSSILLMAgent, message: str, context: list[dict] | None = None
+    agent: MuaddibAgent, message: str, context: list[dict] | None = None
 ) -> str:
     """Classify a single message using the agent's classifier method."""
     try:
@@ -213,7 +213,7 @@ Examples:
         sys.exit(1)
 
     # Create agent instance for classification
-    agent = IRSSILLMAgent(str(config_path))
+    agent = MuaddibAgent(str(config_path))
 
     # Extract historic invocations
     if args.logs:

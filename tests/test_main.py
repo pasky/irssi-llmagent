@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from muaddib.agentic_actor.actor import AgentResult
-from muaddib.main import IRSSILLMAgent, cli_message
+from muaddib.main import MuaddibAgent, cli_message
 from muaddib.providers import ModelSpec, UsageInfo
 
 
@@ -31,12 +31,12 @@ class MockAPIClient:
         return {"role": "user", "content": "Tool results"}
 
 
-class TestIRSSILLMAgent:
+class TestMuaddibAgent:
     """Test main agent functionality."""
 
     def test_load_config(self, temp_config_file, api_type):
         """Test configuration loading."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         assert agent.config is not None
         assert "providers" in agent.config  # Provider sections exist
         assert "rooms" in agent.config
@@ -65,9 +65,9 @@ class TestCLIMode:
                 mock_history_class.return_value = mock_history
 
                 # Create a real agent
-                from muaddib.main import IRSSILLMAgent
+                from muaddib.main import MuaddibAgent
 
-                agent = IRSSILLMAgent(temp_config_file)
+                agent = MuaddibAgent(temp_config_file)
 
                 async def fake_call_raw_with_model(*args, **kwargs):
                     resp = {"output_text": "Sarcastic response"}
@@ -80,7 +80,7 @@ class TestCLIMode:
                     )
 
                 # Patch the agent creation in cli_message and model router
-                with patch("muaddib.main.IRSSILLMAgent", return_value=agent):
+                with patch("muaddib.main.MuaddibAgent", return_value=agent):
                     with patch(
                         "muaddib.agentic_actor.actor.ModelRouter.call_raw_with_model",
                         new=AsyncMock(side_effect=fake_call_raw_with_model),
@@ -118,12 +118,12 @@ class TestCLIMode:
                     mock_perplexity_class.return_value = mock_perplexity
 
                     # Create a real agent
-                    from muaddib.main import IRSSILLMAgent
+                    from muaddib.main import MuaddibAgent
 
-                    agent = IRSSILLMAgent(temp_config_file)
+                    agent = MuaddibAgent(temp_config_file)
 
                     # Patch the agent creation in cli_message
-                    with patch("muaddib.main.IRSSILLMAgent", return_value=agent):
+                    with patch("muaddib.main.MuaddibAgent", return_value=agent):
                         await cli_message("!p what is the weather?", temp_config_file)
 
                         # Verify Perplexity was called with the actual message in context
@@ -175,12 +175,12 @@ class TestCLIMode:
                     mock_agent_class.return_value = mock_agent
 
                     # Create a real agent
-                    from muaddib.main import IRSSILLMAgent
+                    from muaddib.main import MuaddibAgent
 
-                    agent = IRSSILLMAgent(temp_config_file)
+                    agent = MuaddibAgent(temp_config_file)
 
                     # Patch the agent creation in cli_message
-                    with patch("muaddib.main.IRSSILLMAgent", return_value=agent):
+                    with patch("muaddib.main.MuaddibAgent", return_value=agent):
                         await cli_message("!s search for Python news", temp_config_file)
 
                         # Verify agent was called with context only
@@ -231,12 +231,12 @@ class TestCLIMode:
                     mock_agent_class.return_value = mock_agent
 
                     # Create a real agent
-                    from muaddib.main import IRSSILLMAgent
+                    from muaddib.main import MuaddibAgent
 
-                    agent = IRSSILLMAgent(temp_config_file)
+                    agent = MuaddibAgent(temp_config_file)
 
                     # Patch the agent creation in cli_message
-                    with patch("muaddib.main.IRSSILLMAgent", return_value=agent):
+                    with patch("muaddib.main.MuaddibAgent", return_value=agent):
                         await cli_message("!s specific test message", temp_config_file)
 
                         # Verify agent was called once for serious mode

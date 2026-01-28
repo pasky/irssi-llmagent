@@ -5,7 +5,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .main import IRSSILLMAgent
+    from .main import MuaddibAgent
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class ContextReducer:
     """Reduces conversation context to essential information for agent calls."""
 
-    def __init__(self, agent: "IRSSILLMAgent"):
+    def __init__(self, agent: "MuaddibAgent"):
         self.agent = agent
 
     @property

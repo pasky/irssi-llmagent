@@ -244,9 +244,9 @@ async def shared_agent(temp_config_file):
     """Shared agent fixture that can be reused across tests."""
     from unittest.mock import AsyncMock
 
-    from muaddib.main import IRSSILLMAgent
+    from muaddib.main import MuaddibAgent
 
-    agent = IRSSILLMAgent(temp_config_file)
+    agent = MuaddibAgent(temp_config_file)
     agent.irc_monitor.varlink_sender = AsyncMock()
 
     # Initialize databases if needed
@@ -268,9 +268,9 @@ async def shared_agent_with_db(temp_config_file, temp_db_path):
     from unittest.mock import AsyncMock
 
     from muaddib.history import ChatHistory
-    from muaddib.main import IRSSILLMAgent
+    from muaddib.main import MuaddibAgent
 
-    agent = IRSSILLMAgent(temp_config_file)
+    agent = MuaddibAgent(temp_config_file)
     agent.irc_monitor.varlink_sender = AsyncMock()
 
     # Use isolated database

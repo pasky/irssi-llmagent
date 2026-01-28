@@ -6,10 +6,10 @@ from muaddib.chronicler.tools import ChapterAppendExecutor, ChapterRenderExecuto
 @pytest.mark.asyncio
 async def test_chapter_append_executor(temp_config_file):
     """Test ChapterAppendExecutor directly."""
-    from muaddib.main import IRSSILLMAgent
+    from muaddib.main import MuaddibAgent
 
     # Create agent instance
-    agent = IRSSILLMAgent(temp_config_file)
+    agent = MuaddibAgent(temp_config_file)
     await agent.chronicle.initialize()
 
     arc = "test-arc"
@@ -27,10 +27,10 @@ async def test_chapter_append_executor(temp_config_file):
 @pytest.mark.asyncio
 async def test_chapter_render_executor(temp_config_file):
     """Test ChapterRenderExecutor with relative chapter IDs."""
-    from muaddib.main import IRSSILLMAgent
+    from muaddib.main import MuaddibAgent
 
     # Create agent instance
-    agent = IRSSILLMAgent(temp_config_file)
+    agent = MuaddibAgent(temp_config_file)
     await agent.chronicle.initialize()
 
     arc = "test-arc"
@@ -55,10 +55,10 @@ async def test_chapter_render_executor(temp_config_file):
 @pytest.mark.asyncio
 async def test_chapter_render_executor_multiple_chapters(temp_config_file):
     """Test ChapterRenderExecutor with multiple chapters for relative navigation."""
-    from muaddib.main import IRSSILLMAgent
+    from muaddib.main import MuaddibAgent
 
     # Create agent instance
-    agent = IRSSILLMAgent(temp_config_file)
+    agent = MuaddibAgent(temp_config_file)
     await agent.chronicle.initialize()
 
     arc = "test-arc"

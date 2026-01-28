@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 import muaddib
 
 if TYPE_CHECKING:
-    from ...main import IRSSILLMAgent
+    from ...main import MuaddibAgent
 
 from ...agentic_actor.actor import AgentResult
 from ...message_logging import MessageLoggingContext
@@ -49,11 +49,11 @@ def model_str_core(model):
 class IRCRoomMonitor:
     """IRC-specific room monitor that handles varlink connections and message processing."""
 
-    def __init__(self, agent: "IRSSILLMAgent"):
+    def __init__(self, agent: "MuaddibAgent"):
         """Initialize IRC room monitor.
 
         Args:
-            agent: Reference to the main IRSSILLMAgent instance for accessing shared resources
+            agent: Reference to the main MuaddibAgent instance for accessing shared resources
         """
         self.agent = agent
 

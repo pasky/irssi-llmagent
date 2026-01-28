@@ -19,7 +19,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from muaddib.main import IRSSILLMAgent  # noqa: E402
+from muaddib.main import MuaddibAgent  # noqa: E402
 
 # Fixed scenario for benchmarking
 SCENARIO_GOAL = """start a quest with the goal of:
@@ -54,7 +54,7 @@ async def run_benchmark(config_path: str, timeout: float) -> None:
 
     try:
         # Create agent with real config
-        agent = IRSSILLMAgent(config_path)
+        agent = MuaddibAgent(config_path)
 
         # Override DB paths to use temp files
         agent.chronicle.db_path = Path(chronicle_db)

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from muaddib.agentic_actor.actor import AgentResult
-from muaddib.main import IRSSILLMAgent
+from muaddib.main import MuaddibAgent
 from muaddib.providers import ModelSpec, UsageInfo
 from muaddib.rooms import ProactiveDebouncer
 from muaddib.rooms.irc.monitor import ParsedPrefix
@@ -39,7 +39,7 @@ class TestIRCMonitor:
 
     def test_build_system_prompt_model_override(self, temp_config_file):
         """Test that model override is substituted into system prompt."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
 
         # Without override - uses config model (serious is a list in test config)
         prompt = agent.irc_monitor.build_system_prompt("sarcastic", "testbot")
@@ -54,7 +54,7 @@ class TestIRCMonitor:
 
     def test_should_ignore_user(self, temp_config_file):
         """Test user ignoring functionality."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.config["rooms"]["irc"]["command"]["ignore_users"] = ["spammer", "BadBot"]
 
         assert agent.irc_monitor.should_ignore_user("spammer") is True
@@ -64,7 +64,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_get_mynick_caching(self, temp_config_file):
         """Test that bot nick is cached per server."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
 
         # Mock the varlink sender
         mock_sender = AsyncMock()
@@ -84,7 +84,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_message_addressing_detection(self, temp_config_file):
         """Test that messages addressing the bot are detected correctly."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.server_nicks["test"] = "mybot"
 
         # Initialize the real databases (now fast due to tmpfs)
@@ -130,7 +130,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_privmsg_commands_without_nick_prefix(self, temp_config_file):
         """Test that private messages are treated as commands without requiring nick prefix."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
 
         # Initialize the real databases (now fast due to tmpfs)
@@ -172,7 +172,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_channel_messages_without_nick_prefix_ignored(self, temp_config_file):
         """Test that channel messages without nick prefix are ignored (no response)."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
 
         # Initialize the real databases (now fast due to tmpfs)
@@ -202,7 +202,7 @@ class TestIRCMonitor:
 
     def test_get_channel_mode(self, temp_config_file):
         """Test channel mode configuration retrieval."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
 
         # Test default behavior
         agent.config["rooms"]["irc"]["command"]["default_mode"] = "classifier"
@@ -390,7 +390,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_rate_limiting_triggers(self, temp_config_file):
         """Test that rate limiting prevents excessive requests."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         # Mock rate limiter to simulate limit exceeded
         agent.irc_monitor.rate_limiter.check_limit = lambda: False
         agent.irc_monitor.varlink_sender = AsyncMock()
@@ -417,7 +417,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_command_cancels_proactive_interjection(self, temp_config_file):
         """Test that command processing cancels pending proactive interjection for the same channel."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
 
         # Initialize the real databases (now fast due to tmpfs)
@@ -465,7 +465,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_separate_progress_and_persistence_callbacks(self, temp_config_file):
         """Test that IRC monitor uses separate callbacks for progress and persistence."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
         agent.history = AsyncMock()
 
@@ -515,7 +515,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_serious_agent_mode(self, temp_config_file):
         """Test serious mode now uses agent with chapter context."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
 
         # Initialize the real databases (now fast due to tmpfs)
@@ -578,7 +578,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_thinking_serious_mode_override(self, temp_config_file):
         """Test that THINKING_SERIOUS mode uses thinking_model if configured, and falls back if not."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
 
         # Initialize databases
@@ -669,7 +669,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_sarcastic_mode_unchanged(self, temp_config_file):
         """Test sarcastic mode excludes chapter context."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         # Set include_chapter_summary to false for sarcastic mode
         agent.config["rooms"]["irc"]["command"]["modes"]["sarcastic"]["include_chapter_summary"] = (
             False
@@ -721,7 +721,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_mode_classification(self, temp_config_file):
         """Test that mode classification works in automatic mode."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
 
         # Mock dependencies
         agent.irc_monitor.varlink_sender = AsyncMock()
@@ -775,7 +775,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_unsafe_mode_explicit_command(self, temp_config_file):
         """Test explicit unsafe mode command works."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
 
         # Initialize the real databases (now fast due to tmpfs)
@@ -814,7 +814,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_unsafe_mode_explicit_override(self, temp_config_file):
         """Test explicit unsafe mode command with model override works."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
 
         # Initialize the real databases (now fast due to tmpfs)
@@ -867,7 +867,7 @@ class TestIRCMonitor:
     )
     async def test_model_override_all_modes(self, temp_config_file, command, mode_key):
         """Test @modelid override works for all explicit command modes."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
 
         await agent.history.initialize()
@@ -891,7 +891,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_unsafe_mode_error_handling(self, temp_config_file):
         """Test that validation errors during unsafe mode are reported to user."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
 
         # Initialize the real databases (now fast due to tmpfs)
@@ -916,7 +916,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_unsafe_mode_automatic_classification(self, temp_config_file):
         """Test that unsafe mode classification works in automatic mode."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
 
         # Mock dependencies
         agent.irc_monitor.varlink_sender = AsyncMock()
@@ -965,7 +965,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_proactive_interjection_detection(self, temp_config_file):
         """Test proactive interjection detection in whitelisted channels."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         # Configure proactive interjection test channel with short debounce
         agent.config["rooms"]["irc"]["proactive"]["interjecting_test"] = ["#testchannel"]
         agent.config["rooms"]["irc"]["proactive"]["debounce_seconds"] = 0.1
@@ -1034,7 +1034,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_proactive_interjection_configurable_threshold(self, temp_config_file):
         """Test proactive interjection with configurable threshold."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         # Test with threshold 8 - score 8 should trigger
         agent.config["rooms"]["irc"]["proactive"]["interject_threshold"] = 8
 
@@ -1114,7 +1114,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_automatic_artifact_creation_for_long_responses(self, temp_config_file):
         """Test that responses over 800 chars automatically create artifacts."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
 
         # Initialize the real databases
@@ -1176,7 +1176,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_short_responses_no_artifact(self, temp_config_file):
         """Test that responses under 800 chars don't create artifacts."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
 
         # Initialize the real databases
@@ -1212,7 +1212,7 @@ class TestIRCMonitor:
     @pytest.mark.asyncio
     async def test_no_context_command(self, temp_config_file):
         """Test that !c prefix disables context inclusion."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
 
         # Initialize databases
@@ -1276,12 +1276,12 @@ class TestParsePrefixParser:
     """Tests for the _parse_prefix command parser."""
 
     def test_no_modifiers(self, temp_config_file):
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         result = agent.irc_monitor._parse_prefix("just a plain query")
         assert result == ParsedPrefix(False, None, None, "just a plain query", None)
 
     def test_mode_only(self, temp_config_file):
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         result = agent.irc_monitor._parse_prefix("!s tell me something")
         assert result.mode_token == "!s"
         assert result.query_text == "tell me something"
@@ -1289,14 +1289,14 @@ class TestParsePrefixParser:
         assert result.model_override is None
 
     def test_model_override_only(self, temp_config_file):
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         result = agent.irc_monitor._parse_prefix("@claude-sonnet query text")
         assert result.model_override == "claude-sonnet"
         assert result.query_text == "query text"
         assert result.mode_token is None
 
     def test_mode_and_model_any_order(self, temp_config_file):
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
 
         r1 = agent.irc_monitor._parse_prefix("!s @model query")
         r2 = agent.irc_monitor._parse_prefix("@model !s query")
@@ -1305,7 +1305,7 @@ class TestParsePrefixParser:
         assert r2.mode_token == "!s" and r2.model_override == "model" and r2.query_text == "query"
 
     def test_no_context_flag(self, temp_config_file):
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
 
         r1 = agent.irc_monitor._parse_prefix("!c !s query")
         r2 = agent.irc_monitor._parse_prefix("!s !c query")
@@ -1316,7 +1316,7 @@ class TestParsePrefixParser:
         assert r3.no_context is True and r3.mode_token is None and r3.query_text == "query"
 
     def test_all_modifiers(self, temp_config_file):
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         result = agent.irc_monitor._parse_prefix("!c @model !a my query here")
         assert result.no_context is True
         assert result.model_override == "model"
@@ -1324,36 +1324,36 @@ class TestParsePrefixParser:
         assert result.query_text == "my query here"
 
     def test_unknown_command_error(self, temp_config_file):
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         result = agent.irc_monitor._parse_prefix("!x query")
         assert result.error is not None
         assert "Unknown command" in result.error
 
     def test_multiple_modes_error(self, temp_config_file):
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         result = agent.irc_monitor._parse_prefix("!s !a query")
         assert result.error is not None
         assert "Only one mode" in result.error
 
     def test_bang_in_query_text_preserved(self, temp_config_file):
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         result = agent.irc_monitor._parse_prefix("!s what does !c mean in bash?")
         assert result.mode_token == "!s"
         assert result.query_text == "what does !c mean in bash?"
         assert result.error is None
 
     def test_at_in_query_text_preserved(self, temp_config_file):
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         result = agent.irc_monitor._parse_prefix("!s email me@example.com")
         assert result.query_text == "email me@example.com"
 
     def test_empty_message(self, temp_config_file):
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         result = agent.irc_monitor._parse_prefix("")
         assert result == ParsedPrefix(False, None, None, "", None)
 
     def test_all_mode_tokens(self, temp_config_file):
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         for token in ["!s", "!S", "!a", "!d", "!D", "!u", "!p", "!h"]:
             result = agent.irc_monitor._parse_prefix(f"{token} query")
             assert result.mode_token == token, f"Failed for {token}"
@@ -1366,7 +1366,7 @@ class TestCostFollowup:
     @pytest.mark.asyncio
     async def test_cost_followup_sent_for_expensive_requests(self, temp_config_file):
         """Test that a cost followup message is sent when cost exceeds threshold."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
         agent.irc_monitor.server_nicks["test"] = "mybot"
 
@@ -1412,7 +1412,7 @@ class TestCostFollowup:
     @pytest.mark.asyncio
     async def test_no_cost_followup_for_cheap_requests(self, temp_config_file):
         """Test that no cost followup is sent for cheap requests."""
-        agent = IRSSILLMAgent(temp_config_file)
+        agent = MuaddibAgent(temp_config_file)
         agent.irc_monitor.varlink_sender = AsyncMock()
         agent.irc_monitor.server_nicks["test"] = "mybot"
 

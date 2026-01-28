@@ -58,7 +58,7 @@ logging.getLogger("primp").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-class IRSSILLMAgent:
+class MuaddibAgent:
     """Main IRC LLM agent application."""
 
     def __init__(self, config_path: str = "config.json"):
@@ -182,7 +182,7 @@ async def cli_message(message: str, config_path: str | None = None) -> None:
 
     try:
         # Create agent instance
-        agent = IRSSILLMAgent(str(config_file))
+        agent = MuaddibAgent(str(config_file))
 
         # Initialize shared resources for CLI mode
         await agent.history.initialize()
@@ -235,7 +235,7 @@ async def cli_chronicler(arc: str, instructions: str, config_path: str | None = 
 
     try:
         # Create agent instance
-        agent = IRSSILLMAgent(str(config_file))
+        agent = MuaddibAgent(str(config_file))
         await agent.chronicle.initialize()
 
         print(
@@ -280,7 +280,7 @@ def main() -> None:
     if args.message:
         asyncio.run(cli_message(args.message, args.config))
     else:
-        agent = IRSSILLMAgent()
+        agent = MuaddibAgent()
         asyncio.run(agent.run())
 
 
