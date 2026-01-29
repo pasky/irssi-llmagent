@@ -357,7 +357,7 @@ async def test_slack_reply_formats_mentions(test_config):
 
 @pytest.mark.asyncio
 async def test_slack_file_share_subtype_is_processed(test_config):
-    """Test that file_share subtype messages are processed (not filtered out)."""
+    """Test that file_share subtype messages are processed correctly."""
     monitor, agent, client = build_monitor(test_config)
     monitor.bot_user_ids["T123"] = "B1"
 
@@ -393,3 +393,27 @@ async def test_slack_file_share_subtype_is_processed(test_config):
     kwargs = handle_command.call_args.kwargs
     assert "[Attachments]" in kwargs["message"]
     assert "screenshot.png" in kwargs["message"]
+
+
+@pytest.mark.asyncio
+async def test_slack_me_message_subtype_is_processed(test_config):
+    """Test that /me messages (me_message subtype) are processed."""
+    monitor, agent, client = build_monitor(test_config)
+    monitor.bot_user_ids["T123"] = "B1"
+
+    body = {"team_id": "T123"}
+    event = {
+        "type": "message",
+        "subtype": "me_message",
+        "channel": "C123",
+        "channel_type": "channel",
+        "user": "U1",
+        "text": "is wondering about something",
+        "ts": "1700000000.3333",
+    }
+
+    await monitor._handle_message(body, event, AsyncMock())
+
+    # Should be processed as passive (no mention)
+    handle_passive = cast(AsyncMock, monitor.command_handler.handle_passive_message)
+    handle_passive.assert_awaited_once()
