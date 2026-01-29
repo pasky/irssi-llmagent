@@ -115,6 +115,9 @@ class RoomCommandHandler:
     def proactive_config(self) -> dict[str, Any]:
         return self.room_config["proactive"]
 
+    def _response_max_chars(self) -> int:
+        return int(self.command_config.get("response_max_chars", 600))
+
     def should_ignore_user(self, nick: str) -> bool:
         ignore_list = self.command_config.get("ignore_users", [])
         return any(nick.lower() == ignored.lower() for ignored in ignore_list)
@@ -482,10 +485,12 @@ class RoomCommandHandler:
             return None
 
         response_text = agent_result.text
-        if response_text and len(response_text.encode("utf-8")) > 800:
+        max_response_chars = self._response_max_chars()
+        if response_text and len(response_text) > max_response_chars:
             logger.info(
-                "Response too long (%s bytes), creating artifact",
-                len(response_text.encode("utf-8")),
+                "Response too long (%s chars, max %s), creating artifact",
+                len(response_text),
+                max_response_chars,
             )
             response_text = await self._long_response_to_artifact(response_text)
         if response_text:
@@ -500,14 +505,16 @@ class RoomCommandHandler:
         artifact_result = await executor.execute(full_response)
         artifact_url = artifact_result.split("Artifact shared: ")[1].strip()
 
-        trimmed = full_response[:600]
-        if len(full_response) > 600:
+        max_response_chars = self._response_max_chars()
+        trimmed = full_response[:max_response_chars]
+        if len(full_response) > max_response_chars:
             # Try to break at end of sentence or word
             last_sentence = trimmed.rfind(".")
             last_word = trimmed.rfind(" ")
-            if last_sentence > 500:
+            min_break = max(0, max_response_chars - 100)
+            if last_sentence > min_break:
                 trimmed = trimmed[: last_sentence + 1]
-            elif last_word > 500:
+            elif last_word > min_break:
                 trimmed = trimmed[:last_word]
 
             trimmed += f"... full response: {artifact_url}"

@@ -88,6 +88,7 @@
       "prompt_note": "",
       "command": {
         "history_size": 40,
+        "response_max_chars": 600,
         "rate_limit": 30,
         "rate_period": 900,
         "debounce": 1.5,
@@ -161,6 +162,7 @@
       "reply_edit_debounce_seconds": 15.0,
       "command": {
         "history_size": 20,
+        "response_max_chars": 1500,
         "debounce": 3,
         "ignore_users": []
       },
