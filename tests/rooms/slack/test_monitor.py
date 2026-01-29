@@ -221,3 +221,135 @@ async def test_slack_ignores_own_messages(test_config):
     handle_command.assert_not_awaited()
     handle_passive.assert_not_awaited()
     agent.history.add_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_slack_mention_with_files_triggers_command(test_config):
+    """Test that mentions with file attachments are processed correctly.
+
+    This ensures files are included when bot is mentioned (previously app_mention
+    events could miss files, but now we detect mentions in message events).
+    """
+    monitor, agent, client = build_monitor(test_config)
+
+    async def handle_command(**kwargs):
+        await kwargs["reply_sender"]("I see your image!")
+
+    monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
+
+    body = {"team_id": "T123"}
+    event = {
+        "type": "message",
+        "channel": "C123",
+        "channel_type": "channel",
+        "user": "U1",
+        "text": "<@B1> what's in this image?",
+        "ts": "1700000000.7777",
+        "files": [
+            {
+                "mimetype": "image/png",
+                "name": "screenshot.png",
+                "size": 5678,
+                "url_private": "https://files.slack.com/files-pri/T123/screenshot.png",
+            }
+        ],
+    }
+
+    await monitor.process_message_event(body, event, is_direct=True)
+
+    handle_command = cast(AsyncMock, monitor.command_handler.handle_command)
+    handle_command.assert_awaited_once()
+    kwargs = handle_command.call_args.kwargs
+
+    # Verify the message includes the attachment block
+    assert "[Attachments]" in kwargs["message"]
+    assert "screenshot.png" in kwargs["message"]
+    assert "https://files.slack.com/files-pri/T123/screenshot.png" in kwargs["message"]
+
+    # Verify secrets are passed for file access
+    assert kwargs["secrets"] is not None
+    assert "http_header_prefixes" in kwargs["secrets"]
+
+
+@pytest.mark.asyncio
+async def test_slack_handle_message_detects_mention(test_config):
+    """Test that _handle_message correctly detects bot mentions and routes to command handler."""
+    monitor, agent, client = build_monitor(test_config)
+    monitor.bot_user_ids["T123"] = "B1"
+
+    async def handle_command(**kwargs):
+        await kwargs["reply_sender"]("hello")
+
+    monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
+
+    body = {"team_id": "T123"}
+    event = {
+        "type": "message",
+        "channel": "C123",
+        "channel_type": "channel",
+        "user": "U1",
+        "text": "<@B1> hi there",
+        "ts": "1700000000.8888",
+    }
+
+    # Call _handle_message directly (simulating Slack event)
+    await monitor._handle_message(body, event, AsyncMock())
+
+    # Should route to handle_command (is_direct=True) because of mention
+    handle_command = cast(AsyncMock, monitor.command_handler.handle_command)
+    handle_command.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_slack_handle_message_no_mention_routes_passive(test_config):
+    """Test that _handle_message routes non-mentions to passive handler."""
+    monitor, agent, client = build_monitor(test_config)
+    monitor.bot_user_ids["T123"] = "B1"
+
+    body = {"team_id": "T123"}
+    event = {
+        "type": "message",
+        "channel": "C123",
+        "channel_type": "channel",
+        "user": "U1",
+        "text": "just a regular message",
+        "ts": "1700000000.9999",
+    }
+
+    # Call _handle_message directly
+    await monitor._handle_message(body, event, AsyncMock())
+
+    # Should route to handle_passive_message (is_direct=False)
+    handle_passive = cast(AsyncMock, monitor.command_handler.handle_passive_message)
+    handle_passive.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_slack_reply_formats_mentions(test_config):
+    """Test that @DisplayName in replies gets converted to <@USER_ID> for Slack."""
+    monitor, agent, client = build_monitor(test_config)
+    # Populate the user_id_cache (reverse lookup)
+    monitor.user_id_cache["T123"] = {"petr baudis": "U1", "muaddib": "B1"}
+
+    async def handle_command(**kwargs):
+        # Response includes @mention that should be converted
+        await kwargs["reply_sender"]("@Petr Baudis, here's your answer!")
+
+    monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
+
+    body = {"team_id": "T123"}
+    event = {
+        "type": "message",
+        "channel": "C123",
+        "channel_type": "channel",
+        "user": "U1",
+        "text": "<@B1> hello",
+        "ts": "1700000000.1111",
+    }
+
+    await monitor.process_message_event(body, event, is_direct=True)
+
+    client.chat_postMessage.assert_awaited_once()
+    _, send_kwargs = client.chat_postMessage.call_args
+    # The @Petr Baudis should be converted to <@U1>
+    assert send_kwargs["text"] == "<@U1>, here's your answer!"

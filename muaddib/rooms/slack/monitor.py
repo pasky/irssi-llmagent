@@ -43,7 +43,10 @@ class SlackRoomMonitor:
         self.clients: dict[str, AsyncWebClient] = {}
         self.bot_user_ids: dict[str, str] = {}
         self.bot_display_names: dict[str, str] = {}
+        # user_cache: team_id -> user_id -> display_name
         self.user_cache: dict[str, dict[str, str]] = {}
+        # user_id_cache: team_id -> display_name (lowercase) -> user_id (reverse lookup)
+        self.user_id_cache: dict[str, dict[str, str]] = {}
         self.channel_cache: dict[str, dict[str, str]] = {}
 
         default_token = None
@@ -54,7 +57,8 @@ class SlackRoomMonitor:
                 break
 
         self.app = AsyncApp(token=default_token)
-        self.app.event("app_mention")(self._handle_app_mention)
+        # Only use message event - we detect mentions ourselves to avoid
+        # duplicate events (app_mention + message) and ensure files are included
         self.app.event("message")(self._handle_message)
 
         self.command_handler = RoomCommandHandler(
@@ -79,10 +83,6 @@ class SlackRoomMonitor:
     def _now(self) -> float:
         return time.monotonic()
 
-    async def _handle_app_mention(self, body: dict[str, Any], event: dict[str, Any], ack) -> None:
-        await ack()
-        await self.process_message_event(body, event, is_direct=True)
-
     async def _handle_message(self, body: dict[str, Any], event: dict[str, Any], ack) -> None:
         await ack()
 
@@ -93,9 +93,19 @@ class SlackRoomMonitor:
 
         channel_type = event.get("channel_type")
         if channel_type == "im":
+            # DMs are always direct
             await self.process_message_event(body, event, is_direct=True)
         else:
-            await self.process_message_event(body, event, is_direct=False)
+            # Ensure client is initialized to get bot_user_id for mention detection
+            team_id = self._get_team_id(body)
+            if team_id:
+                await self._get_client(team_id)
+
+            # Check if this message mentions the bot (like Discord's _is_highlight)
+            bot_user_id = self.bot_user_ids.get(team_id) if team_id else None
+            text = event.get("text") or ""
+            is_mention = bool(bot_user_id and f"<@{bot_user_id}>" in text)
+            await self.process_message_event(body, event, is_direct=is_mention)
 
     def _get_team_id(self, body: dict[str, Any]) -> str | None:
         return body.get("team_id") or body.get("team", {}).get("id")
@@ -170,6 +180,9 @@ class SlackRoomMonitor:
             display_name = user_id
 
         cache[user_id] = display_name
+        # Also populate reverse lookup for mention formatting in replies
+        id_cache = self.user_id_cache.setdefault(team_id, {})
+        id_cache[display_name.lower()] = user_id
         return display_name
 
     async def _get_channel_name(self, team_id: str, client: AsyncWebClient, channel_id: str) -> str:
@@ -205,6 +218,26 @@ class SlackRoomMonitor:
             content = content.replace(f"<@{user_id}>", f"@{display_name}")
 
         return content
+
+    def _format_mentions_for_slack(self, text: str, team_id: str) -> str:
+        """Convert @DisplayName to <@USER_ID> for proper Slack mentions."""
+        if not text:
+            return text
+
+        id_cache = self.user_id_cache.get(team_id, {})
+        if not id_cache:
+            return text
+
+        def replace_mention(match: re.Match[str]) -> str:
+            name = match.group(1)
+            user_id = id_cache.get(name.lower())
+            if user_id:
+                return f"<@{user_id}>"
+            return match.group(0)  # Keep original if not found
+
+        # Match @Name patterns (name can contain spaces if quoted or be a single word)
+        # Pattern: @word or @"words with spaces"
+        return re.sub(r"@(\w+(?:\s+\w+)*)", replace_mention, text)
 
     def _strip_leading_mention(self, text: str, bot_user_id: str, bot_name: str) -> str:
         if not text:
@@ -345,23 +378,28 @@ class SlackRoomMonitor:
             nonlocal last_reply_ts, last_reply_time, last_reply_text
             now = self._now()
 
+            # Convert @DisplayName to <@USER_ID> for proper Slack mentions
+            formatted_text = self._format_mentions_for_slack(text, team_id)
+
             if (
                 last_reply_ts is not None
                 and last_reply_time is not None
                 and now - last_reply_time < self.reply_edit_debounce_seconds
             ):
-                combined = f"{last_reply_text}\n{text}" if last_reply_text else text
+                combined = (
+                    f"{last_reply_text}\n{formatted_text}" if last_reply_text else formatted_text
+                )
                 await client.chat_update(channel=channel_id, ts=last_reply_ts, text=combined)
                 last_reply_text = combined
                 last_reply_time = now
                 return
 
-            send_kwargs: dict[str, Any] = {"channel": channel_id, "text": text}
+            send_kwargs: dict[str, Any] = {"channel": channel_id, "text": formatted_text}
             if reply_thread_ts:
                 send_kwargs["thread_ts"] = reply_thread_ts
             response = await client.chat_postMessage(**send_kwargs)
             last_reply_ts = response.get("ts")
-            last_reply_text = text
+            last_reply_text = formatted_text
             last_reply_time = now
 
         secrets: dict[str, Any] | None = None
