@@ -6,9 +6,9 @@ Proposed (design phase).
 ## Decisions (Proposed)
 - **Triggering**: Respond only on **@mentions** and **DMs** (DMs count as mentions). Non‑mentioned messages can still be scanned for proactive interjection when enabled.
 - **Library**: **slack_bolt** async app + **slack_sdk** (Socket Mode) for a long‑running, server‑less process.
-- **Arc naming**: Use **human‑readable** identifiers: `slack:{workspace_name}#{channel_name}`. DMs use `slack:_DM#{normalized_user}_{user_id}`.
+- **Arc naming**: Use **human‑readable** identifiers: `slack:{workspace_name}##{channel_name}` (note the double `#` to keep the channel name prefixed with `#`). DMs use `slack:{workspace_name}#{normalized_user}_{user_id}` (DMs are workspace‑scoped).
 - **Channel scoping**: All channels by default (no allowlist required initially).
-- **Replies**: Respond in the **same thread** as the triggering message (use `thread_ts`). If the message is not in a thread, reply in channel without creating a new thread.
+- **Replies**: Respond in the **same thread** as the triggering message (use `thread_ts`). If the message is not in a thread, reply in channel without creating a new thread (do not auto‑start threads).
 - **Thread isolation**: Thread content (not the thread starter) is isolated context for all purposes except the chronicle, matching Discord behavior.
 - **Prompts/models**: Reuse the **IRC command prompt/model configuration verbatim**.
 
@@ -37,7 +37,7 @@ Proposed (design phase).
 
 ## Attachments & Message Normalization
 - **Text**: Normalize Slack markup (`<@U123>` → `@name`, `<#C123|channel>` → `#channel`, `<http://...|label>` → `http://...`).
-- **Files**: Append a `[Attachments]` block including filename, mime type, size, and `url_private`. If feasible, also include image URLs for vision model use.
+- **Files**: Append a `[Attachments]` block including filename, mime type, size, and `url_private`. Slack `url_private` requires an `Authorization: Bearer <bot_token>` header. To make files accessible to tools, download them in the monitor and re‑publish to the artifacts store, then include the artifacts URL for the vision model/tools.
 - **Bot/self messages**: Ignore events from the bot user or `subtype == "bot_message"`.
 
 ## Configuration
@@ -58,7 +58,7 @@ Add a new `rooms.slack` block to `config.json.example` (mirrors `discord`/`irc`)
   },
   "proactive": {
     "debounce_seconds": 40.0,
-    "interjecting": ["workspace#general"],
+    "interjecting": ["workspace##general"],
     "interjecting_test": []
   }
 }
