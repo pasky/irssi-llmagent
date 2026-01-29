@@ -31,8 +31,13 @@ class IRCRoomMonitor:
             self.agent,
             "irc",
             self.room_config,
+            response_cleaner=self._normalize_reply,
         )
         self.server_nicks: dict[str, str] = {}
+
+    @staticmethod
+    def _normalize_reply(text: str, nick: str) -> str:
+        return text.replace("\n", "; ").strip() or text
 
     @property
     def irc_config(self) -> dict[str, Any]:

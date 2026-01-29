@@ -118,6 +118,12 @@ class RoomCommandHandler:
     def _response_max_chars(self) -> int:
         return int(self.command_config.get("response_max_chars", 600))
 
+    def _clean_response_text(self, response_text: str, nick: str) -> str:
+        cleaned = response_text.strip()
+        if self.response_cleaner:
+            cleaned = self.response_cleaner(cleaned, nick)
+        return cleaned.strip()
+
     def should_ignore_user(self, nick: str) -> bool:
         ignore_list = self.command_config.get("ignore_users", [])
         return any(nick.lower() == ignored.lower() for ignored in ignore_list)
@@ -409,7 +415,7 @@ class RoomCommandHandler:
                 logger.info("Agent decided not to interject proactively for %s", chan_name)
                 return
 
-            response_text = agent_result.text
+            response_text = self._clean_response_text(agent_result.text, nick)
             if send_message:
                 response_text = f"[{model_str_core(self.proactive_config['models']['serious'])}] {response_text}"
                 logger.info(
@@ -494,7 +500,7 @@ class RoomCommandHandler:
             )
             response_text = await self._long_response_to_artifact(response_text)
         if response_text:
-            response_text = response_text.replace("\n", "; ").strip()
+            response_text = response_text.strip()
 
         return dataclasses.replace(agent_result, text=response_text)
 
@@ -873,9 +879,7 @@ class RoomCommandHandler:
             raise ValueError(f"Unknown mode {mode}")
 
         if agent_result and agent_result.text:
-            response_text = agent_result.text
-            if self.response_cleaner:
-                response_text = self.response_cleaner(response_text, nick)
+            response_text = self._clean_response_text(agent_result.text, nick)
             cost_str = f"${agent_result.total_cost:.4f}" if agent_result.total_cost else "?"
             logger.info(
                 "Sending %s response (%s) to %s: %s", mode, cost_str, channel_name, response_text

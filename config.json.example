@@ -162,7 +162,7 @@
       "reply_edit_debounce_seconds": 15.0,
       "command": {
         "history_size": 20,
-        "response_max_chars": 1500,
+        "response_max_chars": 1600,
         "debounce": 3,
         "ignore_users": []
       },

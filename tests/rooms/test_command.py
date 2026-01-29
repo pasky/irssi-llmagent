@@ -6,17 +6,21 @@ import pytest
 
 from muaddib.agentic_actor.actor import AgentResult
 from muaddib.main import MuaddibAgent
-from muaddib.rooms.command import ParsedPrefix, RoomCommandHandler, get_room_config
+from muaddib.rooms.command import ParsedPrefix, ResponseCleaner, RoomCommandHandler, get_room_config
 
 
-def build_handler(agent: MuaddibAgent):
-    room_config = get_room_config(agent.config, "irc")
+def build_handler(
+    agent: MuaddibAgent,
+    room_name: str = "irc",
+    response_cleaner: ResponseCleaner | None = None,
+):
+    room_config = get_room_config(agent.config, room_name)
     sent: list[str] = []
 
     async def reply_sender(text: str) -> None:
         sent.append(text)
 
-    handler = RoomCommandHandler(agent, "irc", room_config)
+    handler = RoomCommandHandler(agent, room_name, room_config, response_cleaner=response_cleaner)
     return handler, sent, reply_sender
 
 
@@ -147,6 +151,25 @@ async def test_rate_limit_sends_warning(temp_config_file):
 
     assert sent
     assert "rate limiting" in sent[0]
+
+
+@pytest.mark.parametrize(
+    "room_name, expected",
+    [
+        ("irc", "line1; line2"),
+        ("discord", "line1\nline2"),
+    ],
+)
+def test_response_newline_formatting(temp_config_file, room_name, expected):
+    agent = MuaddibAgent(temp_config_file)
+
+    def irc_response_cleaner(text: str, nick: str) -> str:
+        return text.replace("\n", "; ").strip()
+
+    response_cleaner = irc_response_cleaner if room_name == "irc" else None
+    handler, _, _ = build_handler(agent, room_name, response_cleaner=response_cleaner)
+
+    assert handler._clean_response_text("line1\nline2", "user") == expected
 
 
 @pytest.mark.asyncio
