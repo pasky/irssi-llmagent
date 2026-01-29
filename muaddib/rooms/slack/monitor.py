@@ -97,7 +97,10 @@ class SlackRoomMonitor:
     async def _handle_message(self, body: dict[str, Any], event: dict[str, Any], ack) -> None:
         await ack()
 
-        if event.get("subtype") is not None:
+        # Skip message subtypes we don't want to process, but allow file_share
+        # (messages with attachments have subtype "file_share")
+        subtype = event.get("subtype")
+        if subtype is not None and subtype != "file_share":
             return
         if event.get("bot_id"):
             return

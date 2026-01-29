@@ -353,3 +353,43 @@ async def test_slack_reply_formats_mentions(test_config):
     _, send_kwargs = client.chat_postMessage.call_args
     # The @Petr Baudis should be converted to <@U1>
     assert send_kwargs["text"] == "<@U1>, here's your answer!"
+
+
+@pytest.mark.asyncio
+async def test_slack_file_share_subtype_is_processed(test_config):
+    """Test that file_share subtype messages are processed (not filtered out)."""
+    monitor, agent, client = build_monitor(test_config)
+    monitor.bot_user_ids["T123"] = "B1"
+
+    async def handle_command(**kwargs):
+        await kwargs["reply_sender"]("I see your file!")
+
+    monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
+
+    body = {"team_id": "T123"}
+    event = {
+        "type": "message",
+        "subtype": "file_share",
+        "channel": "C123",
+        "channel_type": "channel",
+        "user": "U1",
+        "text": "<@B1> check this out",
+        "ts": "1700000000.2222",
+        "files": [
+            {
+                "mimetype": "image/png",
+                "name": "screenshot.png",
+                "url_private": "https://files.slack.com/files-pri/T123/screenshot.png",
+            }
+        ],
+    }
+
+    # Call _handle_message directly (simulates Slack event)
+    await monitor._handle_message(body, event, AsyncMock())
+
+    # Should be processed as a command (is_direct=True due to mention)
+    handle_command = cast(AsyncMock, monitor.command_handler.handle_command)
+    handle_command.assert_awaited_once()
+    kwargs = handle_command.call_args.kwargs
+    assert "[Attachments]" in kwargs["message"]
+    assert "screenshot.png" in kwargs["message"]
