@@ -50,7 +50,7 @@ Add a new `rooms.slack` block to `config.json.example` (mirrors `discord`/`irc`)
   "app_token": "xapp-...",
   "workspaces": {
     "T123": {
-      "name": "Rossum",
+      "name": "AmazingB2BSaaS",
       "bot_token": "xoxb-..."
     }
   },

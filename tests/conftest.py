@@ -108,6 +108,23 @@ def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict
                     "interjecting_test": [],
                 },
             },
+            "slack": {
+                "enabled": False,
+                "app_token": "xapp-mock-token",
+                "workspaces": {
+                    "T123": {
+                        "name": "Rossum",
+                        "bot_token": "xoxb-mock-token",
+                    }
+                },
+                "reply_start_thread": {"channel": True, "dm": False},
+                "reply_edit_debounce_seconds": 15.0,
+                "command": {"history_size": 5, "rate_limit": 30, "rate_period": 900},
+                "proactive": {
+                    "interjecting": [],
+                    "interjecting_test": [],
+                },
+            },
         },
         "chronicler": {
             "model": f"{api_type}:dummy-chronicler",

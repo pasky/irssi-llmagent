@@ -47,7 +47,14 @@ class SlackRoomMonitor:
         self.user_cache: dict[str, dict[str, str]] = {}
         self.channel_cache: dict[str, dict[str, str]] = {}
 
-        self.app = AsyncApp(token=None)
+        default_token = None
+        for workspace in self.workspaces.values():
+            bot_token = workspace.get("bot_token") if isinstance(workspace, dict) else None
+            if bot_token:
+                default_token = bot_token
+                break
+
+        self.app = AsyncApp(token=default_token)
         self.app.event("app_mention")(self._handle_app_mention)
         self.app.event("message")(self._handle_message)
 
