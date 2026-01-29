@@ -1032,10 +1032,21 @@ class ArtifactStore:
 
     @classmethod
     def from_config(cls, config: dict) -> ArtifactStore:
-        """Create store from configuration."""
+        """Create store from configuration.
+
+        If artifacts.path is a relative path, it's resolved relative to MUADDIB_HOME.
+        """
+        from ..paths import get_muaddib_home
+
         artifacts_config = config.get("tools", {}).get("artifacts", {})
+        path = artifacts_config.get("path")
+
+        # Resolve relative paths against MUADDIB_HOME
+        if path and not Path(path).is_absolute():
+            path = str(get_muaddib_home() / path)
+
         return cls(
-            artifacts_path=artifacts_config.get("path"),
+            artifacts_path=path,
             artifacts_url=artifacts_config.get("url"),
         )
 

@@ -57,23 +57,35 @@ The IRC backend (using irssi connected via a varlink protocol) is stable, and th
 
 ### Configuration
 
-Copy `config.json.example` to `config.json` and set your:
+All muaddib data lives in `$MUADDIB_HOME` (defaults to `~/.muaddib/`):
+
+```
+~/.muaddib/
+├── config.json         # Configuration
+├── chat_history.db     # Chat history database
+├── chronicle.db        # Chronicle database
+└── logs/               # Per-message log files
+```
+
+Copy `config.json.example` to `~/.muaddib/config.json` (or `$MUADDIB_HOME/config.json`) and set your:
 - API keys (you can get started with just a small subset)
-- Paths for tools and artifacts
+- Paths for tools and artifacts (relative paths are resolved against `$MUADDIB_HOME`)
 - Custom prompts for various modes
 - IRC integration settings such as channel modes
+
+**Tip:** Set `MUADDIB_HOME=.` to use the current directory (useful for development).
 
 ### Installation
 
 Recommended for an IRC bot: See [Docker instructions](docs/docker.md) for running a Muaddib service + irssi in tandem in a Docker compose setup.
 
 Recommended for Discord:
-1. Follow [Discord setup instructions](docs/discord.md) to create a bot account and obtain a token. Set it in `config.json` Discord section.
+1. Follow [Discord setup instructions](docs/discord.md) to create a bot account and obtain a token. Set it in `~/.muaddib/config.json` Discord section.
 2. Install dependencies: `uv sync --dev`
 3. Run the service: `uv run muaddib`
 
 Manual for IRC ("bring your own irssi"):
-1. Ensure `irssi-varlink` is loaded in your irssi, and your varlink path is set up properly in `config.json` IRC section.
+1. Ensure `irssi-varlink` is loaded in your irssi, and your varlink path is set up properly in `~/.muaddib/config.json` IRC section.
 2. Install dependencies: `uv sync --dev`
 3. Run the service: `uv run muaddib`
 
@@ -110,7 +122,8 @@ You can test the bot's message handling including command parsing from the comma
 uv run muaddib --message "!h"
 uv run muaddib --message "tell me a joke"
 uv run muaddib --message "!d tell me a joke"
-uv run muaddib --message "!a summarize https://python.org" --config /path/to/config.json
+uv run muaddib --message "!a summarize https://python.org"
+# Or with explicit config: uv run muaddib --message "!a summarize https://python.org" --config /path/to/config.json
 ```
 
 This simulates full IRC message handling including command parsing and automatic mode classification, useful for testing your configuration and API keys without setting up the full IRC bot.
@@ -132,14 +145,14 @@ uv run muaddib --chronicler "Show me the current chapter" --arc "project-x"
 Evaluate the performance of the automatic mode classifier on historical data:
 
 ```bash
-# Analyze classifier performance on database history
-uv run python analyze_classifier.py --db chat_history.db
+# Analyze classifier performance on database history (uses $MUADDIB_HOME/chat_history.db by default)
+uv run python analyze_classifier.py
 
 # Analyze classifier performance on IRC log files
 uv run python analyze_classifier.py --logs ~/.irssi/logs/freenode/*.log
 
-# Combine both sources with custom config
-uv run python analyze_classifier.py --db chat_history.db --logs ~/.irssi/logs/ --config config.json
+# Combine both sources with explicit paths
+uv run python analyze_classifier.py --db /path/to/chat_history.db --logs ~/.irssi/logs/ --config /path/to/config.json
 ```
 
 Results are saved to `classifier_analysis.csv` with detailed metrics and misclassification analysis.
@@ -155,8 +168,8 @@ uv run python analyze_proactive.py --limit 20
 # Analyze proactive interjecting on IRC log files with channel exclusions
 uv run python analyze_proactive.py --logs ~/.irssi/logs/ --limit 50 --exclude-news
 
-# Combine both sources with custom config
-uv run python analyze_proactive.py --db chat_history.db --logs ~/.irssi/logs/ --config config.json
+# Combine both sources with explicit paths
+uv run python analyze_proactive.py --db /path/to/chat_history.db --logs ~/.irssi/logs/ --config /path/to/config.json
 ```
 
 Results are saved to `proactive_analysis.csv` with detailed interjection decisions and reasoning.

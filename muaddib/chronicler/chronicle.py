@@ -30,7 +30,7 @@ class Chronicle:
     Arcs are required for all operations. Each arc has at most one open chapter.
     """
 
-    def __init__(self, db_path: str = "chronicle.db"):
+    def __init__(self, db_path: str):
         self.db_path = Path(db_path).expanduser()
         self._lock = asyncio.Lock()
 

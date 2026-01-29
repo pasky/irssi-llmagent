@@ -20,13 +20,11 @@ services:
       dockerfile: Dockerfile
     container_name: muaddib
     working_dir: /app
+    environment:
+      - MUADDIB_HOME=/data
     volumes:
       - ./irssi-data:/home/irssi/.irssi
-      - ./config.json:/app/config.json
-      - ./chat_history.db:/app/chat_history.db
-      - ./chronicle.db:/app/chronicle.db
-      - ./artifacts:/app/artifacts
-      - ./logs:/app/logs
+      - ./muaddib-data:/data
       - .:/app/src  # For development - mount source code
     networks:
       - irssi-net

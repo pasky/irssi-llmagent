@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class ChatHistory:
     """Persistent chat history using SQLite with configurable limits for inference."""
 
-    def __init__(self, db_path: str = "chat_history.db", inference_limit: int = 5):
+    def __init__(self, db_path: str, inference_limit: int = 5):
         # Handle in-memory database path specially
         if db_path == ":memory:":
             self.db_path = ":memory:"

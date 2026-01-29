@@ -194,19 +194,24 @@ Examples:
     parser.add_argument(
         "--db",
         type=str,
-        help="SQLite database path (default: chat_history.db)",
-        default="chat_history.db",
+        help="SQLite database path (default: $MUADDIB_HOME/chat_history.db)",
+        default=None,
     )
     parser.add_argument(
         "--logs", type=str, help="IRC log file or directory path (alternative to --db)"
     )
     parser.add_argument(
-        "--config", type=str, help="Config file path (default: config.json)", default="config.json"
+        "--config",
+        type=str,
+        help="Config file path (default: $MUADDIB_HOME/config.json)",
+        default=None,
     )
 
     args = parser.parse_args()
 
-    config_path = Path(args.config)
+    from muaddib.paths import get_config_path, get_default_history_db_path
+
+    config_path = Path(args.config) if args.config else get_config_path()
 
     if not config_path.exists():
         print(f"Error: config file {config_path} not found")
@@ -214,6 +219,9 @@ Examples:
 
     # Create agent instance for classification
     agent = MuaddibAgent(str(config_path))
+
+    # Resolve db path
+    db_path = args.db if args.db else str(get_default_history_db_path())
 
     # Extract historic invocations
     if args.logs:
@@ -223,9 +231,9 @@ Examples:
         source_desc = f"log files ({args.logs})"
     else:
         # Use database (default)
-        print(f"📋 Analyzing SQLite database: {args.db}")
-        invocations = await extract_bot_invocations_from_db(args.db)
-        source_desc = f"database ({args.db})"
+        print(f"📋 Analyzing SQLite database: {db_path}")
+        invocations = await extract_bot_invocations_from_db(db_path)
+        source_desc = f"database ({db_path})"
 
     if not invocations:
         print("No bot invocations found")

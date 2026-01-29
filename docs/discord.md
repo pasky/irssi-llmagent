@@ -40,7 +40,7 @@ Muaddib needs message content to detect @mentions.
 5. Select your server and authorize the bot.
 
 ## 6) Configure Muaddib
-Edit `config.json` and add/enable the Discord block under `rooms`:
+Edit `~/.muaddib/config.json` (or `$MUADDIB_HOME/config.json`) and add/enable the Discord block under `rooms`:
 
 ```json
 "discord": {

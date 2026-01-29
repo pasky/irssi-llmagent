@@ -22,7 +22,7 @@ COPY muaddib/ ./muaddib/
 # Install Python dependencies
 RUN uv sync --frozen
 
-RUN mkdir -p artifacts/ logs/ /home/irssi/.irssi
+RUN mkdir -p artifacts/ /data /home/irssi/.irssi
 
 # Default command
 CMD ["uv", "run", "python", "-m", "muaddib.main"]

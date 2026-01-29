@@ -3,7 +3,7 @@
 ## Build/Test Commands
 - Install dependencies: `uv sync --dev`
 - Any change should be accompanied with tests update. (Always prefer updating existing unit tests over adding new ones.)
-- Any change where viable should be tested by actually running the CLI e2e test: `uv run muaddib --message "your message here"`
+- Any change where viable should be tested by actually running the CLI e2e test: `MUADDIB_HOME=. uv run muaddib --message "your message here"`
 - Run linting, typecheck etc. via pre-commit.
 - Run tests: `uv run pytest` - all tests must always succeed! You must assume any test failure is related to your changes, even if it doesn't appear to be at first.
 - You must test and commit your work once finished. Never respond with "Tests not run (not requested)."
@@ -15,11 +15,18 @@
 - **Modular Structure**: Clean separation between platform-agnostic core and IRC-specific implementation
 - **Varlink Protocol**: Dual async socket architecture (events + sender) over UNIX socket at `~/.irssi/varlink.sock`
 - **APIs**: Anthropic Claude (sarcastic/serious modes with automatic classification using claude-3-5-haiku), E2B sandbox for Python code execution
-- **Config**: JSON-based configuration in `config.json` (copy from `config.json.example`)
+- **Config & Data**: All files live in `$MUADDIB_HOME` (defaults to `~/.muaddib/`):
+  - `config.json` - JSON configuration (copy from `config.json.example`)
+  - `chat_history.db` - SQLite persistent chat history
+  - `chronicle.db` - Chronicle database
+  - `artifacts/` - Shared artifacts directory
+  - `logs/` - Per-message log files (DEBUG+)
+  - Relative paths in config (e.g., `"path": "chronicle.db"`) are resolved against `$MUADDIB_HOME`
   - Models MUST be fully-qualified as `provider:model` (e.g., `anthropic:claude-sonnet-4`). No defaults.
   - No backwards compatibility is kept for legacy config keys; tests are aligned to the new schema.
-- **Logging**: Console output (INFO+) and logs/ files (DEBUG+), third-party libraries suppressed from console
-- **Database**: SQLite persistent chat history with configurable inference limits
+  - Set `MUADDIB_HOME=.` for development to use current directory
+- **Logging**: Console output (INFO+) and `$MUADDIB_HOME/logs/` files (DEBUG+), third-party libraries suppressed from console
+- **Database**: SQLite persistent chat history with configurable inference limits (paths can be overridden in config)
 - **Continuous Chronicling**: Automatic chronicling triggered when unchronicled messages exceed `history_size` threshold. Uses `chronicler.model` to summarize conversation activity into Chronicle chapters. Messages get linked via `chapter_id` field in ChatHistory. Includes safety limits (100 message batches, 7-day lookback) and overlap for context continuity
 - **Proactive Interjecting**: Channel-based whitelist feature using claude-3-haiku to scan non-directed messages and interject in serious conversations when useful. Includes rate limiting, test mode, and channel whitelisting
 - **Key Modules**:

@@ -17,6 +17,12 @@ from .chronicler.quests import QuestOperator
 from .context_reducer import ContextReducer
 from .history import ChatHistory
 from .message_logging import MessageContextHandler
+from .paths import (
+    get_config_path,
+    get_default_chronicle_db_path,
+    get_default_history_db_path,
+    get_logs_dir,
+)
 from .providers import ModelRouter
 from .rooms.command import get_room_config
 from .rooms.irc import IRCRoomMonitor
@@ -35,10 +41,10 @@ console_handler.setFormatter(formatter)
 root_logger.addHandler(console_handler)
 
 # Per-message context handler for DEBUG and above
-# Routes logs to per-message files under logs/ directory
+# Routes logs to per-message files under $MUADDIB_HOME/logs/ directory
 # Skip file logging during tests - just use stderr for DEBUG logs
 if "pytest" not in sys.modules:
-    message_context_handler = MessageContextHandler("logs", level=logging.DEBUG)
+    message_context_handler = MessageContextHandler(get_logs_dir(), level=logging.DEBUG)
     root_logger.addHandler(message_context_handler)
 else:
     stderr_debug_handler = logging.StreamHandler(sys.stderr)
@@ -59,21 +65,41 @@ logging.getLogger("primp").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
+def _resolve_path(path: str | None, default_path: Path) -> str:
+    """Resolve a config path - relative paths are resolved against MUADDIB_HOME."""
+    if not path:
+        return str(default_path)
+    p = Path(path)
+    if p.is_absolute():
+        return path
+    from .paths import get_muaddib_home
+
+    return str(get_muaddib_home() / path)
+
+
 class MuaddibAgent:
     """Main IRC LLM agent application."""
 
-    def __init__(self, config_path: str = "config.json"):
-        self.config = self.load_config(config_path)
+    def __init__(self, config_path: str | None = None):
+        resolved_config_path = config_path or str(get_config_path())
+        self.config = self.load_config(resolved_config_path)
         self.model_router: ModelRouter = ModelRouter(self.config)
         irc_config = get_room_config(self.config, "irc")
         self.irc_enabled = irc_config.get("enabled", True)
+        history_db_path = _resolve_path(
+            self.config.get("history", {}).get("database", {}).get("path"),
+            get_default_history_db_path(),
+        )
         self.history = ChatHistory(
-            self.config.get("history", {}).get("database", {}).get("path", "chat_history.db"),
+            history_db_path,
             irc_config["command"]["history_size"],
         )
         # Initialize chronicle
         chronicler_config = self.config.get("chronicler", {})
-        chronicle_db_path = chronicler_config.get("database", {}).get("path", "chronicle.db")
+        chronicle_db_path = _resolve_path(
+            chronicler_config.get("database", {}).get("path"),
+            get_default_chronicle_db_path(),
+        )
         self.chronicle = Chronicle(chronicle_db_path)
         self.context_reducer = ContextReducer(self)
         self.irc_monitor = IRCRoomMonitor(self)
@@ -150,7 +176,7 @@ class MuaddibAgent:
         except FileNotFoundError:
             logger.error(
                 f"Config file {config_path} not found. "
-                "Copy config.json.example to config.json and configure."
+                "Copy config.json.example to $MUADDIB_HOME/config.json (default: ~/.muaddib/config.json) and configure."
             )
             sys.exit(1)
         except json.JSONDecodeError as e:
@@ -185,11 +211,13 @@ class MuaddibAgent:
 async def cli_message(message: str, config_path: str | None = None) -> None:
     """CLI mode for testing message handling including command parsing."""
     # Load configuration
-    config_file = Path(config_path) if config_path else Path(__file__).parent.parent / "config.json"
+    config_file = Path(config_path) if config_path else get_config_path()
 
     if not config_file.exists():
         print(f"Error: Config file not found at {config_file}")
-        print("Please create config.json from config.json.example")
+        print(
+            "Please copy config.json.example to $MUADDIB_HOME/config.json (default: ~/.muaddib/config.json)"
+        )
         sys.exit(1)
 
     print(f"🤖 Simulating IRC message: {message}")
@@ -245,11 +273,13 @@ async def cli_message(message: str, config_path: str | None = None) -> None:
 async def cli_chronicler(arc: str, instructions: str, config_path: str | None = None) -> None:
     """CLI mode for Chronicler operations."""
     # Load configuration
-    config_file = Path(config_path) if config_path else Path(__file__).parent.parent / "config.json"
+    config_file = Path(config_path) if config_path else get_config_path()
 
     if not config_file.exists():
         print(f"Error: Config file not found at {config_file}")
-        print("Please create config.json from config.json.example")
+        print(
+            "Please copy config.json.example to $MUADDIB_HOME/config.json (default: ~/.muaddib/config.json)"
+        )
         sys.exit(1)
 
     print(f"🔮 Chronicler arc '{arc}': {instructions}")
@@ -279,7 +309,9 @@ def main() -> None:
         "--message", type=str, help="Run in CLI mode to simulate handling an IRC message"
     )
     parser.add_argument(
-        "--config", type=str, help="Path to config file (default: config.json in project root)"
+        "--config",
+        type=str,
+        help="Path to config file (default: $MUADDIB_HOME/config.json or ~/.muaddib/config.json)",
     )
     parser.add_argument(
         "--chronicler",

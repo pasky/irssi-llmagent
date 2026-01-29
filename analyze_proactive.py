@@ -226,14 +226,17 @@ Examples:
     parser.add_argument(
         "--db",
         type=str,
-        help="SQLite database path (default: chat_history.db)",
-        default="chat_history.db",
+        help="SQLite database path (default: $MUADDIB_HOME/chat_history.db)",
+        default=None,
     )
     parser.add_argument(
         "--logs", type=str, help="IRC log file or directory path (alternative to --db)"
     )
     parser.add_argument(
-        "--config", type=str, help="Config file path (default: config.json)", default="config.json"
+        "--config",
+        type=str,
+        help="Config file path (default: $MUADDIB_HOME/config.json)",
+        default=None,
     )
     parser.add_argument(
         "--limit", type=int, help="Number of recent messages to analyze (default: 100)", default=100
@@ -244,7 +247,9 @@ Examples:
 
     args = parser.parse_args()
 
-    config_path = Path(args.config)
+    from muaddib.paths import get_config_path, get_default_history_db_path
+
+    config_path = Path(args.config) if args.config else get_config_path()
 
     if not config_path.exists():
         print(f"Error: config file {config_path} not found")
@@ -252,6 +257,9 @@ Examples:
 
     # Create agent instance to use its methods
     agent = MuaddibAgent(str(config_path))
+
+    # Resolve db path
+    db_path = args.db if args.db else str(get_default_history_db_path())
 
     # Set up exclusions
     exclude_channels = ["#news.cz"] if args.exclude_news else []
@@ -266,11 +274,11 @@ Examples:
         source_desc = f"log files ({args.logs})"
     else:
         # Use database (default)
-        print(f"📋 Analyzing {args.limit} recent non-bot messages from: {args.db}")
+        print(f"📋 Analyzing {args.limit} recent non-bot messages from: {db_path}")
         if exclude_channels:
             print(f"Excluding channels: {exclude_channels}")
-        messages = await extract_non_bot_messages_from_db(args.db, args.limit, exclude_channels)
-        source_desc = f"database ({args.db})"
+        messages = await extract_non_bot_messages_from_db(db_path, args.limit, exclude_channels)
+        source_desc = f"database ({db_path})"
 
     if not messages:
         print("No messages found")

@@ -153,8 +153,8 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=str,
-        default="config.json",
-        help="Path to config file (default: config.json)",
+        default=None,
+        help="Path to config file (default: $MUADDIB_HOME/config.json)",
     )
     parser.add_argument(
         "--timeout",
@@ -165,8 +165,12 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if not Path(args.config).exists():
-        print(f"Error: Config file not found: {args.config}")
+    from muaddib.paths import get_config_path
+
+    config_path = args.config if args.config else str(get_config_path())
+
+    if not Path(config_path).exists():
+        print(f"Error: Config file not found: {config_path}")
         sys.exit(1)
 
     print("=" * 80)
@@ -174,7 +178,7 @@ def main() -> None:
     print("=" * 80)
     print()
 
-    asyncio.run(run_benchmark(args.config, args.timeout))
+    asyncio.run(run_benchmark(config_path, args.timeout))
 
 
 if __name__ == "__main__":
