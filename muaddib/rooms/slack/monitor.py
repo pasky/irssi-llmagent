@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
+from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
 from ...message_logging import MessageLoggingContext
@@ -19,6 +20,14 @@ if TYPE_CHECKING:
     from ...main import MuaddibAgent
 
 logger = logging.getLogger(__name__)
+
+# Loading messages for typing indicator
+TYPING_LOADING_MESSAGES = [
+    "Thinking...",
+    "Consulting the spice...",
+    "The worm is turning...",
+    "Prescience loading...",
+]
 
 
 class SlackRoomMonitor:
@@ -168,6 +177,64 @@ class SlackRoomMonitor:
             logger.error("Slack auth_test failed for %s: %s", team_id, e)
             return None
 
+    async def _set_typing_indicator(
+        self, client: AsyncWebClient, channel_id: str, thread_ts: str | None
+    ) -> bool:
+        """Show typing indicator in channel/thread using assistant.threads.setStatus.
+
+        The indicator is automatically cleared when a message is sent to the thread.
+        For non-threaded replies, call _clear_typing_indicator after sending.
+
+        This requires the `assistant:write` scope. If the scope is missing or the API
+        call fails, the error is logged but does not interrupt message processing.
+
+        Returns True if indicator was set successfully, False otherwise.
+        """
+        # The API requires a thread_ts - if we don't have one, we can't show the indicator
+        if not thread_ts:
+            logger.debug("Skipping typing indicator: no thread_ts available")
+            return False
+
+        try:
+            await client.assistant_threads_setStatus(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                status="is thinking...",
+                loading_messages=TYPING_LOADING_MESSAGES,
+            )
+            logger.debug("Set typing indicator in channel %s thread %s", channel_id, thread_ts)
+            return True
+        except SlackApiError as e:
+            error_code = e.response.get("error", "unknown")
+            if error_code == "missing_scope":
+                logger.warning(
+                    "Cannot show typing indicator: missing 'assistant:write' scope. "
+                    "Add this scope in your Slack app settings to enable typing indicators."
+                )
+            elif error_code == "thread_not_found":
+                # Thread doesn't exist yet (we're about to create it), this is expected
+                logger.debug("Typing indicator skipped: thread not yet created")
+            else:
+                logger.warning("Failed to set typing indicator: %s", e)
+        except Exception as e:
+            logger.warning("Unexpected error setting typing indicator: %s", e)
+        return False
+
+    async def _clear_typing_indicator(
+        self, client: AsyncWebClient, channel_id: str, thread_ts: str
+    ) -> None:
+        """Clear typing indicator by setting empty status."""
+        try:
+            await client.assistant_threads_setStatus(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                status="",
+            )
+            logger.debug("Cleared typing indicator in channel %s thread %s", channel_id, thread_ts)
+        except Exception as e:
+            # Don't warn, this is best-effort cleanup
+            logger.debug("Failed to clear typing indicator: %s", e)
+
     async def _get_user_display_name(
         self, team_id: str, client: AsyncWebClient, user_id: str
     ) -> str:
@@ -236,18 +303,22 @@ class SlackRoomMonitor:
 
         id_cache = self.user_id_cache.get(team_id, {})
         if not id_cache:
+            logger.debug("No user_id_cache for team %s, skipping mention formatting", team_id)
             return text
 
-        def replace_mention(match: re.Match[str]) -> str:
-            name = match.group(1)
-            user_id = id_cache.get(name.lower())
-            if user_id:
-                return f"<@{user_id}>"
-            return match.group(0)  # Keep original if not found
+        # Sort by length descending to match longer names first (e.g., "John Smith" before "John")
+        sorted_names = sorted(id_cache.keys(), key=len, reverse=True)
 
-        # Match @Name patterns (name can contain spaces if quoted or be a single word)
-        # Pattern: @word or @"words with spaces"
-        return re.sub(r"@(\w+(?:\s+\w+)*)", replace_mention, text)
+        result = text
+        for name in sorted_names:
+            user_id = id_cache[name]
+            # Case-insensitive match for @Name pattern
+            pattern = re.compile(r"@" + re.escape(name), re.IGNORECASE)
+            if pattern.search(result):
+                result = pattern.sub(f"<@{user_id}>", result)
+                logger.debug("Mention formatted: @%s -> <@%s>", name, user_id)
+
+        return result
 
     def _strip_leading_mention(self, text: str, bot_user_id: str, bot_name: str) -> str:
         if not text:
@@ -424,6 +495,15 @@ class SlackRoomMonitor:
                 }
 
         if is_direct:
+            # Show typing indicator before processing the command
+            # Use the message ts as thread reference (works even for non-threaded replies)
+            typing_thread_ts = thread_id or platform_id
+            typing_indicator_set = await self._set_typing_indicator(
+                client, channel_id, typing_thread_ts
+            )
+            # Need to manually clear if not replying in the same thread
+            needs_clear = typing_indicator_set and reply_thread_ts != typing_thread_ts
+
             with MessageLoggingContext(arc, nick, content):
                 await self.command_handler.handle_command(
                     server_tag=server_tag,
@@ -438,6 +518,10 @@ class SlackRoomMonitor:
                     response_thread_id=response_thread_id,
                     secrets=secrets,
                 )
+
+            # Clear typing indicator if reply wasn't in the same thread
+            if needs_clear and typing_thread_ts:
+                await self._clear_typing_indicator(client, channel_id, typing_thread_ts)
             return
 
         await self.command_handler.handle_passive_message(

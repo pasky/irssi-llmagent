@@ -417,3 +417,160 @@ async def test_slack_me_message_subtype_is_processed(test_config):
     # Should be processed as passive (no mention)
     handle_passive = cast(AsyncMock, monitor.command_handler.handle_passive_message)
     handle_passive.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_slack_typing_indicator_called_on_direct_message(test_config):
+    """Test that typing indicator is called when processing a direct message."""
+    monitor, agent, client = build_monitor(test_config)
+    client.assistant_threads_setStatus = AsyncMock()
+
+    async def handle_command(**kwargs):
+        await kwargs["reply_sender"]("hello")
+
+    monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
+
+    body = {"team_id": "T123"}
+    event = {
+        "type": "app_mention",
+        "channel": "C123",
+        "channel_type": "channel",
+        "user": "U1",
+        "text": "<@B1> hi there",
+        "ts": "1700000000.4444",
+    }
+
+    await monitor.process_message_event(body, event, is_direct=True)
+
+    # Typing indicator should be called before handle_command
+    client.assistant_threads_setStatus.assert_awaited_once()
+    call_kwargs = client.assistant_threads_setStatus.call_args.kwargs
+    assert call_kwargs["channel_id"] == "C123"
+    assert call_kwargs["thread_ts"] == "1700000000.4444"
+    assert call_kwargs["status"] == "is thinking..."
+
+
+@pytest.mark.asyncio
+async def test_slack_typing_indicator_uses_existing_thread(test_config):
+    """Test that typing indicator uses existing thread_ts when replying in a thread."""
+    monitor, agent, client = build_monitor(test_config)
+    client.assistant_threads_setStatus = AsyncMock()
+
+    async def handle_command(**kwargs):
+        await kwargs["reply_sender"]("hello")
+
+    monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
+
+    body = {"team_id": "T123"}
+    event = {
+        "type": "message",
+        "channel": "C123",
+        "channel_type": "channel",
+        "user": "U1",
+        "text": "<@B1> follow up question",
+        "ts": "1700000000.5555",
+        "thread_ts": "1700000000.1111",  # Existing thread
+    }
+
+    await monitor.process_message_event(body, event, is_direct=True)
+
+    # Should use the existing thread_ts, not the message ts
+    client.assistant_threads_setStatus.assert_awaited_once()
+    call_kwargs = client.assistant_threads_setStatus.call_args.kwargs
+    assert call_kwargs["thread_ts"] == "1700000000.1111"
+
+
+@pytest.mark.asyncio
+async def test_slack_typing_indicator_not_called_for_passive_messages(test_config):
+    """Test that typing indicator is not called for passive (non-direct) messages."""
+    monitor, agent, client = build_monitor(test_config)
+    client.assistant_threads_setStatus = AsyncMock()
+
+    body = {"team_id": "T123"}
+    event = {
+        "type": "message",
+        "channel": "C123",
+        "channel_type": "channel",
+        "user": "U1",
+        "text": "just chatting",
+        "ts": "1700000000.7777",
+    }
+
+    await monitor.process_message_event(body, event, is_direct=False)
+
+    # Typing indicator should NOT be called for passive messages
+    client.assistant_threads_setStatus.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_slack_typing_indicator_cleared_for_non_threaded_dm(test_config):
+    """Test that typing indicator is manually cleared for DMs without threading."""
+    monitor, agent, client = build_monitor(test_config)
+    client.assistant_threads_setStatus = AsyncMock()
+
+    async def handle_command(**kwargs):
+        await kwargs["reply_sender"]("hello")
+
+    monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
+
+    body = {"team_id": "T123"}
+    event = {
+        "type": "message",
+        "channel": "D123",
+        "channel_type": "im",
+        "user": "U1",
+        "text": "hello",
+        "ts": "1700000000.9999",
+    }
+
+    await monitor.process_message_event(body, event, is_direct=True)
+
+    # Should be called twice: once to set, once to clear (with empty status)
+    assert client.assistant_threads_setStatus.await_count == 2
+    calls = client.assistant_threads_setStatus.call_args_list
+
+    # First call sets the indicator
+    assert calls[0].kwargs["status"] == "is thinking..."
+    assert calls[0].kwargs["thread_ts"] == "1700000000.9999"
+
+    # Second call clears it (empty status)
+    assert calls[1].kwargs["status"] == ""
+    assert calls[1].kwargs["thread_ts"] == "1700000000.9999"
+
+
+@pytest.mark.asyncio
+async def test_slack_typing_indicator_handles_missing_scope_gracefully(test_config):
+    """Test that missing assistant:write scope is handled gracefully."""
+    from slack_sdk.errors import SlackApiError
+
+    monitor, agent, client = build_monitor(test_config)
+
+    # Simulate missing_scope error
+    error_response = {"ok": False, "error": "missing_scope"}
+    client.assistant_threads_setStatus = AsyncMock(
+        side_effect=SlackApiError("missing_scope", error_response)
+    )
+
+    async def handle_command(**kwargs):
+        await kwargs["reply_sender"]("hello")
+
+    monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
+
+    body = {"team_id": "T123"}
+    event = {
+        "type": "app_mention",
+        "channel": "C123",
+        "channel_type": "channel",
+        "user": "U1",
+        "text": "<@B1> hi there",
+        "ts": "1700000000.8888",
+    }
+
+    # Should not raise, message should still be processed
+    await monitor.process_message_event(body, event, is_direct=True)
+
+    # Command handler should still be called despite typing indicator failure
+    handle_command = cast(AsyncMock, monitor.command_handler.handle_command)
+    handle_command.assert_awaited_once()
+    # Reply should still be sent
+    client.chat_postMessage.assert_awaited_once()

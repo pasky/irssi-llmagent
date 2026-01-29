@@ -1,6 +1,6 @@
 # Slack Setup Guide
 
-This guide walks you through creating a Slack app, enabling Socket Mode, and configuring Muaddib’s Slack frontend.
+This guide walks you through creating a Slack app, enabling Socket Mode, and configuring Muaddib's Slack frontend.
 
 ## Prerequisites
 - Slack workspace admin permissions
@@ -25,6 +25,7 @@ Go to **OAuth & Permissions** and add these bot scopes:
 - `channels:read`, `groups:read`, `im:read`, `mpim:read`
 - `files:read`
 - `users:read`
+- `assistant:write` *(optional, enables "typing..." indicator while bot is responding)*
 
 ## 4) Enable Event Subscriptions
 Even in Socket Mode, you must enable events:
@@ -69,7 +70,7 @@ Edit `~/.muaddib/config.json` (or `$MUADDIB_HOME/config.json`) and add/enable th
 ```
 
 Notes:
-- `T123` is the Slack **Team ID** for your workspace. If it’s not shown in Workspace Settings, you can grab it from the URL when Slack is open in a browser (`https://app.slack.com/client/T123/...`).
+- `T123` is the Slack **Team ID** for your workspace. If it's not shown in Workspace Settings, you can grab it from the URL when Slack is open in a browser (`https://app.slack.com/client/T123/...`).
 - Slack uses **two tokens**: `xapp-` for Socket Mode connection and `xoxb-` for Web API calls.
 - The Slack frontend reuses IRC command prompt/model configuration verbatim.
 
