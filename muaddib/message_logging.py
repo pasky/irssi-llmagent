@@ -10,7 +10,7 @@ Directory structure:
         HH-MM-SS-nick-message_prefix.log
       server#nick/
         HH-MM-SS-nick-message_prefix.log
-    system.log  # startup, global events
+      system.log  # startup, global events
 """
 
 import logging
@@ -77,7 +77,7 @@ class MessageContextHandler(logging.Handler):
     """Logging handler that routes logs to per-message files based on context.
 
     When a message context is active, logs go to that message's log file.
-    When no context is active, logs go to a fallback system.log file.
+    When no context is active, logs go to a per-day system.log file.
 
     Uses LRU eviction to limit the number of open file handles.
     """
@@ -87,13 +87,16 @@ class MessageContextHandler(logging.Handler):
     def __init__(self, logs_dir: str | Path, level: int = logging.DEBUG):
         super().__init__(level)
         self.logs_dir = Path(logs_dir)
-        self.system_log_path = self.logs_dir / "system.log"
 
         # LRU cache of open file handles (path -> handler), limited size
         self._file_handles: dict[Path, logging.FileHandler] = {}
 
         # Formatter for log messages
         self._formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+    def _get_system_log_path(self, record: logging.LogRecord) -> Path:
+        date_str = datetime.fromtimestamp(record.created).strftime("%Y-%m-%d")
+        return self.logs_dir / date_str / "system.log"
 
     def _get_handler_for_path(self, path: Path) -> logging.FileHandler:
         """Get or create a file handler for the given path, with LRU eviction."""
@@ -119,7 +122,7 @@ class MessageContextHandler(logging.Handler):
         """Emit a log record to the appropriate file."""
         try:
             ctx = get_message_context()
-            path = ctx.log_path if ctx is not None else self.system_log_path
+            path = ctx.log_path if ctx is not None else self._get_system_log_path(record)
             handler = self._get_handler_for_path(path)
             handler.emit(record)
         except Exception:
