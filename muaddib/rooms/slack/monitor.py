@@ -13,7 +13,6 @@ from slack_bolt.async_app import AsyncApp
 from slack_sdk.web.async_client import AsyncWebClient
 
 from ...message_logging import MessageLoggingContext
-from ...paths import get_logs_dir
 from ..command import RoomCommandHandler, get_room_config
 
 if TYPE_CHECKING:
@@ -377,7 +376,7 @@ class SlackRoomMonitor:
                 }
 
         if is_direct:
-            with MessageLoggingContext(arc, nick, content, get_logs_dir()):
+            with MessageLoggingContext(arc, nick, content):
                 await self.command_handler.handle_command(
                     server_tag=server_tag,
                     channel_name=channel_name,

@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 import muaddib
 
 from ...message_logging import MessageLoggingContext
-from ...paths import get_logs_dir
 from ..command import RoomCommandHandler, get_room_config
 from .varlink import VarlinkClient, VarlinkSender
 
@@ -114,7 +113,7 @@ class IRCRoomMonitor:
 
         if is_direct:
             arc = f"{server}#{chan_name}"
-            with MessageLoggingContext(arc, nick, message, get_logs_dir()):
+            with MessageLoggingContext(arc, nick, message):
                 await self.command_handler.handle_command(
                     server_tag=server,
                     channel_name=chan_name,

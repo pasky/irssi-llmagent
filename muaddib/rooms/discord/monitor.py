@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 import discord
 
 from ...message_logging import MessageLoggingContext
-from ...paths import get_logs_dir
 from ..command import RoomCommandHandler, get_room_config
 
 if TYPE_CHECKING:
@@ -216,7 +215,7 @@ class DiscordRoomMonitor:
 
         if self._is_highlight(message):
             cleaned_content = self._strip_leading_mention(message, mynick)
-            with MessageLoggingContext(arc, nick, content, get_logs_dir()):
+            with MessageLoggingContext(arc, nick, content):
                 async with message.channel.typing():
                     await self.command_handler.handle_command(
                         server_tag=server_tag,

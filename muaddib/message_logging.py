@@ -140,21 +140,22 @@ class MessageLoggingContext:
     """Context manager for message-scoped logging.
 
     Usage:
-        with MessageLoggingContext(arc, nick, message, logs_dir):
+        with MessageLoggingContext(arc, nick, message):
             # All logging in this block goes to the message's log file
             logger.info("Processing message...")
     """
 
-    def __init__(self, arc: str, nick: str, message: str, logs_dir: Path):
+    def __init__(self, arc: str, nick: str, message: str):
         self.arc = arc
         self.nick = nick
         self.message = message
-        self.logs_dir = logs_dir
         self._token = None
         self._ctx: MessageContext | None = None
 
     def __enter__(self) -> MessageContext:
-        self._ctx = MessageContext.create(self.arc, self.nick, self.message, self.logs_dir)
+        from .paths import get_logs_dir
+
+        self._ctx = MessageContext.create(self.arc, self.nick, self.message, get_logs_dir())
         logging.getLogger(__name__).info(f"Starting message log: {self._ctx.log_path}")
         self._token = _message_context.set(self._ctx)
         return self._ctx

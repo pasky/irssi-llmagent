@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..message_logging import MessageLoggingContext
-from ..paths import get_logs_dir
 
 logger = logging.getLogger(__name__)
 
@@ -160,9 +159,7 @@ class ProactiveDebouncer:
 
                     # Execute with fresh logging context for this proactive check
                     arc = f"{msg.server}#{msg.chan_name}"
-                    with MessageLoggingContext(
-                        arc, f"proactive-{msg.nick}", msg.message, get_logs_dir()
-                    ):
+                    with MessageLoggingContext(arc, f"proactive-{msg.nick}", msg.message):
                         await check_callback(
                             msg.server,
                             msg.chan_name,
