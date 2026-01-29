@@ -60,6 +60,9 @@ class SlackRoomMonitor:
         # Only use message event - we detect mentions ourselves to avoid
         # duplicate events (app_mention + message) and ensure files are included
         self.app.event("message")(self._handle_message)
+        # Register no-op handler for app_mention to suppress warnings
+        # (we handle mentions via the message event to get file attachments)
+        self.app.event("app_mention")(self._handle_app_mention_noop)
 
         self.command_handler = RoomCommandHandler(
             self.agent,
@@ -82,6 +85,14 @@ class SlackRoomMonitor:
 
     def _now(self) -> float:
         return time.monotonic()
+
+    async def _handle_app_mention_noop(self, ack) -> None:
+        """No-op handler for app_mention events.
+
+        We handle mentions via message events to ensure file attachments are included.
+        This handler just acknowledges the event to suppress warnings.
+        """
+        await ack()
 
     async def _handle_message(self, body: dict[str, Any], event: dict[str, Any], ack) -> None:
         await ack()
