@@ -19,12 +19,12 @@ import asyncio
 import contextlib
 import logging
 import re
-from pathlib import Path
 from typing import Any
 
 import muaddib
 
 from ..message_logging import MessageLoggingContext
+from ..paths import get_logs_dir
 from . import QuestStatus
 
 logger = logging.getLogger(__name__)
@@ -144,7 +144,7 @@ class QuestOperator:
             return  # Already claimed by another runner
 
         try:
-            with MessageLoggingContext(arc, f"quest-{quest_id}", paragraph_text, Path("logs")):
+            with MessageLoggingContext(arc, f"quest-{quest_id}", paragraph_text, get_logs_dir()):
                 await self._run_step_inner(arc, quest_id, paragraph_text)
         finally:
             # Atomically release (IN_STEP -> ONGOING) if not finished during step
