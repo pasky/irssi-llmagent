@@ -7,7 +7,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
 </p>
 
-**Muaddib** is an AI assistant that's been built from the ground up *not* as a private single-user assistant (such as the amazing Clawdbot / Moltbot), but as a resilient entity operating in an inherently untrusted public environment (public IRC servers).
+**Muaddib** is an AI assistant that's been built from the ground up *not* as a private single-user assistant (such as the amazing Clawdbot / Moltbot), but as a resilient entity operating in an inherently untrusted public environment (public IRC / Discord / Slack servers).
 
 What does it take to talk to many strangers?
 
@@ -39,6 +39,14 @@ Of course, as with any AI agent, the real magic is in chatting back and forth. (
 
 _(Note that this particular task is on the edge of raw Opus 4.5 capability and all other harnesses and apps I tried failed it completely.)_
 
+Discord is of course supported:
+
+![Discord screenshot](docs/images/discord-screenshot.jpg)
+
+So is Slack - including threads:
+
+![Slack screenshot](docs/images/slack-screenshot.jpg)
+
 ## Features
 
 - **AI Integrations**: Anthropic Claude (Opus 4.5 recommended), OpenAI, DeepSeek, any OpenRouter model (including Gemini models)
@@ -47,12 +55,8 @@ _(Note that this particular task is on the edge of raw Opus 4.5 capability and a
 - **Command System**: Automatic model routing (to balance cost, speed and intelligence) plus extensible command-based interaction with prefixes for various modes
 - **Proactive Interjecting**: Channel-based whitelist system for automatic participation in relevant conversations
 - [BETA] **Long-running Projects**: A *quest* mode (opt-in) that enables Muaddib to work on longer-horizon, many-step tasks in public, using the channel for long-term context and external steering
-- [BETA] **Discord Frontend**: Responds to mentions/DMs with the same command system as IRC (see [docs/discord.md](docs/discord.md))
-- [BETA] **Slack Frontend**: Responds to mentions/DMs with the same command system as IRC (see [docs/slack.md](docs/slack.md))
 
 Muaddib has been **battle-tested since July 2025** in a (slightly) hostile IRC environment, lurking at a variety of [libera.chat](https://libera.chat/) channels.  However, bugs are possible (no warranty etc.) and LLM usage carries some inherent risks (e.g. an E2B code execution sandbox with your API keys preloaded *plus* an access to the internet [*can* be fooled](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/) by a highly crafted malicious website that the agent visits to upload these API keys somewhere).
-
-The IRC backend (using irssi connected via a varlink protocol) is stable, and the **Discord + Slack frontends are now in beta**.
 
 ## Getting Started
 
@@ -72,13 +76,11 @@ Copy `config.json.example` to `~/.muaddib/config.json` (or `$MUADDIB_HOME/config
 - API keys (you can get started with just a small subset)
 - Paths for tools and artifacts (relative paths are resolved against `$MUADDIB_HOME`)
 - Custom prompts for various modes
-- IRC integration settings such as channel modes
+- integration settings such as channel modes
 
 **Tip:** Set `MUADDIB_HOME=.` to use the current directory (useful for development).
 
 ### Installation
-
-Recommended for an IRC bot: See [Docker instructions](docs/docker.md) for running a Muaddib service + irssi in tandem in a Docker compose setup.
 
 Recommended for Discord:
 1. Follow [Discord setup instructions](docs/discord.md) to create a bot account and obtain a token. Set it in `~/.muaddib/config.json` Discord section.
@@ -90,6 +92,8 @@ Recommended for Slack:
 2. Set the Slack config block in `~/.muaddib/config.json`.
 3. Install dependencies: `uv sync --dev`
 4. Run the service: `uv run muaddib`
+
+Recommended for an IRC bot: See [Docker instructions](docs/docker.md) for running a Muaddib service + irssi in tandem in a Docker compose setup.
 
 Manual for IRC ("bring your own irssi"):
 1. Ensure `irssi-varlink` is loaded in your irssi, and your varlink path is set up properly in `~/.muaddib/config.json` IRC section.
