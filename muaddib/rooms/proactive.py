@@ -7,6 +7,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ..message_logging import MessageLoggingContext
 
@@ -27,6 +28,7 @@ class PendingMessage:
     timestamp: float
     thread_id: str | None = None
     thread_starter_id: int | None = None
+    secrets: dict[str, Any] | None = None
 
 
 class ProactiveDebouncer:
@@ -73,11 +75,13 @@ class ProactiveDebouncer:
                 Callable[[str], Awaitable[None]],
                 str | None,
                 int | None,
+                dict[str, Any] | None,
             ],
             Awaitable[None],
         ],
         thread_id: str | None = None,
         thread_starter_id: int | None = None,
+        secrets: dict[str, Any] | None = None,
     ) -> None:
         """Schedule a debounced proactive check for this channel.
 
@@ -113,6 +117,7 @@ class ProactiveDebouncer:
                 time.time(),
                 thread_id=thread_id,
                 thread_starter_id=thread_starter_id,
+                secrets=secrets,
             )
             logger.debug(f"Scheduled debounced check for {channel_key}: {message[:100]}...")
 
@@ -134,6 +139,7 @@ class ProactiveDebouncer:
                 Callable[[str], Awaitable[None]],
                 str | None,
                 int | None,
+                dict[str, Any] | None,
             ],
             Awaitable[None],
         ],
@@ -166,6 +172,7 @@ class ProactiveDebouncer:
                             msg.reply_sender,
                             msg.thread_id,
                             msg.thread_starter_id,
+                            msg.secrets,
                         )
 
                     # Cleanup

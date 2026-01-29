@@ -88,7 +88,7 @@
       "prompt_note": "",
       "command": {
         "history_size": 40,
-        "response_max_chars": 600,
+        "response_max_chars": 900,
         "rate_limit": 30,
         "rate_period": 900,
         "debounce": 1.5,
@@ -171,6 +171,34 @@
       "proactive": {
         "debounce_seconds": 40.0,
         "interjecting": ["muaddib#general"],
+        "interjecting_test": []
+      }
+    },
+
+    "slack": {
+      "enabled": false,
+      "app_token": "xapp-your-slack-app-token-here",
+      "workspaces": {
+        "T123": {
+          "name": "AmazingB2BSaaS",
+          "bot_token": "xoxb-your-slack-bot-token-here"
+        }
+      },
+      "reply_start_thread": {
+        "channel": true,
+        "dm": false
+      },
+      "reply_edit_debounce_seconds": 30.0,
+      "prompt_note": " You are now connected to Slack, and can use _very light_ Slack text styling.",
+      "command": {
+        "history_size": 20,
+        "response_max_chars": 2600,
+        "debounce": 3,
+        "ignore_users": []
+      },
+      "proactive": {
+        "debounce_seconds": 60.0,
+        "interjecting": ["AmazingB2BSaaS##general"],
         "interjecting_test": []
       }
     }

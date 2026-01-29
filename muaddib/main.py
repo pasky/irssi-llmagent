@@ -109,6 +109,12 @@ class MuaddibAgent:
             from .rooms.discord import DiscordRoomMonitor
 
             self.discord_monitor = DiscordRoomMonitor(self)
+        self.slack_monitor = None
+        slack_config = self.config.get("rooms", {}).get("slack")
+        if slack_config and slack_config.get("enabled"):
+            from .rooms.slack import SlackRoomMonitor
+
+            self.slack_monitor = SlackRoomMonitor(self)
         self.quests = QuestOperator(self)
 
     async def run_actor(
@@ -122,6 +128,7 @@ class MuaddibAgent:
         persistence_callback=None,
         model: str | list[str] | None = None,
         current_quest_id: str | None = None,
+        secrets: dict[str, Any] | None = None,
         **actor_kwargs,
     ) -> AgentResult | None:
         prepended_context: list[dict[str, str]] = []
@@ -142,6 +149,7 @@ class MuaddibAgent:
             prepended_context=prepended_context,
             agent=self,
             vision_model=mode_cfg.get("vision_model"),
+            secrets=secrets,
             **actor_kwargs,
         )
         agent_result = await actor.run_agent(
@@ -197,6 +205,8 @@ class MuaddibAgent:
                 monitors.append(self.irc_monitor.run())
             if self.discord_monitor:
                 monitors.append(self.discord_monitor.run())
+            if self.slack_monitor:
+                monitors.append(self.slack_monitor.run())
             if not monitors:
                 logger.warning("No room monitors enabled; exiting")
                 return

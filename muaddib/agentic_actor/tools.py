@@ -26,6 +26,31 @@ from ..chronicler.tools import (
 logger = logging.getLogger(__name__)
 
 
+def resolve_http_headers(url: str, secrets: dict[str, Any] | None) -> dict[str, str]:
+    """Resolve HTTP headers for a URL from the secrets dict."""
+    headers = {"User-Agent": "muaddib/1.0"}
+    if not secrets:
+        return headers
+
+    extra_headers: dict[str, str] = {}
+    exact = secrets.get("http_headers") if isinstance(secrets, dict) else None
+    if isinstance(exact, dict):
+        candidate = exact.get(url)
+        if isinstance(candidate, dict):
+            extra_headers = candidate
+
+    if not extra_headers:
+        prefixes = secrets.get("http_header_prefixes") if isinstance(secrets, dict) else None
+        if isinstance(prefixes, dict):
+            for prefix, candidate in prefixes.items():
+                if url.startswith(prefix) and isinstance(candidate, dict):
+                    extra_headers = candidate
+                    break
+
+    headers.update(extra_headers)
+    return headers
+
+
 def generate_artifact_id(length: int = 8) -> str:
     """Generate a random base62 artifact ID."""
     BASE62_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -33,7 +58,11 @@ def generate_artifact_id(length: int = 8) -> str:
 
 
 async def fetch_image_b64(
-    session: aiohttp.ClientSession, url: str, max_size: int, timeout: int = 30
+    session: aiohttp.ClientSession,
+    url: str,
+    max_size: int,
+    timeout: int = 30,
+    headers: dict[str, str] | None = None,
 ) -> tuple[str, str]:
     """
     Fetch an image from URL and return (content_type, base64_string).
@@ -42,7 +71,7 @@ async def fetch_image_b64(
     async with session.head(
         url,
         timeout=aiohttp.ClientTimeout(total=timeout),
-        headers={"User-Agent": "muaddib/1.0"},
+        headers=headers or {"User-Agent": "muaddib/1.0"},
     ) as head_response:
         content_type = head_response.headers.get("content-type", "").lower()
         if not content_type.startswith("image/"):
@@ -51,7 +80,7 @@ async def fetch_image_b64(
     async with session.get(
         url,
         timeout=aiohttp.ClientTimeout(total=timeout),
-        headers={"User-Agent": "muaddib/1.0"},
+        headers=headers or {"User-Agent": "muaddib/1.0"},
         max_line_size=8190 * 2,
         max_field_size=8190 * 2,
     ) as response:
@@ -443,6 +472,7 @@ class WebpageVisitorExecutor:
         progress_callback: Any | None = None,
         api_key: str | None = None,
         artifact_store: ArtifactStore | None = None,
+        secrets: dict[str, Any] | None = None,
     ):
         self.max_content_length = max_content_length
         self.timeout = timeout
@@ -450,6 +480,7 @@ class WebpageVisitorExecutor:
         self.progress_callback = progress_callback
         self.api_key = api_key
         self.artifact_store = artifact_store
+        self.secrets = secrets
 
     async def execute(self, url: str) -> str | list[dict]:
         """Visit webpage and return content as markdown, or image data for images."""
@@ -528,19 +559,26 @@ class WebpageVisitorExecutor:
                 logger.error(f"Failed to read local artifact '{filename}': {e}")
                 raise ValueError(f"Failed to read artifact: {e}") from e
 
+        headers = resolve_http_headers(url, self.secrets)
+        has_auth_headers = any(key.lower() != "user-agent" for key in headers)
+
         async with aiohttp.ClientSession() as session:
             # First, check the original URL for content-type to detect images
             async with session.head(
                 url,
                 timeout=aiohttp.ClientTimeout(total=self.timeout),
-                headers={"User-Agent": "muaddib/1.0"},
+                headers=headers,
             ) as head_response:
                 content_type = head_response.headers.get("content-type", "").lower()
 
                 if content_type.startswith("image/"):
                     try:
                         content_type, image_b64 = await fetch_image_b64(
-                            session, url, self.max_image_size, self.timeout
+                            session,
+                            url,
+                            self.max_image_size,
+                            self.timeout,
+                            headers=headers,
                         )
                         # Return Anthropic content blocks with image
                         return [
@@ -556,9 +594,44 @@ class WebpageVisitorExecutor:
                     except ValueError as e:
                         return f"Error: {e}"
 
-            # Handle text/HTML content - use jina.ai reader service
-            jina_url = f"https://r.jina.ai/{url}"
-            markdown_content = await self._fetch(session, jina_url)
+            # Handle text/HTML content - use direct fetch when auth headers are needed
+            if has_auth_headers:
+                async with session.get(
+                    url,
+                    timeout=aiohttp.ClientTimeout(total=self.timeout),
+                    headers=headers,
+                    max_line_size=8190 * 2,
+                    max_field_size=8190 * 2,
+                ) as response:
+                    response.raise_for_status()
+                    content_type = response.headers.get("content-type", "").lower()
+                    data = await response.read()
+
+                truncated = False
+                if len(data) > self.max_content_length:
+                    data = data[: self.max_content_length]
+                    truncated = True
+
+                if (
+                    content_type.startswith("text/")
+                    or "json" in content_type
+                    or "xml" in content_type
+                    or "javascript" in content_type
+                ):
+                    markdown_content = data.decode("utf-8", errors="replace")
+                    if truncated:
+                        markdown_content += "\n\n..._Content truncated_..."
+                else:
+                    b64 = base64.b64encode(data).decode()
+                    suffix = " (truncated)" if truncated else ""
+                    return (
+                        f"## Binary content from {url} (content-type: {content_type})\n\n"
+                        f"Base64{suffix}: {b64}"
+                    )
+            else:
+                # Handle text/HTML content - use jina.ai reader service
+                jina_url = f"https://r.jina.ai/{url}"
+                markdown_content = await self._fetch(session, jina_url)
 
         # Clean up multiple line breaks
         markdown_content = re.sub(r"\n{3,}", "\n\n", markdown_content)
@@ -959,12 +1032,14 @@ class OracleExecutor:
         arc: str,
         conversation_context: list[dict],
         progress_callback: Callable[[str], Awaitable[None]] | None = None,
+        secrets: dict[str, Any] | None = None,
     ):
         self.config = config
         self.agent = agent
         self.arc = arc
         self.conversation_context = conversation_context
         self.progress_callback = progress_callback
+        self.secrets = secrets
 
     async def execute(self, query: str) -> str:
         """Consult the oracle with a query, returning its response."""
@@ -998,6 +1073,7 @@ class OracleExecutor:
             reasoning_effort="high",
             allowed_tools=allowed_tools,
             agent=self.agent,
+            secrets=self.secrets,
         )
 
         try:
@@ -1193,6 +1269,7 @@ class ImageGenExecutor:
         config: dict,
         max_image_size: int = 5 * 1024 * 1024,
         timeout: int = 30,
+        secrets: dict[str, Any] | None = None,
     ):
         from ..providers import parse_model_spec
 
@@ -1200,6 +1277,7 @@ class ImageGenExecutor:
         self.config = config
         self.max_image_size = max_image_size
         self.timeout = timeout
+        self.secrets = secrets
         self.store = ArtifactStore.from_config(config)
 
         tools_config = config.get("tools", {}).get("image_gen", {})
@@ -1210,9 +1288,11 @@ class ImageGenExecutor:
             raise ValueError(f"image_gen.model must use openrouter provider, got: {spec.provider}")
 
     @classmethod
-    def from_config(cls, config: dict, router: Any) -> ImageGenExecutor:
+    def from_config(
+        cls, config: dict, router: Any, secrets: dict[str, Any] | None = None
+    ) -> ImageGenExecutor:
         """Create executor from configuration."""
-        return cls(router=router, config=config)
+        return cls(router=router, config=config, secrets=secrets)
 
     async def execute(self, prompt: str, image_urls: list[str] | None = None) -> str | list[dict]:
         """Generate image(s) using OpenRouter and store as artifacts."""
@@ -1225,8 +1305,13 @@ class ImageGenExecutor:
             async with aiohttp.ClientSession() as session:
                 for url in image_urls:
                     try:
+                        headers = resolve_http_headers(url, self.secrets)
                         ct, b64 = await fetch_image_b64(
-                            session, url, self.max_image_size, self.timeout
+                            session,
+                            url,
+                            self.max_image_size,
+                            self.timeout,
+                            headers=headers,
                         )
                         content_blocks.append(
                             {"type": "image_url", "image_url": {"url": f"data:{ct};base64,{b64}"}}
@@ -1369,6 +1454,7 @@ def create_tool_executors(
     arc: str,
     router: Any = None,
     current_quest_id: str | None = None,
+    secrets: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create tool executors with configuration."""
     # Tool configs
@@ -1414,7 +1500,10 @@ def create_tool_executors(
     artifact_store = ArtifactStore.from_config(config or {})
 
     webpage_visitor = WebpageVisitorExecutor(
-        progress_callback=progress_callback, api_key=jina_api_key, artifact_store=artifact_store
+        progress_callback=progress_callback,
+        api_key=jina_api_key,
+        artifact_store=artifact_store,
+        secrets=secrets,
     )
 
     executors = {
@@ -1450,7 +1539,9 @@ def create_tool_executors(
 
     # Add generate_image only if router is available
     if router:
-        executors["generate_image"] = ImageGenExecutor.from_config(config or {}, router)
+        executors["generate_image"] = ImageGenExecutor.from_config(
+            config or {}, router, secrets=secrets
+        )
 
     return executors
 

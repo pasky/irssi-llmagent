@@ -20,6 +20,8 @@ dependencies = [
     "e2b-code-interpreter<2",
     "openai>=1.40.0",
     "discord.py>=2.4.0",
+    "slack-bolt>=1.20.0",
+    "slack-sdk>=3.26.0",
 ]
 
 [project.optional-dependencies]

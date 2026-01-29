@@ -40,6 +40,7 @@ class TestProactiveDebouncer:
             reply_sender,
             thread_id: str | None,
             thread_starter_id: int | None,
+            secrets: dict | None,
         ):
             calls.append(
                 {
@@ -51,6 +52,7 @@ class TestProactiveDebouncer:
                     "reply_sender": reply_sender,
                     "thread_id": thread_id,
                     "thread_starter_id": thread_starter_id,
+                    "secrets": secrets,
                 }
             )
 

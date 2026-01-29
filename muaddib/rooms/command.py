@@ -139,6 +139,8 @@ class RoomCommandHandler:
     def _normalize_server_tag(server_tag: str) -> str:
         if server_tag.startswith("discord:"):
             return server_tag.split("discord:", 1)[1]
+        if server_tag.startswith("slack:"):
+            return server_tag.split("slack:", 1)[1]
         return server_tag
 
     def _get_channel_key(self, server_tag: str, channel_name: str) -> str:
@@ -345,6 +347,7 @@ class RoomCommandHandler:
         reply_sender: Callable[[str], Awaitable[None]],
         thread_id: str | None = None,
         thread_starter_id: int | None = None,
+        secrets: dict[str, Any] | None = None,
     ) -> None:
         try:
             if not self.proactive_rate_limiter.check_limit():
@@ -416,6 +419,7 @@ class RoomCommandHandler:
                 model=self.proactive_config["models"]["serious"],
                 extra_prompt=" " + self.proactive_config["prompts"]["serious_extra"],
                 arc=f"{server_tag}#{chan_name}",
+                secrets=secrets,
             )
 
             if not agent_result or not agent_result.text or agent_result.text.startswith("Error: "):
@@ -463,6 +467,7 @@ class RoomCommandHandler:
         extra_prompt: str = "",
         model: str | list[str] | None = None,
         no_context: bool = False,
+        secrets: dict[str, Any] | None = None,
         **actor_kwargs,
     ) -> AgentResult | None:
         mode_cfg = self.command_config["modes"][mode].copy()
@@ -481,6 +486,7 @@ class RoomCommandHandler:
                 mode_cfg=mode_cfg,
                 system_prompt=system_prompt,
                 model=model,
+                secrets=secrets,
                 **actor_kwargs,
             )
         except Exception as e:
@@ -546,7 +552,10 @@ class RoomCommandHandler:
         reply_sender: Callable[[str], Awaitable[None]],
         thread_id: str | None = None,
         thread_starter_id: int | None = None,
+        response_thread_id: str | None = None,
+        secrets: dict[str, Any] | None = None,
     ) -> None:
+        reply_thread_id = response_thread_id or thread_id
         if not self.rate_limiter.check_limit():
             logger.warning("Rate limiting triggered for %s", nick)
             rate_msg = f"{nick}: Slow down a little, will you? (rate limiting)"
@@ -558,7 +567,7 @@ class RoomCommandHandler:
                 mynick,
                 mynick,
                 True,
-                thread_id=thread_id,
+                thread_id=reply_thread_id,
             )
             return
 
@@ -605,6 +614,8 @@ class RoomCommandHandler:
             trigger_message_id,
             reply_sender,
             thread_id=thread_id,
+            response_thread_id=reply_thread_id,
+            secrets=secrets,
         )
         await self.proactive_debouncer.cancel_channel(
             self._get_proactive_channel_key(server_tag, channel_name)
@@ -680,6 +691,7 @@ class RoomCommandHandler:
         reply_sender: Callable[[str], Awaitable[None]],
         thread_id: str | None = None,
         thread_starter_id: int | None = None,
+        secrets: dict[str, Any] | None = None,
     ) -> None:
         channel_key = self._get_proactive_channel_key(server_tag, channel_name)
         if (
@@ -697,6 +709,7 @@ class RoomCommandHandler:
                 self._handle_debounced_proactive_check,
                 thread_id=thread_id,
                 thread_starter_id=thread_starter_id,
+                secrets=secrets,
             )
 
         max_size = self.command_config["history_size"]
@@ -714,8 +727,11 @@ class RoomCommandHandler:
         trigger_message_id: int,
         reply_sender: Callable[[str], Awaitable[None]],
         thread_id: str | None = None,
+        response_thread_id: str | None = None,
+        secrets: dict[str, Any] | None = None,
     ) -> None:
         modes_config = self.command_config["modes"]
+        reply_thread_id = response_thread_id or thread_id
         parsed = self._parse_prefix(cleaned_msg)
 
         if parsed.error:
@@ -768,7 +784,7 @@ class RoomCommandHandler:
                 mynick,
                 mynick,
                 True,
-                thread_id=thread_id,
+                thread_id=reply_thread_id,
             )
             return
 
@@ -824,7 +840,7 @@ class RoomCommandHandler:
                 mynick,
                 mynick,
                 True,
-                thread_id=thread_id,
+                thread_id=reply_thread_id,
             )
 
         async def persistence_cb(text: str) -> None:
@@ -836,7 +852,7 @@ class RoomCommandHandler:
                 mynick,
                 False,
                 content_template="[internal monologue] {message}",
-                thread_id=thread_id,
+                thread_id=reply_thread_id,
             )
 
         if mode == "SARCASTIC":
@@ -851,6 +867,7 @@ class RoomCommandHandler:
                 arc=f"{server_tag}#{channel_name}",
                 no_context=no_context,
                 model=model_override,
+                secrets=secrets,
             )
         elif mode and mode.endswith("SERIOUS"):
             assert reasoning_effort == "minimal"
@@ -869,6 +886,7 @@ class RoomCommandHandler:
                 persistence_callback=persistence_cb,
                 arc=f"{server_tag}#{channel_name}",
                 no_context=no_context,
+                secrets=secrets,
             )
         elif mode == "UNSAFE":
             agent_result = await self._run_actor(
@@ -881,6 +899,7 @@ class RoomCommandHandler:
                 arc=f"{server_tag}#{channel_name}",
                 model=model_override,
                 no_context=no_context,
+                secrets=secrets,
             )
         else:
             raise ValueError(f"Unknown mode {mode}")
@@ -919,7 +938,7 @@ class RoomCommandHandler:
                 True,
                 mode=mode,
                 llm_call_id=llm_call_id,
-                thread_id=thread_id,
+                thread_id=reply_thread_id,
             )
             if llm_call_id:
                 await self.agent.history.update_llm_call_response(llm_call_id, response_message_id)
@@ -941,7 +960,7 @@ class RoomCommandHandler:
                     mynick,
                     mynick,
                     True,
-                    thread_id=thread_id,
+                    thread_id=reply_thread_id,
                 )
 
             if agent_result.total_cost:
@@ -962,7 +981,7 @@ class RoomCommandHandler:
                         mynick,
                         mynick,
                         True,
-                        thread_id=thread_id,
+                        thread_id=reply_thread_id,
                     )
         else:
             logger.info("Agent in %s mode chose not to answer for %s", mode, channel_name)

@@ -64,6 +64,7 @@ class AgenticLLMActor:
         prepended_context: list[dict[str, str]] | None = None,
         agent: Any,
         vision_model: str | None = None,
+        secrets: dict[str, Any] | None = None,
     ):
         self.config = config
         self.model = model
@@ -77,6 +78,7 @@ class AgenticLLMActor:
         self.agent = agent
         self.model_router = ModelRouter(self.config)
         self.vision_model = vision_model
+        self.secrets = secrets
 
         # Actor configuration
         actor_cfg = self.config.get("actor", {})
@@ -128,6 +130,7 @@ class AgenticLLMActor:
             arc=arc,
             router=self.model_router,
             current_quest_id=current_quest_id,
+            secrets=self.secrets,
         )
         tool_executors = {**base_executors, **self.additional_tool_executors}
 
@@ -139,6 +142,7 @@ class AgenticLLMActor:
                 arc=arc,
                 conversation_context=context,
                 progress_callback=progress_callback,
+                secrets=self.secrets,
             )
 
         # Initialize progress tracking (only if progress_callback is set)
