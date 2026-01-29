@@ -62,6 +62,13 @@ def _deep_merge_config(base: dict[str, Any], override: dict[str, Any]) -> dict[s
             base_list = result.get(key, [])
             result[key] = [*base_list, *value]
             continue
+        if key == "prompt_note" and isinstance(value, str):
+            base_note = result.get(key, "")
+            if base_note and value:
+                result[key] = f"{base_note}{value}"
+            else:
+                result[key] = base_note or value
+            continue
         if isinstance(value, dict) and isinstance(result.get(key), dict):
             result[key] = _deep_merge_config(result[key], value)
             continue

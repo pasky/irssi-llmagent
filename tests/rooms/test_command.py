@@ -48,6 +48,16 @@ def test_should_ignore_user(temp_config_file):
     assert handler.should_ignore_user("gooduser") is False
 
 
+def test_prompt_note_merges_from_common_and_room(temp_config_file):
+    agent = MuaddibAgent(temp_config_file)
+    agent.config["rooms"]["common"]["prompt_note"] = "common-"
+    agent.config["rooms"]["irc"]["prompt_note"] = "room"
+
+    room_config = get_room_config(agent.config, "irc")
+
+    assert room_config["prompt_note"] == "common-room"
+
+
 def test_parse_prefix(temp_config_file):
     agent = MuaddibAgent(temp_config_file)
     handler, _, _ = build_handler(agent)
