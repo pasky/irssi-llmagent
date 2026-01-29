@@ -48,10 +48,11 @@ _(Note that this particular task is on the edge of raw Opus 4.5 capability and a
 - **Proactive Interjecting**: Channel-based whitelist system for automatic participation in relevant conversations
 - [BETA] **Long-running Projects**: A *quest* mode (opt-in) that enables Muaddib to work on longer-horizon, many-step tasks in public, using the channel for long-term context and external steering
 - [BETA] **Discord Frontend**: Responds to mentions/DMs with the same command system as IRC (see [docs/discord.md](docs/discord.md))
+- [BETA] **Slack Frontend**: Responds to mentions/DMs with the same command system as IRC (see [docs/slack.md](docs/slack.md))
 
 Muaddib has been **battle-tested since July 2025** in a (slightly) hostile IRC environment, lurking at a variety of [libera.chat](https://libera.chat/) channels.  However, bugs are possible (no warranty etc.) and LLM usage carries some inherent risks (e.g. an E2B code execution sandbox with your API keys preloaded *plus* an access to the internet [*can* be fooled](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/) by a highly crafted malicious website that the agent visits to upload these API keys somewhere).
 
-The IRC backend (using irssi connected via a varlink protocol) is stable, and the **Discord frontend is now in beta**. Slack is still coming soon.
+The IRC backend (using irssi connected via a varlink protocol) is stable, and the **Discord + Slack frontends are now in beta**.
 
 ## Getting Started
 
@@ -83,6 +84,12 @@ Recommended for Discord:
 1. Follow [Discord setup instructions](docs/discord.md) to create a bot account and obtain a token. Set it in `~/.muaddib/config.json` Discord section.
 2. Install dependencies: `uv sync --dev`
 3. Run the service: `uv run muaddib`
+
+Recommended for Slack:
+1. Follow [Slack setup instructions](docs/slack.md) to create a Slack app, enable Socket Mode, and obtain tokens.
+2. Set the Slack config block in `~/.muaddib/config.json`.
+3. Install dependencies: `uv sync --dev`
+4. Run the service: `uv run muaddib`
 
 Manual for IRC ("bring your own irssi"):
 1. Ensure `irssi-varlink` is loaded in your irssi, and your varlink path is set up properly in `~/.muaddib/config.json` IRC section.

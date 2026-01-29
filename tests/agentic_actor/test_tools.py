@@ -16,6 +16,7 @@ from muaddib.agentic_actor.tools import (
     WebSearchExecutor,
     create_tool_executors,
     execute_tool,
+    resolve_http_headers,
 )
 
 
@@ -104,6 +105,61 @@ class TestToolExecutors:
 
         with pytest.raises(ValueError, match="Invalid URL"):
             await executor.execute("not-a-url")
+
+    def test_resolve_http_headers_exact(self):
+        secrets = {
+            "http_headers": {"https://files.slack.com/files-pri/": {"Authorization": "Bearer xoxb"}}
+        }
+        headers = resolve_http_headers("https://files.slack.com/files-pri/", secrets)
+        assert headers["Authorization"] == "Bearer xoxb"
+        assert headers["User-Agent"] == "muaddib/1.0"
+
+    def test_resolve_http_headers_prefix(self):
+        secrets = {
+            "http_header_prefixes": {"https://files.slack.com/": {"Authorization": "Bearer xoxb"}}
+        }
+        headers = resolve_http_headers("https://files.slack.com/files-pri/test", secrets)
+        assert headers["Authorization"] == "Bearer xoxb"
+        assert headers["User-Agent"] == "muaddib/1.0"
+
+    @pytest.mark.asyncio
+    async def test_webpage_visitor_authenticated_fetch(self):
+        secrets = {
+            "http_header_prefixes": {"https://files.slack.com/": {"Authorization": "Bearer xoxb"}}
+        }
+        executor = WebpageVisitorExecutor(secrets=secrets)
+        executor._fetch = AsyncMock(side_effect=AssertionError("Should not call jina fetch"))
+
+        mock_head_response = AsyncMock()
+        mock_head_response.headers = {"content-type": "text/plain"}
+        mock_head_response.raise_for_status = MagicMock()
+
+        mock_get_response = AsyncMock()
+        mock_get_response.headers = {"content-type": "text/plain"}
+        mock_get_response.read = AsyncMock(return_value=b"hello")
+        mock_get_response.raise_for_status = MagicMock()
+
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        mock_head_context = AsyncMock()
+        mock_head_context.__aenter__ = AsyncMock(return_value=mock_head_response)
+        mock_head_context.__aexit__ = AsyncMock(return_value=None)
+
+        mock_get_context = AsyncMock()
+        mock_get_context.__aenter__ = AsyncMock(return_value=mock_get_response)
+        mock_get_context.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.head = MagicMock(return_value=mock_head_context)
+        mock_session.get = MagicMock(return_value=mock_get_context)
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            result = await executor.execute("https://files.slack.com/files-pri/test")
+
+        assert result == "## Content from https://files.slack.com/files-pri/test\n\nhello"
+        _, get_kwargs = mock_session.get.call_args
+        assert get_kwargs["headers"]["Authorization"] == "Bearer xoxb"
 
     @pytest.mark.asyncio
     async def test_webpage_visitor_image_content(self):
