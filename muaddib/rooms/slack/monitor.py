@@ -454,6 +454,8 @@ class SlackRoomMonitor:
         last_reply_ts: str | None = None
         last_reply_text: str | None = None
         last_reply_time: float | None = None
+        # Track typing indicator state for re-setting after progress messages
+        typing_indicator_thread_ts: str | None = None
 
         async def reply_sender(text: str) -> None:
             nonlocal last_reply_ts, last_reply_time, last_reply_text
@@ -473,15 +475,19 @@ class SlackRoomMonitor:
                 await client.chat_update(channel=channel_id, ts=last_reply_ts, text=combined)
                 last_reply_text = combined
                 last_reply_time = now
-                return
+            else:
+                send_kwargs: dict[str, Any] = {"channel": channel_id, "text": formatted_text}
+                if reply_thread_ts:
+                    send_kwargs["thread_ts"] = reply_thread_ts
+                response = await client.chat_postMessage(**send_kwargs)
+                last_reply_ts = response.get("ts")
+                last_reply_text = formatted_text
+                last_reply_time = now
 
-            send_kwargs: dict[str, Any] = {"channel": channel_id, "text": formatted_text}
-            if reply_thread_ts:
-                send_kwargs["thread_ts"] = reply_thread_ts
-            response = await client.chat_postMessage(**send_kwargs)
-            last_reply_ts = response.get("ts")
-            last_reply_text = formatted_text
-            last_reply_time = now
+            # Re-set typing indicator after sending a message (it auto-clears on send)
+            # This keeps the indicator visible during multi-message responses
+            if typing_indicator_thread_ts:
+                await self._set_typing_indicator(client, channel_id, typing_indicator_thread_ts)
 
         secrets: dict[str, Any] | None = None
         if files:
@@ -501,8 +507,9 @@ class SlackRoomMonitor:
             typing_indicator_set = await self._set_typing_indicator(
                 client, channel_id, typing_thread_ts
             )
-            # Need to manually clear if not replying in the same thread
-            needs_clear = typing_indicator_set and reply_thread_ts != typing_thread_ts
+            # Store for re-setting after progress messages
+            if typing_indicator_set:
+                typing_indicator_thread_ts = typing_thread_ts
 
             with MessageLoggingContext(arc, nick, content):
                 await self.command_handler.handle_command(
@@ -519,8 +526,9 @@ class SlackRoomMonitor:
                     secrets=secrets,
                 )
 
-            # Clear typing indicator if reply wasn't in the same thread
-            if needs_clear and typing_thread_ts:
+            # Clear typing indicator after processing completes
+            # (we re-set it after each message, so need explicit clear at the end)
+            if typing_indicator_set and typing_thread_ts:
                 await self._clear_typing_indicator(client, channel_id, typing_thread_ts)
             return
 

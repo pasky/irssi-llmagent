@@ -442,12 +442,20 @@ async def test_slack_typing_indicator_called_on_direct_message(test_config):
 
     await monitor.process_message_event(body, event, is_direct=True)
 
-    # Typing indicator should be called before handle_command
-    client.assistant_threads_setStatus.assert_awaited_once()
-    call_kwargs = client.assistant_threads_setStatus.call_args.kwargs
-    assert call_kwargs["channel_id"] == "C123"
-    assert call_kwargs["thread_ts"] == "1700000000.4444"
-    assert call_kwargs["status"] == "is thinking..."
+    # Typing indicator: set initially, re-set after reply, then cleared
+    assert client.assistant_threads_setStatus.await_count == 3
+    calls = client.assistant_threads_setStatus.call_args_list
+
+    # First call sets the indicator
+    assert calls[0].kwargs["channel_id"] == "C123"
+    assert calls[0].kwargs["thread_ts"] == "1700000000.4444"
+    assert calls[0].kwargs["status"] == "is thinking..."
+
+    # Second call re-sets after sending reply
+    assert calls[1].kwargs["status"] == "is thinking..."
+
+    # Third call clears (empty status)
+    assert calls[2].kwargs["status"] == ""
 
 
 @pytest.mark.asyncio
@@ -475,9 +483,11 @@ async def test_slack_typing_indicator_uses_existing_thread(test_config):
     await monitor.process_message_event(body, event, is_direct=True)
 
     # Should use the existing thread_ts, not the message ts
-    client.assistant_threads_setStatus.assert_awaited_once()
-    call_kwargs = client.assistant_threads_setStatus.call_args.kwargs
-    assert call_kwargs["thread_ts"] == "1700000000.1111"
+    # Calls: set, re-set after reply, clear
+    assert client.assistant_threads_setStatus.await_count == 3
+    # All calls should use the existing thread_ts
+    for call in client.assistant_threads_setStatus.call_args_list:
+        assert call.kwargs["thread_ts"] == "1700000000.1111"
 
 
 @pytest.mark.asyncio
@@ -525,17 +535,20 @@ async def test_slack_typing_indicator_cleared_for_non_threaded_dm(test_config):
 
     await monitor.process_message_event(body, event, is_direct=True)
 
-    # Should be called twice: once to set, once to clear (with empty status)
-    assert client.assistant_threads_setStatus.await_count == 2
+    # Should be called 3 times: set, re-set after reply, clear
+    assert client.assistant_threads_setStatus.await_count == 3
     calls = client.assistant_threads_setStatus.call_args_list
 
     # First call sets the indicator
     assert calls[0].kwargs["status"] == "is thinking..."
     assert calls[0].kwargs["thread_ts"] == "1700000000.9999"
 
-    # Second call clears it (empty status)
-    assert calls[1].kwargs["status"] == ""
-    assert calls[1].kwargs["thread_ts"] == "1700000000.9999"
+    # Second call re-sets after reply
+    assert calls[1].kwargs["status"] == "is thinking..."
+
+    # Third call clears it (empty status)
+    assert calls[2].kwargs["status"] == ""
+    assert calls[2].kwargs["thread_ts"] == "1700000000.9999"
 
 
 @pytest.mark.asyncio
