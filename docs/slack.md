@@ -26,11 +26,24 @@ Go to **OAuth & Permissions** and add these bot scopes:
 - `files:read`
 - `users:read`
 
-## 4) Install the App
+## 4) Enable Event Subscriptions
+Even in Socket Mode, you must enable events:
+1. Go to **Event Subscriptions** and toggle **Enable Events**.
+2. Under **Subscribe to bot events**, add:
+   - `app_mention`
+   - `message.im`
+   - `message.channels`
+   - (Optional) `message.groups`, `message.mpim`
+
+## 5) Allow DMs to the App
+1. Go to **App Home**.
+2. Enable **Messages Tab** and **Allow users to send messages to this app**.
+
+## 6) Install the App
 1. In **OAuth & Permissions**, click **Install to Workspace**.
 2. Copy the **Bot User OAuth Token** (`xoxb-...`).
 
-## 5) Configure Muaddib
+## 7) Configure Muaddib
 Edit `~/.muaddib/config.json` (or `$MUADDIB_HOME/config.json`) and add/enable the Slack block under `rooms`:
 
 ```json
@@ -56,16 +69,16 @@ Edit `~/.muaddib/config.json` (or `$MUADDIB_HOME/config.json`) and add/enable th
 ```
 
 Notes:
-- `T123` is the Slack **Team ID** for your workspace (see **Workspace Settings → About**).
+- `T123` is the Slack **Team ID** for your workspace. If it’s not shown in Workspace Settings, you can grab it from the URL when Slack is open in a browser (`https://app.slack.com/client/T123/...`).
 - Slack uses **two tokens**: `xapp-` for Socket Mode connection and `xoxb-` for Web API calls.
 - The Slack frontend reuses IRC command prompt/model configuration verbatim.
 
-## 6) Run Muaddib
+## 8) Run Muaddib
 ```bash
 uv run muaddib
 ```
 
-## 7) Test
+## 9) Test
 Mention the bot in a channel:
 ```
 @YourBotName hello
