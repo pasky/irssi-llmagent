@@ -126,25 +126,104 @@ class VarlinkSender(BaseVarlinkClient):
             if len(b) <= max_payload:
                 return text, None
 
-            # Walk characters while counting bytes to avoid partial code points
+            # Build a mapping from character index to cumulative byte count
+            # This allows us to find split points efficiently
+            char_to_bytes: list[int] = []  # char_to_bytes[i] = bytes up to and including char i
             byte_count = 0
-            split_idx = 0  # character index to split at
-            last_space_idx: int | None = None
-            for i, ch in enumerate(text):
-                ch_bytes = len(ch.encode("utf-8"))
-                if byte_count + ch_bytes > max_payload:
+            for ch in text:
+                byte_count += len(ch.encode("utf-8"))
+                char_to_bytes.append(byte_count)
+
+            # Find the maximum character index that fits within max_payload
+            max_char_idx = 0
+            for i, cb in enumerate(char_to_bytes):
+                if cb <= max_payload:
+                    max_char_idx = i + 1  # split after this character
+                else:
                     break
-                byte_count += ch_bytes
-                split_idx = i + 1
+
+            # If nothing fits, we must split at the first char boundary that fits
+            if max_char_idx == 0:
+                return "", text
+
+            # Target: split as close to the middle as possible
+            # The ideal byte split point is max_payload // 2
+            target_bytes = max_payload // 2
+
+            # Find all valid split points by delimiter type, ordered by preference
+            # Each delimiter type: (pattern_check_func, split_after_offset)
+            # split_after_offset: how many chars after the delimiter to split
+            # (e.g., for ". " we split AFTER the space, so offset is 2)
+
+            # Collect split candidates: (char_idx_after_split, delimiter_priority)
+            # Lower priority number = better delimiter
+            # Priority: 0=sentence, 1=semicolon, 2=comma, 3=hyphen, 4=space
+
+            candidates: list[tuple[int, int, int]] = []  # (char_idx, priority, bytes_at_idx)
+
+            for i in range(max_char_idx):
+                if i >= len(text):
+                    break
+                ch = text[i]
+
+                # Check for sentence boundary: ". " or "! " or "? "
+                if ch in ".!?" and i + 1 < len(text) and text[i + 1] == " ":
+                    split_at = i + 2  # after the space
+                    if split_at <= max_char_idx:
+                        candidates.append((split_at, 0, char_to_bytes[split_at - 1]))
+
+                # Check for semicolon: "; "
+                if ch == ";" and i + 1 < len(text) and text[i + 1] == " ":
+                    split_at = i + 2
+                    if split_at <= max_char_idx:
+                        candidates.append((split_at, 1, char_to_bytes[split_at - 1]))
+
+                # Check for comma: ", "
+                if ch == "," and i + 1 < len(text) and text[i + 1] == " ":
+                    split_at = i + 2
+                    if split_at <= max_char_idx:
+                        candidates.append((split_at, 2, char_to_bytes[split_at - 1]))
+
+                # Check for hyphen: " - " (surrounded by spaces)
+                if (
+                    ch == "-"
+                    and i > 0
+                    and text[i - 1] == " "
+                    and i + 1 < len(text)
+                    and text[i + 1] == " "
+                ):
+                    split_at = i + 2  # after the trailing space
+                    if split_at <= max_char_idx:
+                        candidates.append((split_at, 3, char_to_bytes[split_at - 1]))
+
+                # Check for word boundary: any whitespace
                 if ch.isspace():
-                    last_space_idx = split_idx  # position AFTER the space
+                    split_at = i + 1  # after the space
+                    if split_at <= max_char_idx:
+                        candidates.append((split_at, 4, char_to_bytes[split_at - 1]))
 
-            # Prefer last whitespace if it doesn't make the first part too short
-            if last_space_idx is not None and last_space_idx >= split_idx // 2:
-                split_idx = last_space_idx
+            # If no candidates found, fall back to hard split at max_char_idx
+            if not candidates:
+                return text[:max_char_idx], text[max_char_idx:]
 
-            head = text[:split_idx]
-            tail = text[split_idx:]
+            # Select the best candidate: closest to target_bytes, preferring higher-priority delimiters
+            # Strategy: for each priority level, find the candidate closest to middle
+            # Use the highest-priority level that has a candidate reasonably close to middle
+
+            def score_candidate(cand: tuple[int, int, int]) -> tuple[int, int]:
+                """Return (priority, distance_from_target) for sorting."""
+                char_idx, priority, bytes_at = cand
+                distance = abs(bytes_at - target_bytes)
+                return (priority, distance)
+
+            # Sort by priority first, then by distance from target
+            candidates.sort(key=score_candidate)
+
+            # Take the best candidate (lowest priority number, then closest to middle)
+            best_char_idx = candidates[0][0]
+
+            head = text[:best_char_idx]
+            tail = text[best_char_idx:]
             return head, tail
 
         first, rest = split_once(message)

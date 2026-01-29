@@ -104,10 +104,72 @@ async def test_split_integrity_with_multibyte_and_pipeline():
     assert combined == msg[: len(combined)]
     # 2) No internal loss at byte level (detects silent drops from naive decode errors="ignore")
     assert combined.encode("utf-8") == msg.encode("utf-8")[: len(combined.encode("utf-8"))]
-    # 3) Seam must be followed by multibyte immediately
-    if len(sender.sent) == 2:
-        assert ord(sender.sent[1][0]) > 127
-    # 4) Key substrings from pipeline intact within combined
+    # 3) Key substrings from pipeline intact within combined
     assert "| sudo tee /etc/apt/keyrings/spotify.gpg" in combined
-    # 5) Simulated server did not need to truncate
+    # 4) Simulated server did not need to truncate
     assert not any(sender.truncated)
+
+
+@pytest.mark.asyncio
+async def test_split_prefers_middle_and_delimiter_priority():
+    """Test that splitting prefers middle positions and respects delimiter priority.
+
+    The algorithm should:
+    1. Split as close to the middle as possible (not at the end)
+    2. Prefer higher-priority delimiters: sentence > semicolon > comma > hyphen > space
+    """
+    sender = DummySender()
+    target = "#test"
+
+    # Compute max_payload for this target
+    max_payload = max(1, 512 - 12 - len(target.encode("utf-8")) - 60)
+
+    # Test 1: Sentence delimiter (". ") should be preferred and split near middle
+    # Create a message with a sentence boundary near the middle
+    half = max_payload // 2
+    # "A" * (half - 10) + ". " + "B" * (max_payload + 100)
+    # The sentence boundary is near the middle
+    msg1 = "A" * (half - 10) + ". " + "B" * (max_payload + 100)
+    sender.sent.clear()
+    await sender.send_message(target, msg1, server="irc")
+    assert len(sender.sent) == 2
+    # First part should end with ". " (the sentence boundary near middle)
+    assert sender.sent[0].endswith(". ")
+    # Check it split near the middle, not at the end
+    first_len = len(sender.sent[0].encode("utf-8"))
+    assert first_len < max_payload * 0.8  # Should be closer to middle, not at 100%
+
+    # Test 2: With semicolon and spaces, semicolon should be preferred
+    # "X" * (half - 5) + "; " + "Y " * 50 + "Z" * (max_payload)
+    msg2 = "X" * (half - 5) + "; " + "Y " * 50 + "Z" * max_payload
+    sender.sent.clear()
+    await sender.send_message(target, msg2, server="irc")
+    assert len(sender.sent) == 2
+    # Should split at semicolon, not at a later space
+    assert sender.sent[0].endswith("; ")
+
+    # Test 3: Comma vs space - comma should be preferred when near middle
+    msg3 = "W" * (half - 5) + ", " + "V " * 50 + "U" * max_payload
+    sender.sent.clear()
+    await sender.send_message(target, msg3, server="irc")
+    assert len(sender.sent) == 2
+    assert sender.sent[0].endswith(", ")
+
+    # Test 4: Only spaces available - should split at space nearest to middle
+    msg4 = " ".join(["word"] * 200)  # Many evenly-spaced words
+    sender.sent.clear()
+    await sender.send_message(target, msg4, server="irc")
+    assert len(sender.sent) == 2
+    first_bytes = len(sender.sent[0].encode("utf-8"))
+    # Should be reasonably close to middle (within 60% of max)
+    assert max_payload * 0.3 < first_bytes < max_payload * 0.7
+
+    # Test 5: Verify sentence at middle beats space at end
+    # Put sentence boundary at 40% and spaces throughout
+    pos_40 = int(max_payload * 0.4)
+    msg5 = "A" * (pos_40 - 2) + ". " + "B " * 100 + "C" * max_payload
+    sender.sent.clear()
+    await sender.send_message(target, msg5, server="irc")
+    assert len(sender.sent) == 2
+    # Should prefer sentence boundary at 40% over spaces at end
+    assert sender.sent[0].endswith(". ")
