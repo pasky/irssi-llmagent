@@ -48,14 +48,19 @@ def test_should_ignore_user(temp_config_file):
     assert handler.should_ignore_user("gooduser") is False
 
 
-def test_prompt_note_merges_from_common_and_room(temp_config_file):
+def test_prompt_vars_merges_from_common_and_room(temp_config_file):
     agent = MuaddibAgent(temp_config_file)
-    agent.config["rooms"]["common"]["prompt_note"] = "common-"
-    agent.config["rooms"]["irc"]["prompt_note"] = "room"
+    agent.config["rooms"]["common"]["prompt_vars"] = {
+        "provenance": " by author",
+        "output": " No md.",
+    }
+    agent.config["rooms"]["irc"]["prompt_vars"] = {"output": " Extra note."}
 
     room_config = get_room_config(agent.config, "irc")
 
-    assert room_config["prompt_note"] == "common-room"
+    # provenance should be inherited, output should be concatenated
+    assert room_config["prompt_vars"]["provenance"] == " by author"
+    assert room_config["prompt_vars"]["output"] == " No md. Extra note."
 
 
 def test_parse_prefix(temp_config_file):

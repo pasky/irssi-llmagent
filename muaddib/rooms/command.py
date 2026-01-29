@@ -62,12 +62,16 @@ def _deep_merge_config(base: dict[str, Any], override: dict[str, Any]) -> dict[s
             base_list = result.get(key, [])
             result[key] = [*base_list, *value]
             continue
-        if key == "prompt_note" and isinstance(value, str):
-            base_note = result.get(key, "")
-            if base_note and value:
-                result[key] = f"{base_note}{value}"
-            else:
-                result[key] = base_note or value
+        if key == "prompt_vars" and isinstance(value, dict):
+            base_vars = result.get(key, {})
+            merged_vars = dict(base_vars)
+            for var_key, var_value in value.items():
+                if var_key in merged_vars and isinstance(var_value, str):
+                    # Concatenate string values for the same key
+                    merged_vars[var_key] = f"{merged_vars[var_key]}{var_value}"
+                else:
+                    merged_vars[var_key] = var_value
+            result[key] = merged_vars
             continue
         if isinstance(value, dict) and isinstance(result.get(key), dict):
             result[key] = _deep_merge_config(result[key], value)
@@ -166,7 +170,7 @@ class RoomCommandHandler:
             return model_str_core(modes_config[m]["model"])
 
         thinking_model = modes_config["serious"].get("thinking_model")
-        prompt_note = self.room_config.get("prompt_note", "")
+        prompt_vars = self.room_config.get("prompt_vars", {})
         return prompt_template.format(
             mynick=mynick,
             current_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -176,7 +180,7 @@ class RoomCommandHandler:
             if thinking_model
             else get_model("serious"),
             unsafe_model=get_model("unsafe"),
-            prompt_note=prompt_note,
+            **prompt_vars,
         )
 
     def get_channel_mode(self, server_tag: str, chan_name: str) -> str:

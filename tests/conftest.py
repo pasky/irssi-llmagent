@@ -48,7 +48,7 @@ def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict
         },
         "rooms": {
             "common": {
-                "prompt_note": "",
+                "prompt_vars": {},
                 "command": {
                     "history_size": 5,
                     "rate_limit": 30,
