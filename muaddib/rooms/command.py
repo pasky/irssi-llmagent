@@ -127,8 +127,8 @@ class RoomCommandHandler:
     def proactive_config(self) -> dict[str, Any]:
         return self.room_config["proactive"]
 
-    def _response_max_chars(self) -> int:
-        return int(self.command_config.get("response_max_chars", 600))
+    def _response_max_bytes(self) -> int:
+        return int(self.command_config.get("response_max_bytes", 600))
 
     def _clean_response_text(self, response_text: str, nick: str) -> str:
         cleaned = response_text.strip()
@@ -493,12 +493,12 @@ class RoomCommandHandler:
             return None
 
         response_text = agent_result.text
-        max_response_chars = self._response_max_chars()
-        if response_text and len(response_text) > max_response_chars:
+        max_response_bytes = self._response_max_bytes()
+        if response_text and len(response_text.encode("utf-8")) > max_response_bytes:
             logger.info(
-                "Response too long (%s chars, max %s), creating artifact",
-                len(response_text),
-                max_response_chars,
+                "Response too long (%s bytes, max %s), creating artifact",
+                len(response_text.encode("utf-8")),
+                max_response_bytes,
             )
             response_text = await self._long_response_to_artifact(response_text)
         if response_text:
@@ -513,19 +513,23 @@ class RoomCommandHandler:
         artifact_result = await executor.execute(full_response)
         artifact_url = artifact_result.split("Artifact shared: ")[1].strip()
 
-        max_response_chars = self._response_max_chars()
-        trimmed = full_response[:max_response_chars]
-        if len(full_response) > max_response_chars:
-            # Try to break at end of sentence or word
-            last_sentence = trimmed.rfind(".")
-            last_word = trimmed.rfind(" ")
-            min_break = max(0, max_response_chars - 100)
-            if last_sentence > min_break:
-                trimmed = trimmed[: last_sentence + 1]
-            elif last_word > min_break:
-                trimmed = trimmed[:last_word]
+        max_response_bytes = self._response_max_bytes()
 
-            trimmed += f"... full response: {artifact_url}"
+        # Trim to fit byte limit while respecting character boundaries
+        trimmed = full_response
+        while len(trimmed.encode("utf-8")) > max_response_bytes and trimmed:
+            trimmed = trimmed[:-1]
+
+        # Try to break at end of sentence or word for cleaner output
+        min_len = max(0, len(trimmed) - 100)
+        last_sentence = trimmed.rfind(".")
+        last_word = trimmed.rfind(" ")
+        if last_sentence > min_len:
+            trimmed = trimmed[: last_sentence + 1]
+        elif last_word > min_len:
+            trimmed = trimmed[:last_word]
+
+        trimmed += f"... full response: {artifact_url}"
 
         return trimmed
 
