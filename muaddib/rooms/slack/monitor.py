@@ -111,6 +111,12 @@ class SlackRoomMonitor:
         if event.get("bot_id"):
             return
 
+        # Handle message edits
+        subtype = event.get("subtype")
+        if subtype == "message_changed":
+            await self._handle_message_edit(body, event)
+            return
+
         channel_type = event.get("channel_type")
         if channel_type == "im":
             # DMs are always direct
@@ -126,6 +132,66 @@ class SlackRoomMonitor:
             text = event.get("text") or ""
             is_mention = bool(bot_user_id and f"<@{bot_user_id}>" in text)
             await self.process_message_event(body, event, is_direct=is_mention)
+
+    async def _handle_message_edit(self, body: dict[str, Any], event: dict[str, Any]) -> None:
+        """Handle message_changed events to update history."""
+        team_id = self._get_team_id(body)
+        if not team_id:
+            return
+
+        client = await self._get_client(team_id)
+        if not client:
+            return
+
+        bot_user_id = await self._get_bot_user_id(team_id, client)
+
+        # The edited message is in event['message']
+        message = event.get("message", {})
+        user_id = message.get("user")
+        if not user_id:
+            return
+
+        # Skip edits from our own bot
+        if user_id == bot_user_id:
+            logger.debug("Ignoring Slack edit from self")
+            return
+
+        # Skip bot edits
+        if message.get("bot_id"):
+            return
+
+        channel_id = event.get("channel")
+        if not channel_id:
+            return
+
+        # The original message ts is the platform_id
+        platform_id = message.get("ts")
+        if not platform_id:
+            return
+
+        new_text = message.get("text") or ""
+        new_content = await self._normalize_content(new_text, team_id, client)
+        if not new_content:
+            return
+
+        channel_type = event.get("channel_type")
+        workspace_name = self._get_workspace_name(team_id)
+        server_tag = f"slack:{workspace_name}"
+
+        if channel_type == "im":
+            display_name = await self._get_user_display_name(team_id, client, user_id)
+            channel_name = f"{self._normalize_name(display_name)}_{user_id}"
+        else:
+            channel_name = await self._get_channel_name(team_id, client, channel_id)
+            channel_name = f"#{channel_name}"
+
+        nick = await self._get_user_display_name(team_id, client, user_id)
+
+        updated = await self.agent.history.update_message_by_platform_id(
+            server_tag, channel_name, platform_id, new_content, nick
+        )
+        if updated:
+            logger.info("Updated edited message %s in %s#%s", platform_id, server_tag, channel_name)
 
     def _get_team_id(self, body: dict[str, Any]) -> str | None:
         return body.get("team_id") or body.get("team", {}).get("id")

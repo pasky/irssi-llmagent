@@ -420,6 +420,35 @@ class ChatHistory:
 
         return int(row[0]) if row else None
 
+    async def update_message_by_platform_id(
+        self,
+        server_tag: str,
+        channel_name: str,
+        platform_id: str,
+        new_content: str,
+        nick: str,
+        content_template: str = "<{nick}> {message}",
+    ) -> bool:
+        """Update message content by platform ID. Returns True if updated."""
+        formatted_content = content_template.format(nick=nick, message=new_content)
+        async with self._lock, aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                """
+                UPDATE chat_messages
+                SET message = ?
+                WHERE server_tag = ? AND channel_name = ? AND platform_id = ?
+                """,
+                (formatted_content, server_tag, channel_name, platform_id),
+            ) as cursor:
+                updated = cursor.rowcount > 0
+            await db.commit()
+
+        if updated:
+            logger.debug(
+                f"Updated message {platform_id} in {server_tag}/{channel_name}: {new_content}"
+            )
+        return updated
+
     async def count_recent_unchronicled(
         self, server_tag: str, channel_name: str, days: int = 7
     ) -> int:

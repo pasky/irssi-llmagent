@@ -32,6 +32,9 @@ class DiscordClient(discord.Client):
     async def on_message(self, message: discord.Message) -> None:
         await self.monitor.process_message_event(message)
 
+    async def on_message_edit(self, before: discord.Message, after: discord.Message) -> None:
+        await self.monitor.process_message_edit(before, after)
+
 
 class DiscordRoomMonitor:
     """Discord-specific room monitor that handles Discord events and message processing."""
@@ -234,6 +237,39 @@ class DiscordRoomMonitor:
         )
         trigger_message_id = await self.agent.history.add_message(msg)
         await self.command_handler.handle_passive_message(msg, reply_sender)
+
+    async def process_message_edit(self, before: discord.Message, after: discord.Message) -> None:
+        """Process incoming Discord message edit events."""
+        if self.client.user is None:
+            return
+
+        if after.author.id == self.client.user.id:
+            logger.debug("Ignoring edit from self: %s", after.id)
+            return
+
+        platform_id = str(after.id) if getattr(after, "id", None) is not None else None
+        if not platform_id:
+            return
+
+        new_content = after.clean_content or after.content or ""
+        new_content = self._normalize_content(new_content)
+        if not new_content:
+            return
+
+        server_tag = self._get_server_tag(after)
+        if after.guild is None:
+            normalized_name = self._normalize_name(after.author.display_name)
+            channel_name = f"{normalized_name}_{after.author.id}"
+        else:
+            channel_name = self._get_channel_name(after.channel)
+
+        nick = after.author.display_name
+
+        updated = await self.agent.history.update_message_by_platform_id(
+            server_tag, channel_name, platform_id, new_content, nick
+        )
+        if updated:
+            logger.info("Updated edited message %s in %s#%s", platform_id, server_tag, channel_name)
 
     async def run(self) -> None:
         """Run the main Discord monitor loop."""

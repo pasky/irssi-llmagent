@@ -319,3 +319,45 @@ class TestChatHistory:
         assert ChatHistory._mode_to_prefix("THINKING_SERIOUS") == "!a "
         assert ChatHistory._mode_to_prefix("UNSAFE") == "!u "
         assert ChatHistory._mode_to_prefix("UNKNOWN") == ""
+
+    @pytest.mark.asyncio
+    async def test_update_message_by_platform_id(self, temp_db_path):
+        """Test updating message content by platform ID."""
+        history = ChatHistory(temp_db_path, inference_limit=5)
+        await history.initialize()
+
+        server = "discord:test"
+        channel = "#general"
+        mynick = "bot"
+
+        # Add message with platform_id
+        await history.add_message(
+            make_msg(server, channel, "original content", "user1", mynick, platform_id="123456")
+        )
+
+        # Update the message
+        updated = await history.update_message_by_platform_id(
+            server, channel, "123456", "edited content", "user1"
+        )
+        assert updated is True
+
+        # Verify the update
+        context = await history.get_context(server, channel)
+        assert len(context) == 1
+        assert "edited content" in context[0]["content"]
+        assert "original content" not in context[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_update_message_nonexistent_platform_id(self, temp_db_path):
+        """Test updating message with non-existent platform ID returns False."""
+        history = ChatHistory(temp_db_path, inference_limit=5)
+        await history.initialize()
+
+        server = "discord:test"
+        channel = "#general"
+
+        # Try to update non-existent message
+        updated = await history.update_message_by_platform_id(
+            server, channel, "nonexistent", "new content", "user1"
+        )
+        assert updated is False

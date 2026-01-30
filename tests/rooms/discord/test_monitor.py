@@ -230,3 +230,82 @@ async def test_discord_ignores_own_messages(test_config):
     agent.history.add_message.assert_not_awaited()
     monitor.command_handler.handle_command.assert_not_awaited()
     monitor.command_handler.handle_passive_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_discord_message_edit_updates_history(test_config):
+    """Test that message edits update the stored message in history."""
+    import discord
+
+    agent = SimpleNamespace()
+    agent.config = test_config
+    agent.history = AsyncMock()
+    agent.history.update_message_by_platform_id = AsyncMock(return_value=True)
+
+    monitor = DiscordRoomMonitor(cast(MuaddibAgent, agent))
+
+    bot_user = MagicMock()
+    bot_user.display_name = "Muaddib"
+    bot_user.id = 999
+    monitor.client._connection.user = bot_user
+
+    # Use spec to ensure isinstance() checks work for GuildChannel
+    channel = MagicMock(spec=discord.TextChannel)
+    channel.name = "general"
+
+    before = MagicMock()
+    before.author.display_name = "pasky"
+    before.author.id = 1
+    before.guild = MagicMock()
+    before.guild.name = "TestServer"
+    before.clean_content = "original message"
+    before.content = "original message"
+    before.id = 12345
+    before.channel = channel
+
+    after = MagicMock()
+    after.author.display_name = "pasky"
+    after.author.id = 1
+    after.guild = MagicMock()
+    after.guild.name = "TestServer"
+    after.clean_content = "edited message"
+    after.content = "edited message"
+    after.id = 12345
+    after.channel = channel
+
+    await monitor.process_message_edit(before, after)
+
+    agent.history.update_message_by_platform_id.assert_awaited_once_with(
+        "discord:TestServer", "general", "12345", "edited message", "pasky"
+    )
+
+
+@pytest.mark.asyncio
+async def test_discord_message_edit_ignores_own_edits(test_config):
+    """Test that edits from the bot itself are ignored."""
+    agent = SimpleNamespace()
+    agent.config = test_config
+    agent.history = AsyncMock()
+    agent.history.update_message_by_platform_id = AsyncMock(return_value=True)
+
+    monitor = DiscordRoomMonitor(cast(MuaddibAgent, agent))
+
+    bot_user = MagicMock()
+    bot_user.display_name = "Muaddib"
+    bot_user.id = 999
+    monitor.client._connection.user = bot_user
+
+    before = MagicMock()
+    before.author.display_name = "Muaddib"
+    before.author.id = 999  # Same as bot
+
+    after = MagicMock()
+    after.author.display_name = "Muaddib"
+    after.author.id = 999  # Same as bot
+    after.clean_content = "edited"
+    after.content = "edited"
+    after.id = 12345
+
+    await monitor.process_message_edit(before, after)
+
+    agent.history.update_message_by_platform_id.assert_not_awaited()

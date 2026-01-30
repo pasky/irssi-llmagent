@@ -586,3 +586,88 @@ async def test_slack_typing_indicator_handles_missing_scope_gracefully(test_conf
     handle_command.assert_awaited_once()
     # Reply should still be sent
     client.chat_postMessage.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_slack_message_edit_updates_history(test_config):
+    """Test that message edits update the stored message in history."""
+    monitor, agent, client = build_monitor(test_config)
+    agent.history.update_message_by_platform_id = AsyncMock(return_value=True)
+
+    body = {"team_id": "T123"}
+    event = {
+        "type": "message",
+        "subtype": "message_changed",
+        "channel": "C123",
+        "channel_type": "channel",
+        "message": {
+            "user": "U1",
+            "text": "edited message content",
+            "ts": "1700000000.1111",
+        },
+        "previous_message": {
+            "user": "U1",
+            "text": "original message content",
+            "ts": "1700000000.1111",
+        },
+        "ts": "1700000000.2222",
+    }
+
+    await monitor._handle_message(body, event, AsyncMock())
+
+    agent.history.update_message_by_platform_id.assert_awaited_once_with(
+        "slack:Rossum", "#general", "1700000000.1111", "edited message content", "pasky"
+    )
+
+
+@pytest.mark.asyncio
+async def test_slack_message_edit_ignores_bot_edits(test_config):
+    """Test that edits from the bot itself are ignored."""
+    monitor, agent, client = build_monitor(test_config)
+    monitor._get_bot_user_id = AsyncMock(return_value="U1")  # Bot is U1
+    agent.history.update_message_by_platform_id = AsyncMock(return_value=True)
+
+    body = {"team_id": "T123"}
+    event = {
+        "type": "message",
+        "subtype": "message_changed",
+        "channel": "C123",
+        "channel_type": "channel",
+        "message": {
+            "user": "U1",  # Same as bot
+            "text": "edited",
+            "ts": "1700000000.1111",
+        },
+        "ts": "1700000000.2222",
+    }
+
+    await monitor._handle_message(body, event, AsyncMock())
+
+    agent.history.update_message_by_platform_id.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_slack_message_edit_in_dm(test_config):
+    """Test that message edits in DMs work correctly."""
+    monitor, agent, client = build_monitor(test_config)
+    agent.history.update_message_by_platform_id = AsyncMock(return_value=True)
+
+    body = {"team_id": "T123"}
+    event = {
+        "type": "message",
+        "subtype": "message_changed",
+        "channel": "D123",
+        "channel_type": "im",
+        "message": {
+            "user": "U1",
+            "text": "edited dm message",
+            "ts": "1700000000.3333",
+        },
+        "ts": "1700000000.4444",
+    }
+
+    await monitor._handle_message(body, event, AsyncMock())
+
+    agent.history.update_message_by_platform_id.assert_awaited_once_with(
+        "slack:Rossum", "pasky_U1", "1700000000.3333", "edited dm message", "pasky"
+    )
