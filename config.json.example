@@ -170,7 +170,7 @@
         "output": " You are now connected to Discord, and can afford using even _very light_ italics / bold text styling."
       },
       "command": {
-        "history_size": 20,
+        "history_size": 40,
         "response_max_chars": 1600,
         "debounce": 3,
         "ignore_users": []
@@ -200,7 +200,7 @@
         "output": " You are now connected to Slack, and can use _very light_ Slack text styling."
       },
       "command": {
-        "history_size": 20,
+        "history_size": 40,
         "response_max_chars": 2600,
         "debounce": 3,
         "ignore_users": []
