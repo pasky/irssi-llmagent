@@ -16,6 +16,7 @@ from ..agentic_actor.actor import AgentResult
 from ..providers import parse_model_spec
 from ..rate_limiter import RateLimiter
 from .autochronicler import AutoChronicler
+from .message import RoomMessage
 from .proactive import ProactiveDebouncer
 
 logger = logging.getLogger(__name__)
@@ -343,30 +344,19 @@ class RoomCommandHandler:
 
     async def _handle_debounced_proactive_check(
         self,
-        server_tag: str,
-        chan_name: str,
-        nick: str,
-        message: str,
-        mynick: str,
+        msg: RoomMessage,
         reply_sender: Callable[[str], Awaitable[None]],
-        thread_id: str | None = None,
-        thread_starter_id: int | None = None,
-        secrets: dict[str, Any] | None = None,
     ) -> None:
         try:
             if not self.proactive_rate_limiter.check_limit():
                 logger.debug(
                     "Proactive interjection rate limit exceeded during debounced check, skipping message from %s",
-                    nick,
+                    msg.nick,
                 )
                 return
 
-            context = await self.agent.history.get_context(
-                server_tag,
-                chan_name,
-                self.proactive_config["history_size"],
-                thread_id=thread_id,
-                thread_starter_id=thread_starter_id,
+            context = await self.agent.history.get_context_for_message(
+                msg, self.proactive_config["history_size"]
             )
             should_interject, reason, forced_test_mode = await self.should_interject_proactively(
                 context
@@ -374,7 +364,7 @@ class RoomCommandHandler:
             if not should_interject:
                 return
 
-            channel_key = self._get_proactive_channel_key(server_tag, chan_name)
+            channel_key = self._get_proactive_channel_key(msg.server_tag, msg.channel_name)
             classified_mode = await self.classify_mode(context)
             if not classified_mode.endswith("SERIOUS"):
                 test_channels = self.agent.config.get("behavior", {}).get(
@@ -399,68 +389,63 @@ class RoomCommandHandler:
                 logger.info(
                     "[TEST MODE] %s Would interject proactively for message from %s in %s: %s... Reason: %s",
                     test_reason,
-                    nick,
-                    chan_name,
-                    message[:150],
+                    msg.nick,
+                    msg.channel_name,
+                    msg.content[:150],
                     reason,
                 )
                 send_message = False
             else:
                 logger.info(
                     "Interjecting proactively for message from %s in %s: %s... Reason: %s",
-                    nick,
-                    chan_name,
-                    message[:150],
+                    msg.nick,
+                    msg.channel_name,
+                    msg.content[:150],
                     reason,
                 )
                 send_message = True
 
             agent_result = await self._run_actor(
                 context,
-                mynick,
+                msg.mynick,
                 mode="serious",
                 reasoning_effort="low" if classified_mode == "EASY_SERIOUS" else "medium",
                 model=self.proactive_config["models"]["serious"],
                 extra_prompt=" " + self.proactive_config["prompts"]["serious_extra"],
-                arc=f"{server_tag}#{chan_name}",
-                secrets=secrets,
+                arc=msg.arc,
+                secrets=msg.secrets,
             )
 
             if not agent_result or not agent_result.text or agent_result.text.startswith("Error: "):
-                logger.info("Agent decided not to interject proactively for %s", chan_name)
+                logger.info("Agent decided not to interject proactively for %s", msg.channel_name)
                 return
 
-            response_text = self._clean_response_text(agent_result.text, nick)
+            response_text = self._clean_response_text(agent_result.text, msg.nick)
             if send_message:
                 response_text = f"[{model_str_core(self.proactive_config['models']['serious'])}] {response_text}"
                 logger.info(
                     "Sending proactive agent (%s) response to %s: %s",
                     classified_mode,
-                    chan_name,
+                    msg.channel_name,
                     response_text,
                 )
                 await reply_sender(response_text)
-                await self.agent.history.add_message(
-                    server_tag,
-                    chan_name,
-                    response_text,
-                    mynick,
-                    mynick,
-                    True,
-                    mode=classified_mode,
-                    thread_id=thread_id,
-                )
+                response_msg = dataclasses.replace(msg, nick=msg.mynick, content=response_text)
+                await self.agent.history.add_message(response_msg, mode=classified_mode)
                 await self.autochronicler.check_and_chronicle(
-                    mynick, server_tag, chan_name, self.command_config["history_size"]
+                    msg.mynick,
+                    msg.server_tag,
+                    msg.channel_name,
+                    self.command_config["history_size"],
                 )
             else:
                 logger.info(
                     "[TEST MODE] Generated proactive response for %s: %s",
-                    chan_name,
+                    msg.channel_name,
                     response_text,
                 )
         except Exception as e:
-            logger.error("Error in debounced proactive check for %s: %s", chan_name, e)
+            logger.error("Error in debounced proactive check for %s: %s", msg.channel_name, e)
 
     async def _run_actor(
         self,
@@ -546,38 +531,24 @@ class RoomCommandHandler:
 
     async def handle_command(
         self,
-        *,
-        server_tag: str,
-        channel_name: str,
-        nick: str,
-        mynick: str,
-        message: str,
+        msg: RoomMessage,
         trigger_message_id: int,
         reply_sender: Callable[[str], Awaitable[None]],
-        thread_id: str | None = None,
-        thread_starter_id: int | None = None,
-        response_thread_id: str | None = None,
-        secrets: dict[str, Any] | None = None,
     ) -> None:
-        reply_thread_id = response_thread_id or thread_id
         if not self.rate_limiter.check_limit():
-            logger.warning("Rate limiting triggered for %s", nick)
-            rate_msg = f"{nick}: Slow down a little, will you? (rate limiting)"
+            logger.warning("Rate limiting triggered for %s", msg.nick)
+            rate_msg = f"{msg.nick}: Slow down a little, will you? (rate limiting)"
             await reply_sender(rate_msg)
-            await self.agent.history.add_message(
-                server_tag,
-                channel_name,
-                rate_msg,
-                mynick,
-                mynick,
-                True,
-                thread_id=reply_thread_id,
-            )
+            response_msg = dataclasses.replace(msg, nick=msg.mynick, content=rate_msg)
+            await self.agent.history.add_message(response_msg)
             return
 
-        cleaned_msg = message
         logger.info(
-            "Received command from %s on %s/%s: %s", nick, server_tag, channel_name, cleaned_msg
+            "Received command from %s on %s/%s: %s",
+            msg.nick,
+            msg.server_tag,
+            msg.channel_name,
+            msg.content,
         )
 
         # Work with fixed context from now on to avoid debouncing/classification races!
@@ -586,13 +557,7 @@ class RoomCommandHandler:
             default_size,
             *(mode.get("history_size", 0) for mode in self.command_config["modes"].values()),
         )
-        context = await self.agent.history.get_context(
-            server_tag,
-            channel_name,
-            max_size,
-            thread_id=thread_id,
-            thread_starter_id=thread_starter_id,
-        )
+        context = await self.agent.history.get_context_for_message(msg, max_size)
 
         # Debounce briefly to consolidate quick followups e.g. due to automatic IRC message splits
         debounce = self.command_config.get("debounce", 0)
@@ -601,31 +566,28 @@ class RoomCommandHandler:
             await asyncio.sleep(debounce)
 
             followups = await self.agent.history.get_recent_messages_since(
-                server_tag, channel_name, nick, original_timestamp, thread_id=thread_id
+                msg.server_tag,
+                msg.channel_name,
+                msg.nick,
+                original_timestamp,
+                thread_id=msg.thread_id,
             )
             if followups:
-                logger.debug("Debounced %s followup messages from %s", len(followups), nick)
+                logger.debug("Debounced %s followup messages from %s", len(followups), msg.nick)
                 context[-1]["content"] += "\n" + "\n".join([m["message"] for m in followups])
 
         await self._route_command(
-            server_tag,
-            channel_name,
-            nick,
-            mynick,
-            cleaned_msg,
+            msg,
             context,
             default_size,
             trigger_message_id,
             reply_sender,
-            thread_id=thread_id,
-            response_thread_id=reply_thread_id,
-            secrets=secrets,
         )
         await self.proactive_debouncer.cancel_channel(
-            self._get_proactive_channel_key(server_tag, channel_name)
+            self._get_proactive_channel_key(msg.server_tag, msg.channel_name)
         )
         await self.autochronicler.check_and_chronicle(
-            mynick, server_tag, channel_name, default_size
+            msg.mynick, msg.server_tag, msg.channel_name, default_size
         )
 
     def _parse_prefix(self, message: str) -> ParsedPrefix:
@@ -686,61 +648,42 @@ class RoomCommandHandler:
 
     async def handle_passive_message(
         self,
-        *,
-        server_tag: str,
-        channel_name: str,
-        nick: str,
-        mynick: str,
-        message: str,
+        msg: RoomMessage,
         reply_sender: Callable[[str], Awaitable[None]],
-        thread_id: str | None = None,
-        thread_starter_id: int | None = None,
-        secrets: dict[str, Any] | None = None,
     ) -> None:
-        channel_key = self._get_proactive_channel_key(server_tag, channel_name)
+        channel_key = self._get_proactive_channel_key(msg.server_tag, msg.channel_name)
         if (
             channel_key
             in self.proactive_config["interjecting"] + self.proactive_config["interjecting_test"]
         ):
             await self.proactive_debouncer.schedule_check(
-                server_tag,
-                channel_name,
+                msg,
                 channel_key,
-                nick,
-                message,
-                mynick,
                 reply_sender,
                 self._handle_debounced_proactive_check,
-                thread_id=thread_id,
-                thread_starter_id=thread_starter_id,
-                secrets=secrets,
             )
 
         max_size = self.command_config["history_size"]
-        await self.autochronicler.check_and_chronicle(mynick, server_tag, channel_name, max_size)
+        await self.autochronicler.check_and_chronicle(
+            msg.mynick, msg.server_tag, msg.channel_name, max_size
+        )
 
     async def _route_command(
         self,
-        server_tag: str,
-        channel_name: str,
-        nick: str,
-        mynick: str,
-        cleaned_msg: str,
+        msg: RoomMessage,
         context: list[dict[str, str]],
         default_size: int,
         trigger_message_id: int,
         reply_sender: Callable[[str], Awaitable[None]],
-        thread_id: str | None = None,
-        response_thread_id: str | None = None,
-        secrets: dict[str, Any] | None = None,
     ) -> None:
         modes_config = self.command_config["modes"]
-        reply_thread_id = response_thread_id or thread_id
-        parsed = self._parse_prefix(cleaned_msg)
+        parsed = self._parse_prefix(msg.content)
 
         if parsed.error:
-            logger.warning("Command parse error from %s: %s (%s)", nick, parsed.error, cleaned_msg)
-            await reply_sender(f"{nick}: {parsed.error}")
+            logger.warning(
+                "Command parse error from %s: %s (%s)", msg.nick, parsed.error, msg.content
+            )
+            await reply_sender(f"{msg.nick}: {parsed.error}")
             return
 
         no_context = parsed.no_context
@@ -751,7 +694,7 @@ class RoomCommandHandler:
             logger.debug("Overriding model to %s", model_override)
 
         if parsed.mode_token == "!h":
-            logger.debug("Sending help message to %s", nick)
+            logger.debug("Sending help message to %s", msg.nick)
             sarcastic_model = modes_config["sarcastic"]["model"]
             serious_model = modes_config["serious"]["model"]
             thinking_model = modes_config["serious"].get("thinking_model")
@@ -759,7 +702,7 @@ class RoomCommandHandler:
             unsafe_model = modes_config["unsafe"]["model"]
             classifier_model = self.command_config["mode_classifier"]["model"]
 
-            channel_mode = self.get_channel_mode(server_tag, channel_name)
+            channel_mode = self.get_channel_mode(msg.server_tag, msg.channel_name)
             if channel_mode == "serious":
                 default_desc = (
                     f"serious agentic mode with web tools ({serious_model}), "
@@ -781,103 +724,83 @@ class RoomCommandHandler:
 
             help_msg = f"default is {default_desc}, !c disables context"
             await reply_sender(help_msg)
-            await self.agent.history.add_message(
-                server_tag,
-                channel_name,
-                help_msg,
-                mynick,
-                mynick,
-                True,
-                thread_id=reply_thread_id,
-            )
+            response_msg = dataclasses.replace(msg, nick=msg.mynick, content=help_msg)
+            await self.agent.history.add_message(response_msg)
             return
 
         mode = None
         reasoning_effort = "minimal"
 
         if parsed.mode_token in {"!S", "!d"}:
-            logger.debug("Processing explicit sarcastic request from %s: %s", nick, query_text)
+            logger.debug("Processing explicit sarcastic request from %s: %s", msg.nick, query_text)
             mode = "SARCASTIC"
         elif parsed.mode_token == "!D":
             logger.debug(
-                "Processing explicit thinking sarcastic request from %s: %s", nick, query_text
+                "Processing explicit thinking sarcastic request from %s: %s", msg.nick, query_text
             )
             mode = "SARCASTIC"
             reasoning_effort = "high"
         elif parsed.mode_token == "!s":
-            logger.debug("Processing explicit serious request from %s: %s", nick, query_text)
+            logger.debug("Processing explicit serious request from %s: %s", msg.nick, query_text)
             mode = "EASY_SERIOUS"
         elif parsed.mode_token == "!a":
-            logger.debug("Processing explicit agentic request from %s: %s", nick, query_text)
+            logger.debug("Processing explicit agentic request from %s: %s", msg.nick, query_text)
             mode = "THINKING_SERIOUS"
         elif parsed.mode_token == "!u":
-            logger.debug("Processing explicit unsafe request from %s: %s", nick, query_text)
+            logger.debug("Processing explicit unsafe request from %s: %s", msg.nick, query_text)
             mode = "UNSAFE"
         else:
-            logger.debug("Processing automatic mode request from %s: %s", nick, query_text)
+            logger.debug("Processing automatic mode request from %s: %s", msg.nick, query_text)
 
-            channel_mode = self.get_channel_mode(server_tag, channel_name)
+            channel_mode = self.get_channel_mode(msg.server_tag, msg.channel_name)
             if channel_mode == "serious":
                 mode = await self.classify_mode(context[-default_size:])
                 logger.debug("Auto-classified message as %s mode", mode)
                 if mode == "SARCASTIC":
                     mode = "EASY_SERIOUS"
                     logger.debug(
-                        "...but forcing channel-configured serious mode for %s", channel_name
+                        "...but forcing channel-configured serious mode for %s", msg.channel_name
                     )
             elif channel_mode == "sarcastic":
                 mode = "SARCASTIC"
-                logger.debug("Using channel-configured sarcastic mode for %s", channel_name)
+                logger.debug("Using channel-configured sarcastic mode for %s", msg.channel_name)
             elif channel_mode == "unsafe":
                 mode = "UNSAFE"
-                logger.debug("Using channel-configured unsafe mode for %s", channel_name)
+                logger.debug("Using channel-configured unsafe mode for %s", msg.channel_name)
             else:
                 mode = await self.classify_mode(context)
                 logger.debug("Auto-classified message as %s mode", mode)
 
         async def progress_cb(text: str) -> None:
             await reply_sender(text)
-            await self.agent.history.add_message(
-                server_tag,
-                channel_name,
-                text,
-                mynick,
-                mynick,
-                True,
-                thread_id=reply_thread_id,
-            )
+            response_msg = dataclasses.replace(msg, nick=msg.mynick, content=text)
+            await self.agent.history.add_message(response_msg)
 
         async def persistence_cb(text: str) -> None:
+            response_msg = dataclasses.replace(msg, nick=msg.mynick, content=text)
             await self.agent.history.add_message(
-                server_tag,
-                channel_name,
-                text,
-                mynick,
-                mynick,
-                False,
-                content_template="[internal monologue] {message}",
-                thread_id=reply_thread_id,
+                response_msg, content_template="[internal monologue] {message}"
             )
 
         if mode == "SARCASTIC":
             agent_result = await self._run_actor(
                 context[-modes_config["sarcastic"].get("history_size", default_size) :],
-                mynick,
+                msg.mynick,
                 mode="sarcastic",
                 reasoning_effort=reasoning_effort,
                 allowed_tools=[],
                 progress_callback=progress_cb,
                 persistence_callback=persistence_cb,
-                arc=f"{server_tag}#{channel_name}",
+                arc=msg.arc,
                 no_context=no_context,
                 model=model_override,
-                secrets=secrets,
+                secrets=msg.secrets,
             )
         elif mode and mode.endswith("SERIOUS"):
             assert reasoning_effort == "minimal"
             agent_result = await self._run_actor(
                 context[-modes_config["serious"].get("history_size", default_size) :],
-                mynick,
+                msg.mynick,
                 mode="serious",
                 reasoning_effort="low" if mode == "EASY_SERIOUS" else "medium",
                 model=model_override
@@ -888,31 +811,35 @@ class RoomCommandHandler:
                 ),
                 progress_callback=progress_cb,
                 persistence_callback=persistence_cb,
-                arc=f"{server_tag}#{channel_name}",
+                arc=msg.arc,
                 no_context=no_context,
-                secrets=secrets,
+                secrets=msg.secrets,
             )
         elif mode == "UNSAFE":
             agent_result = await self._run_actor(
                 context[-modes_config["unsafe"].get("history_size", default_size) :],
-                mynick,
+                msg.mynick,
                 mode="unsafe",
                 reasoning_effort="low",
                 progress_callback=progress_cb,
                 persistence_callback=persistence_cb,
-                arc=f"{server_tag}#{channel_name}",
+                arc=msg.arc,
                 model=model_override,
                 no_context=no_context,
-                secrets=secrets,
+                secrets=msg.secrets,
             )
         else:
             raise ValueError(f"Unknown mode {mode}")
 
         if agent_result and agent_result.text:
-            response_text = self._clean_response_text(agent_result.text, nick)
+            response_text = self._clean_response_text(agent_result.text, msg.nick)
             cost_str = f"${agent_result.total_cost:.4f}" if agent_result.total_cost else "?"
             logger.info(
-                "Sending %s response (%s) to %s: %s", mode, cost_str, channel_name, response_text
+                "Sending %s response (%s) to %s: %s",
+                mode,
+                cost_str,
+                msg.channel_name,
+                response_text,
             )
 
             llm_call_id = None
@@ -926,23 +853,16 @@ class RoomCommandHandler:
                         output_tokens=agent_result.total_output_tokens,
                         cost=agent_result.total_cost,
                         call_type="agent_run",
-                        arc_name=f"{server_tag}#{channel_name}",
+                        arc_name=msg.arc,
                         trigger_message_id=trigger_message_id,
                     )
                 except ValueError:
                     logger.warning("Could not parse model spec: %s", agent_result.primary_model)
 
             await reply_sender(response_text)
+            response_msg = dataclasses.replace(msg, nick=msg.mynick, content=response_text)
             response_message_id = await self.agent.history.add_message(
-                server_tag,
-                channel_name,
-                response_text,
-                mynick,
-                mynick,
-                True,
-                mode=mode,
-                llm_call_id=llm_call_id,
-                thread_id=reply_thread_id,
+                response_msg, mode=mode, llm_call_id=llm_call_id
             )
             if llm_call_id:
                 await self.agent.history.update_llm_call_response(llm_call_id, response_message_id)
@@ -955,37 +875,22 @@ class RoomCommandHandler:
                     f"{in_tokens} in / {out_tokens} out tokens, "
                     f"and cost ${agent_result.total_cost:.4f})"
                 )
-                logger.info("Cost followup for %s: %s", channel_name, cost_msg)
+                logger.info("Cost followup for %s: %s", msg.channel_name, cost_msg)
                 await reply_sender(cost_msg)
-                await self.agent.history.add_message(
-                    server_tag,
-                    channel_name,
-                    cost_msg,
-                    mynick,
-                    mynick,
-                    True,
-                    thread_id=reply_thread_id,
-                )
+                response_msg = dataclasses.replace(msg, nick=msg.mynick, content=cost_msg)
+                await self.agent.history.add_message(response_msg)
 
             if agent_result.total_cost:
-                arc_name = f"{server_tag}#{channel_name}"
-                cost_before = await self.agent.history.get_arc_cost_today(arc_name)
+                cost_before = await self.agent.history.get_arc_cost_today(msg.arc)
                 cost_before -= agent_result.total_cost
                 dollars_before = int(cost_before)
                 dollars_after = int(cost_before + agent_result.total_cost)
                 if dollars_after > dollars_before:
                     total_today = cost_before + agent_result.total_cost
                     fun_msg = f"(fun fact: my messages in this channel have already cost ${total_today:.4f} today)"
-                    logger.info("Daily cost milestone for %s: %s", arc_name, fun_msg)
+                    logger.info("Daily cost milestone for %s: %s", msg.arc, fun_msg)
                     await reply_sender(fun_msg)
-                    await self.agent.history.add_message(
-                        server_tag,
-                        channel_name,
-                        fun_msg,
-                        mynick,
-                        mynick,
-                        True,
-                        thread_id=reply_thread_id,
-                    )
+                    response_msg = dataclasses.replace(msg, nick=msg.mynick, content=fun_msg)
+                    await self.agent.history.add_message(response_msg)
         else:
-            logger.info("Agent in %s mode chose not to answer for %s", mode, channel_name)
+            logger.info("Agent in %s mode chose not to answer for %s", mode, msg.channel_name)

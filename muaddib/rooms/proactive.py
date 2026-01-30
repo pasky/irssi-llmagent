@@ -6,28 +6,21 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
 
 from ..message_logging import MessageLoggingContext
+from .message import RoomMessage
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class PendingMessage:
-    """Represents a message pending debounced processing."""
+class PendingCheck:
+    """A pending proactive check with message and reply mechanism."""
 
-    server: str
-    chan_name: str
+    message: RoomMessage
     channel_key: str
-    nick: str
-    message: str
-    mynick: str
     reply_sender: Callable[[str], Awaitable[None]]
     timestamp: float
-    thread_id: str | None = None
-    thread_starter_id: int | None = None
-    secrets: dict[str, Any] | None = None
 
 
 class ProactiveDebouncer:
@@ -46,7 +39,7 @@ class ProactiveDebouncer:
         """
         self.debounce_seconds = debounce_seconds
         self._pending_timers: dict[str, asyncio.Task] = {}
-        self._pending_messages: dict[str, PendingMessage] = {}
+        self._pending_messages: dict[str, PendingCheck] = {}
         self._channel_locks: dict[str, asyncio.Lock] = {}
 
     def _get_channel_lock(self, channel_key: str) -> asyncio.Lock:
@@ -57,44 +50,21 @@ class ProactiveDebouncer:
 
     async def schedule_check(
         self,
-        server: str,
-        chan_name: str,
+        msg: RoomMessage,
         channel_key: str,
-        nick: str,
-        message: str,
-        mynick: str,
         reply_sender: Callable[[str], Awaitable[None]],
         check_callback: Callable[
-            [
-                str,
-                str,
-                str,
-                str,
-                str,
-                Callable[[str], Awaitable[None]],
-                str | None,
-                int | None,
-                dict[str, Any] | None,
-            ],
+            [RoomMessage, Callable[[str], Awaitable[None]]],
             Awaitable[None],
         ],
-        thread_id: str | None = None,
-        thread_starter_id: int | None = None,
-        secrets: dict[str, Any] | None = None,
     ) -> None:
         """Schedule a debounced proactive check for this channel.
 
         Args:
-            server: IRC server tag
-            chan_name: Channel name
+            msg: The room message to check
             channel_key: Server-qualified channel key
-            nick: Nick who sent the message
-            message: Message content
-            mynick: Bot's nickname
             reply_sender: Send function for replies
-            check_callback: Async function to call with message data after debounce
-            thread_id: Optional platform thread identifier
-            thread_starter_id: Internal ID of the thread starter message
+            check_callback: Async function to call with message after debounce
         """
         channel_lock = self._get_channel_lock(channel_key)
 
@@ -105,20 +75,13 @@ class ProactiveDebouncer:
                 logger.debug(f"Cancelled previous debounce timer for {channel_key}")
 
             # Store latest message
-            self._pending_messages[channel_key] = PendingMessage(
-                server,
-                chan_name,
-                channel_key,
-                nick,
-                message,
-                mynick,
-                reply_sender,
-                time.time(),
-                thread_id=thread_id,
-                thread_starter_id=thread_starter_id,
-                secrets=secrets,
+            self._pending_messages[channel_key] = PendingCheck(
+                message=msg,
+                channel_key=channel_key,
+                reply_sender=reply_sender,
+                timestamp=time.time(),
             )
-            logger.debug(f"Scheduled debounced check for {channel_key}: {message[:100]}...")
+            logger.debug(f"Scheduled debounced check for {channel_key}: {msg.content[:100]}...")
 
             # Schedule new debounced check
             self._pending_timers[channel_key] = asyncio.create_task(
@@ -129,17 +92,7 @@ class ProactiveDebouncer:
         self,
         channel_key: str,
         check_callback: Callable[
-            [
-                str,
-                str,
-                str,
-                str,
-                str,
-                Callable[[str], Awaitable[None]],
-                str | None,
-                int | None,
-                dict[str, Any] | None,
-            ],
+            [RoomMessage, Callable[[str], Awaitable[None]]],
             Awaitable[None],
         ],
     ) -> None:
@@ -150,27 +103,17 @@ class ProactiveDebouncer:
             channel_lock = self._get_channel_lock(channel_key)
             async with channel_lock:
                 if channel_key in self._pending_messages:
-                    msg = self._pending_messages[channel_key]
+                    pending = self._pending_messages[channel_key]
                     logger.debug(
                         "Executing debounced proactive check for %s: %s...",
                         channel_key,
-                        msg.message[:100],
+                        pending.message.content[:100],
                     )
 
                     # Execute with fresh logging context for this proactive check
-                    arc = f"{msg.server}#{msg.chan_name}"
-                    with MessageLoggingContext(arc, f"proactive-{msg.nick}", msg.message):
-                        await check_callback(
-                            msg.server,
-                            msg.chan_name,
-                            msg.nick,
-                            msg.message,
-                            msg.mynick,
-                            msg.reply_sender,
-                            msg.thread_id,
-                            msg.thread_starter_id,
-                            msg.secrets,
-                        )
+                    msg = pending.message
+                    with MessageLoggingContext(msg.arc, f"proactive-{msg.nick}", msg.content):
+                        await check_callback(msg, pending.reply_sender)
 
                     # Cleanup
                     del self._pending_messages[channel_key]

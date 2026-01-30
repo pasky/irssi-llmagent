@@ -11,6 +11,7 @@ import discord
 
 from ...message_logging import MessageLoggingContext
 from ..command import RoomCommandHandler, get_room_config
+from ..message import RoomMessage
 
 if TYPE_CHECKING:
     from ...main import MuaddibAgent
@@ -174,16 +175,6 @@ class DiscordRoomMonitor:
                 server_tag, channel_name, thread_id
             )
 
-        trigger_message_id = await self.agent.history.add_message(
-            server_tag,
-            channel_name,
-            content,
-            nick,
-            mynick,
-            platform_id=platform_id,
-            thread_id=thread_id,
-        )
-
         last_reply: discord.Message | None = None
         last_reply_time: float | None = None
 
@@ -215,31 +206,34 @@ class DiscordRoomMonitor:
 
         if self._is_highlight(message):
             cleaned_content = self._strip_leading_mention(message, mynick)
+            msg = RoomMessage(
+                server_tag=server_tag,
+                channel_name=channel_name,
+                nick=nick,
+                mynick=mynick,
+                content=cleaned_content,
+                platform_id=platform_id,
+                thread_id=thread_id,
+                thread_starter_id=thread_starter_id,
+            )
+            trigger_message_id = await self.agent.history.add_message(msg)
             with MessageLoggingContext(arc, nick, content):
                 async with message.channel.typing():
-                    await self.command_handler.handle_command(
-                        server_tag=server_tag,
-                        channel_name=channel_name,
-                        nick=nick,
-                        mynick=mynick,
-                        message=cleaned_content,
-                        trigger_message_id=trigger_message_id,
-                        reply_sender=reply_sender,
-                        thread_id=thread_id,
-                        thread_starter_id=thread_starter_id,
-                    )
+                    await self.command_handler.handle_command(msg, trigger_message_id, reply_sender)
             return
 
-        await self.command_handler.handle_passive_message(
+        msg = RoomMessage(
             server_tag=server_tag,
             channel_name=channel_name,
             nick=nick,
             mynick=mynick,
-            message=content,
-            reply_sender=reply_sender,
+            content=content,
+            platform_id=platform_id,
             thread_id=thread_id,
             thread_starter_id=thread_starter_id,
         )
+        trigger_message_id = await self.agent.history.add_message(msg)
+        await self.command_handler.handle_passive_message(msg, reply_sender)
 
     async def run(self) -> None:
         """Run the main Discord monitor loop."""

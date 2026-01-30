@@ -15,6 +15,7 @@ from slack_sdk.web.async_client import AsyncWebClient
 
 from ...message_logging import MessageLoggingContext
 from ..command import RoomCommandHandler, get_room_config
+from ..message import RoomMessage
 
 if TYPE_CHECKING:
     from ...main import MuaddibAgent
@@ -430,16 +431,6 @@ class SlackRoomMonitor:
                 server_tag, channel_name, thread_id
             )
 
-        trigger_message_id = await self.agent.history.add_message(
-            server_tag,
-            channel_name,
-            content,
-            nick,
-            mynick,
-            platform_id=platform_id,
-            thread_id=thread_id,
-        )
-
         reply_thread_ts = thread_id
         if not reply_thread_ts:
             if channel_type == "im":
@@ -511,20 +502,21 @@ class SlackRoomMonitor:
             if typing_indicator_set:
                 typing_indicator_thread_ts = typing_thread_ts
 
+            msg = RoomMessage(
+                server_tag=server_tag,
+                channel_name=channel_name,
+                nick=nick,
+                mynick=mynick,
+                content=content,
+                platform_id=platform_id,
+                thread_id=thread_id,
+                thread_starter_id=thread_starter_id,
+                _response_thread_id=response_thread_id,
+                secrets=secrets,
+            )
+            trigger_message_id = await self.agent.history.add_message(msg)
             with MessageLoggingContext(arc, nick, content):
-                await self.command_handler.handle_command(
-                    server_tag=server_tag,
-                    channel_name=channel_name,
-                    nick=nick,
-                    mynick=mynick,
-                    message=content,
-                    trigger_message_id=trigger_message_id,
-                    reply_sender=reply_sender,
-                    thread_id=thread_id,
-                    thread_starter_id=thread_starter_id,
-                    response_thread_id=response_thread_id,
-                    secrets=secrets,
-                )
+                await self.command_handler.handle_command(msg, trigger_message_id, reply_sender)
 
             # Clear typing indicator after processing completes
             # (we re-set it after each message, so need explicit clear at the end)
@@ -532,17 +524,19 @@ class SlackRoomMonitor:
                 await self._clear_typing_indicator(client, channel_id, typing_thread_ts)
             return
 
-        await self.command_handler.handle_passive_message(
+        msg = RoomMessage(
             server_tag=server_tag,
             channel_name=channel_name,
             nick=nick,
             mynick=mynick,
-            message=content,
-            reply_sender=reply_sender,
+            content=content,
+            platform_id=platform_id,
             thread_id=thread_id,
             thread_starter_id=thread_starter_id,
             secrets=secrets,
         )
+        trigger_message_id = await self.agent.history.add_message(msg)
+        await self.command_handler.handle_passive_message(msg, reply_sender)
 
     async def run(self) -> None:
         """Run the main Slack monitor loop."""

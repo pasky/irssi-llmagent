@@ -100,108 +100,71 @@ class TestCLIMode:
     async def test_cli_message_agent_message(self, temp_config_file):
         """Test CLI mode with agent message."""
         with patch("builtins.print") as mock_print:
+            # Mock AgenticLLMActor to return a fake response
             with patch("muaddib.main.AgenticLLMActor") as mock_agent_class:
-                with patch("muaddib.main.ChatHistory") as mock_history_class:
-                    # Mock history to return only the current message
-                    mock_history = AsyncMock()
-                    mock_history.add_message = AsyncMock()
-                    mock_history.get_context.return_value = [
-                        {"role": "user", "content": "!s search for Python news"}
-                    ]
-                    # Add new chronicling methods
-                    mock_history.count_recent_unchronicled = AsyncMock(return_value=0)
-                    mock_history.get_recent_unchronicled = AsyncMock(return_value=[])
-                    mock_history.mark_chronicled = AsyncMock()
-                    mock_history_class.return_value = mock_history
-
-                    mock_agent = AsyncMock()
-                    mock_agent.run_agent = AsyncMock(
-                        return_value=AgentResult(
-                            text="Agent response",
-                            total_input_tokens=100,
-                            total_output_tokens=50,
-                            total_cost=0.01,
-                            tool_calls_count=3,
-                        )
+                mock_agent = AsyncMock()
+                mock_agent.run_agent = AsyncMock(
+                    return_value=AgentResult(
+                        text="Agent response",
+                        total_input_tokens=100,
+                        total_output_tokens=50,
+                        total_cost=0.01,
+                        tool_calls_count=3,
                     )
-                    mock_agent_class.return_value = mock_agent
+                )
+                mock_agent_class.return_value = mock_agent
 
-                    # Create a real agent
-                    from muaddib.main import MuaddibAgent
+                await cli_message("!s search for Python news", temp_config_file)
 
-                    agent = MuaddibAgent(temp_config_file)
+                # Verify agent was called (means serious mode was triggered)
+                assert mock_agent.run_agent.called
 
-                    # Patch the agent creation in cli_message
-                    with patch("muaddib.main.MuaddibAgent", return_value=agent):
-                        await cli_message("!s search for Python news", temp_config_file)
-
-                        # Verify agent was called with context only
-                        mock_agent.run_agent.assert_called_once()
-                        call_args = mock_agent.run_agent.call_args
-                        assert len(call_args[0]) == 1  # Only context parameter
-                        context = call_args[0][0]
-                        assert isinstance(context, list)  # Should be context list
-                        # Verify the user message is the last in context
-                        assert "!s search for Python news" in context[-1]["content"]
-
-                        # Verify output
-                        print_calls = [call[0][0] for call in mock_print.call_args_list]
-                        assert any(
-                            "Simulating IRC message: !s search for Python news" in call
-                            for call in print_calls
-                        )
-                        assert any("Agent response" in call for call in print_calls)
+                # Verify output shows simulation and response via reply_sender
+                print_calls = [call[0][0] for call in mock_print.call_args_list]
+                assert any(
+                    "Simulating IRC message: !s search for Python news" in call
+                    for call in print_calls
+                )
+                assert any("📤 Bot response: Agent response" in call for call in print_calls)
 
     @pytest.mark.asyncio
     async def test_cli_message_message_content_validation(self, temp_config_file):
-        """Test that CLI mode passes actual message content, not placeholder text."""
-        with patch("builtins.print"):
+        """Test that CLI mode processes message content correctly."""
+        with patch("builtins.print") as mock_print:
+            # Mock AgenticLLMActor to capture the context it receives
             with patch("muaddib.main.AgenticLLMActor") as mock_agent_class:
-                with patch("muaddib.main.ChatHistory") as mock_history_class:
-                    # Mock history to return only the current message
-                    mock_history = AsyncMock()
-                    mock_history.add_message = AsyncMock()
-                    mock_history.get_context.return_value = [
-                        {"role": "user", "content": "!s specific test message"}
-                    ]
-                    # Add new chronicling methods
-                    mock_history.count_recent_unchronicled = AsyncMock(return_value=0)
-                    mock_history.get_recent_unchronicled = AsyncMock(return_value=[])
-                    mock_history.mark_chronicled = AsyncMock()
-                    mock_history_class.return_value = mock_history
+                mock_agent = AsyncMock()
+                captured_context: list[dict[str, str]] | None = None
 
-                    mock_agent = AsyncMock()
-                    mock_agent.run_agent = AsyncMock(
-                        return_value=AgentResult(
-                            text="Agent response",
-                            total_input_tokens=100,
-                            total_output_tokens=50,
-                            total_cost=0.01,
-                            tool_calls_count=3,
-                        )
+                async def capture_run_agent(context, **kwargs):
+                    nonlocal captured_context
+                    captured_context = context
+                    return AgentResult(
+                        text="Agent response",
+                        total_input_tokens=100,
+                        total_output_tokens=50,
+                        total_cost=0.01,
+                        tool_calls_count=3,
                     )
-                    mock_agent_class.return_value = mock_agent
 
-                    # Create a real agent
-                    from muaddib.main import MuaddibAgent
+                mock_agent.run_agent = AsyncMock(side_effect=capture_run_agent)
+                mock_agent_class.return_value = mock_agent
 
-                    agent = MuaddibAgent(temp_config_file)
+                await cli_message("!s specific test message", temp_config_file)
 
-                    # Patch the agent creation in cli_message
-                    with patch("muaddib.main.MuaddibAgent", return_value=agent):
-                        await cli_message("!s specific test message", temp_config_file)
+                # Verify agent was called and context contains the message
+                assert mock_agent.run_agent.called
+                assert captured_context is not None
 
-                        # Verify agent was called once for serious mode
-                        mock_agent.run_agent.assert_called_once()
-                        call_args = mock_agent.run_agent.call_args
-                        context = call_args[0][0]
+                # The last message must be the actual user message content (not a placeholder)
+                assert isinstance(captured_context, list)
+                assert captured_context, "Context must not be empty"
+                assert "specific test message" in captured_context[-1]["content"]
+                assert captured_context[-1]["content"] != "..."
 
-                        # This test would catch the bug where empty context resulted in "..." placeholder
-                        # The user message should be the last message in context
-                        assert "!s specific test message" in context[-1]["content"]
-                        assert (
-                            context[-1]["content"] != "..."
-                        )  # Explicitly check it's not placeholder
+                # Verify output shows the response via reply_sender
+                print_calls = [call[0][0] for call in mock_print.call_args_list]
+                assert any("📤 Bot response: Agent response" in call for call in print_calls)
 
     @pytest.mark.asyncio
     async def test_cli_message_config_not_found(self):

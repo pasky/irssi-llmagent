@@ -188,15 +188,16 @@ class QuestOperator:
 
         # Create persistence callback (no progress callback - quests don't send IRC updates)
         async def persistence_cb(text: str) -> None:
-            await self.agent.history.add_message(
-                server,
-                channel,
-                text,
-                mynick,
-                mynick,
-                False,
-                role="assistant_silent",
+            from ..rooms.message import RoomMessage
+
+            msg = RoomMessage(
+                server_tag=server,
+                channel_name=channel,
+                nick=mynick,
+                mynick=mynick,
+                content=text,
             )
+            await self.agent.history.add_message(msg, role="assistant_silent")
 
         try:
             agent_result = await self.agent.run_actor(
@@ -242,9 +243,17 @@ class QuestOperator:
         # Mirror full response to IRC and ChatHistory
         logger.debug(f"Quest step run_actor for {arc} {quest_id} output: {response}")
         await self.agent.irc_monitor.varlink_sender.send_message(channel, response, server)
-        await self.agent.history.add_message(
-            server, channel, response, mynick, mynick, True, mode="THINKING_SERIOUS"
+
+        from ..rooms.message import RoomMessage
+
+        msg = RoomMessage(
+            server_tag=server,
+            channel_name=channel,
+            nick=mynick,
+            mynick=mynick,
+            content=response,
         )
+        await self.agent.history.add_message(msg, mode="THINKING_SERIOUS")
 
         # Append only quest XML to chronicle (triggers next quest step implicitly)
         from .chapters import chapter_append_paragraph

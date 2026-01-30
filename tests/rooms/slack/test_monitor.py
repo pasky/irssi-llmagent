@@ -40,8 +40,8 @@ def build_monitor(test_config):
 async def test_slack_mention_triggers_command_and_threads_reply(test_config):
     monitor, agent, client = build_monitor(test_config)
 
-    async def handle_command(**kwargs):
-        await kwargs["reply_sender"]("hello")
+    async def handle_command(msg, trigger_message_id, reply_sender):
+        await reply_sender("hello")
 
     monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
 
@@ -59,11 +59,11 @@ async def test_slack_mention_triggers_command_and_threads_reply(test_config):
 
     handle_command = cast(AsyncMock, monitor.command_handler.handle_command)
     handle_command.assert_awaited_once()
-    kwargs = handle_command.call_args.kwargs
-    assert kwargs["server_tag"] == "slack:Rossum"
-    assert kwargs["channel_name"] == "#general"
-    assert kwargs["message"] == "hi there"
-    assert kwargs["response_thread_id"] == "1700000000.1234"
+    msg = handle_command.call_args.args[0]
+    assert msg.server_tag == "slack:Rossum"
+    assert msg.channel_name == "#general"
+    assert msg.content == "hi there"
+    assert msg.response_thread_id == "1700000000.1234"
 
     client.chat_postMessage.assert_awaited_once()
     _, send_kwargs = client.chat_postMessage.call_args
@@ -76,8 +76,8 @@ async def test_slack_mention_triggers_command_and_threads_reply(test_config):
 async def test_slack_dm_does_not_start_thread_by_default(test_config):
     monitor, agent, client = build_monitor(test_config)
 
-    async def handle_command(**kwargs):
-        await kwargs["reply_sender"]("hello")
+    async def handle_command(msg, trigger_message_id, reply_sender):
+        await reply_sender("hello")
 
     monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
 
@@ -95,9 +95,9 @@ async def test_slack_dm_does_not_start_thread_by_default(test_config):
 
     handle_command = cast(AsyncMock, monitor.command_handler.handle_command)
     handle_command.assert_awaited_once()
-    kwargs = handle_command.call_args.kwargs
-    assert kwargs["channel_name"] == "pasky_U1"
-    assert kwargs["response_thread_id"] is None
+    msg = handle_command.call_args.args[0]
+    assert msg.channel_name == "pasky_U1"
+    assert msg.response_thread_id is None
 
     client.chat_postMessage.assert_awaited_once()
     _, send_kwargs = client.chat_postMessage.call_args
@@ -124,9 +124,9 @@ async def test_slack_passive_message_routes_to_proactive(test_config):
 
     handle_passive = cast(AsyncMock, monitor.command_handler.handle_passive_message)
     handle_passive.assert_awaited_once()
-    kwargs = handle_passive.call_args.kwargs
-    assert kwargs["message"] == "hello"
-    assert kwargs["channel_name"] == "#general"
+    msg = handle_passive.call_args.args[0]
+    assert msg.content == "hello"
+    assert msg.channel_name == "#general"
 
 
 @pytest.mark.asyncio
@@ -155,17 +155,16 @@ async def test_slack_attachments_include_secrets_and_block(test_config):
 
     handle_passive = cast(AsyncMock, monitor.command_handler.handle_passive_message)
     handle_passive.assert_awaited_once()
-    kwargs = handle_passive.call_args.kwargs
+    msg = handle_passive.call_args.args[0]
 
-    assert kwargs["message"] == (
+    assert msg.content == (
         "hello\n\n"
         "[Attachments]\n"
         "1. image/png (filename: cat.png) (size: 1234): "
         "https://files.slack.com/files-pri/T123/cat.png\n"
         "[/Attachments]"
     )
-    secrets = kwargs["secrets"]
-    assert secrets["http_header_prefixes"]["https://files.slack.com/"]["Authorization"] == (
+    assert msg.secrets["http_header_prefixes"]["https://files.slack.com/"]["Authorization"] == (
         "Bearer xoxb-mock-token"
     )
 
@@ -175,9 +174,9 @@ async def test_slack_reply_edit_debounce_combines_messages(test_config):
     monitor, agent, client = build_monitor(test_config)
     monitor._now = MagicMock(side_effect=[0.0, 1.0])
 
-    async def handle_command(**kwargs):
-        await kwargs["reply_sender"]("first")
-        await kwargs["reply_sender"]("second")
+    async def handle_command(msg, trigger_message_id, reply_sender):
+        await reply_sender("first")
+        await reply_sender("second")
 
     monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
 
@@ -232,8 +231,8 @@ async def test_slack_mention_with_files_triggers_command(test_config):
     """
     monitor, agent, client = build_monitor(test_config)
 
-    async def handle_command(**kwargs):
-        await kwargs["reply_sender"]("I see your image!")
+    async def handle_command(msg, trigger_message_id, reply_sender):
+        await reply_sender("I see your image!")
 
     monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
 
@@ -259,16 +258,16 @@ async def test_slack_mention_with_files_triggers_command(test_config):
 
     handle_command = cast(AsyncMock, monitor.command_handler.handle_command)
     handle_command.assert_awaited_once()
-    kwargs = handle_command.call_args.kwargs
+    msg = handle_command.call_args.args[0]
 
     # Verify the message includes the attachment block
-    assert "[Attachments]" in kwargs["message"]
-    assert "screenshot.png" in kwargs["message"]
-    assert "https://files.slack.com/files-pri/T123/screenshot.png" in kwargs["message"]
+    assert "[Attachments]" in msg.content
+    assert "screenshot.png" in msg.content
+    assert "https://files.slack.com/files-pri/T123/screenshot.png" in msg.content
 
     # Verify secrets are passed for file access
-    assert kwargs["secrets"] is not None
-    assert "http_header_prefixes" in kwargs["secrets"]
+    assert msg.secrets is not None
+    assert "http_header_prefixes" in msg.secrets
 
 
 @pytest.mark.asyncio
@@ -277,8 +276,8 @@ async def test_slack_handle_message_detects_mention(test_config):
     monitor, agent, client = build_monitor(test_config)
     monitor.bot_user_ids["T123"] = "B1"
 
-    async def handle_command(**kwargs):
-        await kwargs["reply_sender"]("hello")
+    async def handle_command(msg, trigger_message_id, reply_sender):
+        await reply_sender("hello")
 
     monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
 
@@ -331,9 +330,9 @@ async def test_slack_reply_formats_mentions(test_config):
     # Populate the user_id_cache (reverse lookup)
     monitor.user_id_cache["T123"] = {"petr baudis": "U1", "muaddib": "B1"}
 
-    async def handle_command(**kwargs):
+    async def handle_command(msg, trigger_message_id, reply_sender):
         # Response includes @mention that should be converted
-        await kwargs["reply_sender"]("@Petr Baudis, here's your answer!")
+        await reply_sender("@Petr Baudis, here's your answer!")
 
     monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
 
@@ -361,8 +360,8 @@ async def test_slack_file_share_subtype_is_processed(test_config):
     monitor, agent, client = build_monitor(test_config)
     monitor.bot_user_ids["T123"] = "B1"
 
-    async def handle_command(**kwargs):
-        await kwargs["reply_sender"]("I see your file!")
+    async def handle_command(msg, trigger_message_id, reply_sender):
+        await reply_sender("I see your file!")
 
     monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
 
@@ -390,9 +389,9 @@ async def test_slack_file_share_subtype_is_processed(test_config):
     # Should be processed as a command (is_direct=True due to mention)
     handle_command = cast(AsyncMock, monitor.command_handler.handle_command)
     handle_command.assert_awaited_once()
-    kwargs = handle_command.call_args.kwargs
-    assert "[Attachments]" in kwargs["message"]
-    assert "screenshot.png" in kwargs["message"]
+    msg = handle_command.call_args.args[0]
+    assert "[Attachments]" in msg.content
+    assert "screenshot.png" in msg.content
 
 
 @pytest.mark.asyncio
@@ -425,8 +424,8 @@ async def test_slack_typing_indicator_called_on_direct_message(test_config):
     monitor, agent, client = build_monitor(test_config)
     client.assistant_threads_setStatus = AsyncMock()
 
-    async def handle_command(**kwargs):
-        await kwargs["reply_sender"]("hello")
+    async def handle_command(msg, trigger_message_id, reply_sender):
+        await reply_sender("hello")
 
     monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
 
@@ -464,8 +463,8 @@ async def test_slack_typing_indicator_uses_existing_thread(test_config):
     monitor, agent, client = build_monitor(test_config)
     client.assistant_threads_setStatus = AsyncMock()
 
-    async def handle_command(**kwargs):
-        await kwargs["reply_sender"]("hello")
+    async def handle_command(msg, trigger_message_id, reply_sender):
+        await reply_sender("hello")
 
     monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
 
@@ -518,8 +517,8 @@ async def test_slack_typing_indicator_cleared_for_non_threaded_dm(test_config):
     monitor, agent, client = build_monitor(test_config)
     client.assistant_threads_setStatus = AsyncMock()
 
-    async def handle_command(**kwargs):
-        await kwargs["reply_sender"]("hello")
+    async def handle_command(msg, trigger_message_id, reply_sender):
+        await reply_sender("hello")
 
     monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
 
@@ -564,8 +563,8 @@ async def test_slack_typing_indicator_handles_missing_scope_gracefully(test_conf
         side_effect=SlackApiError("missing_scope", error_response)
     )
 
-    async def handle_command(**kwargs):
-        await kwargs["reply_sender"]("hello")
+    async def handle_command(msg, trigger_message_id, reply_sender):
+        await reply_sender("hello")
 
     monitor.command_handler.handle_command = AsyncMock(side_effect=handle_command)
 

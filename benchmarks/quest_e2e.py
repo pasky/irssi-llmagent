@@ -84,21 +84,22 @@ async def run_benchmark(config_path: str, timeout: float) -> None:
         print(f"<{USER}> {MYNICK}: {SCENARIO_GOAL}")
         print("\n--- Processing through IRC monitor ---\n")
 
-        trigger_message_id = await agent.history.add_message(
-            SERVER, CHANNEL, SCENARIO_GOAL, USER, MYNICK
-        )
+        from muaddib.rooms.message import RoomMessage
 
         async def reply_sender(text: str) -> None:
             await agent.irc_monitor.varlink_sender.send_message(CHANNEL, text, SERVER)
 
-        await agent.irc_monitor.command_handler.handle_command(
+        msg = RoomMessage(
             server_tag=SERVER,
             channel_name=CHANNEL,
             nick=USER,
             mynick=MYNICK,
-            message=SCENARIO_GOAL,
-            trigger_message_id=trigger_message_id,
-            reply_sender=reply_sender,
+            content=SCENARIO_GOAL,
+        )
+
+        trigger_message_id = await agent.history.add_message(msg)
+        await agent.irc_monitor.command_handler.handle_command(
+            msg, trigger_message_id, reply_sender
         )
 
         # Wait for all quests to complete or timeout

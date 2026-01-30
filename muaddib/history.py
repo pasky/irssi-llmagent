@@ -3,9 +3,12 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiosqlite
+
+if TYPE_CHECKING:
+    from .rooms.message import RoomMessage
 
 logger = logging.getLogger(__name__)
 
@@ -171,23 +174,20 @@ class ChatHistory:
 
     async def add_message(
         self,
-        server_tag: str,
-        channel_name: str,
-        message: str,
-        nick: str,
-        mynick: str,
-        is_response: bool = False,
-        content_template: str = "<{nick}> {message}",
-        role: str | None = None,
+        msg: "RoomMessage",
+        *,
         mode: str | None = None,
         llm_call_id: int | None = None,
-        platform_id: str | None = None,
-        thread_id: str | None = None,
+        content_template: str = "<{nick}> {message}",
+        role: str | None = None,
     ) -> int:
-        """Add a message to the chat history. Returns the message ID."""
+        """Add a RoomMessage to history. Returns the message ID.
+
+        The message's response_thread_id is used for the thread_id (defaults to thread_id for incoming).
+        """
         if role is None:
-            role = "assistant" if nick.lower() == mynick.lower() else "user"
-        content = content_template.format(nick=nick, message=message)
+            role = "assistant" if msg.nick.lower() == msg.mynick.lower() else "user"
+        content = content_template.format(nick=msg.nick, message=msg.content)
 
         async with self._lock, aiosqlite.connect(self.db_path) as db:
             async with db.execute(
@@ -197,22 +197,38 @@ class ChatHistory:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    server_tag,
-                    channel_name,
-                    nick,
+                    msg.server_tag,
+                    msg.channel_name,
+                    msg.nick,
                     content,
                     role,
                     mode,
                     llm_call_id,
-                    platform_id,
-                    thread_id,
+                    msg.platform_id,
+                    msg.response_thread_id,
                 ),
             ) as cursor:
                 message_id = cursor.lastrowid
             await db.commit()
 
-        logger.debug(f"Added message to history: {server_tag}/{channel_name} - {nick}: {message}")
+        logger.debug(
+            f"Added message to history: {msg.server_tag}/{msg.channel_name} - {msg.nick}: {msg.content}"
+        )
         return message_id or 0
+
+    async def get_context_for_message(
+        self,
+        msg: "RoomMessage",
+        limit: int | None = None,
+    ) -> list[dict[str, str]]:
+        """Get conversation context for a RoomMessage."""
+        return await self.get_context(
+            msg.server_tag,
+            msg.channel_name,
+            limit,
+            thread_id=msg.thread_id,
+            thread_starter_id=msg.thread_starter_id,
+        )
 
     async def get_context(
         self,

@@ -6,6 +6,16 @@ import time
 import pytest
 
 from muaddib.history import ChatHistory
+from muaddib.rooms.message import RoomMessage
+
+
+def make_msg(
+    server: str, channel: str, content: str, nick: str, mynick: str, **kwargs
+) -> RoomMessage:
+    """Helper to build RoomMessage for tests."""
+    return RoomMessage(
+        server_tag=server, channel_name=channel, content=content, nick=nick, mynick=mynick, **kwargs
+    )
 
 
 class TestChatHistory:
@@ -29,9 +39,9 @@ class TestChatHistory:
         mynick = "testbot"
 
         # Add some messages
-        await history.add_message(server, channel, "Hello world", "user1", mynick)
-        await history.add_message(server, channel, "Hi there!", "testbot", mynick)
-        await history.add_message(server, channel, "How are you?", "user2", mynick)
+        await history.add_message(make_msg(server, channel, "Hello world", "user1", mynick))
+        await history.add_message(make_msg(server, channel, "Hi there!", "testbot", mynick))
+        await history.add_message(make_msg(server, channel, "How are you?", "user2", mynick))
 
         # Retrieve context
         context = await history.get_context(server, channel)
@@ -56,7 +66,7 @@ class TestChatHistory:
 
         # Add more messages than the limit
         for i in range(5):
-            await history.add_message(server, channel, f"Message {i}", f"user{i}", mynick)
+            await history.add_message(make_msg(server, channel, f"Message {i}", f"user{i}", mynick))
 
         context = await history.get_context(server, channel)
 
@@ -75,8 +85,12 @@ class TestChatHistory:
         mynick = "testbot"
 
         # Add messages to different channels
-        await history.add_message(server, "#channel1", "Message in channel 1", "user1", mynick)
-        await history.add_message(server, "#channel2", "Message in channel 2", "user2", mynick)
+        await history.add_message(
+            make_msg(server, "#channel1", "Message in channel 1", "user1", mynick)
+        )
+        await history.add_message(
+            make_msg(server, "#channel2", "Message in channel 2", "user2", mynick)
+        )
 
         context1 = await history.get_context(server, "#channel1")
         context2 = await history.get_context(server, "#channel2")
@@ -98,7 +112,7 @@ class TestChatHistory:
 
         # Add several messages
         for i in range(5):
-            await history.add_message(server, channel, f"Message {i}", f"user{i}", mynick)
+            await history.add_message(make_msg(server, channel, f"Message {i}", f"user{i}", mynick))
 
         # Get limited context vs full history
         context = await history.get_context(server, channel)
@@ -118,16 +132,16 @@ class TestChatHistory:
         mynick = "bot"
 
         # Add initial message and record timestamp
-        await history.add_message(server, channel, "initial command", "user1", mynick)
+        await history.add_message(make_msg(server, channel, "initial command", "user1", mynick))
         original_time = time.time()
 
         # Small delay to ensure timestamp difference (needs to be >1s due to integer conversion)
         await asyncio.sleep(1.01)
-        await history.add_message(server, channel, "oops typo", "user1", mynick)
-        await history.add_message(server, channel, "one more thing", "user1", mynick)
+        await history.add_message(make_msg(server, channel, "oops typo", "user1", mynick))
+        await history.add_message(make_msg(server, channel, "one more thing", "user1", mynick))
 
         # Add message from different user (should not be included)
-        await history.add_message(server, channel, "unrelated", "user2", mynick)
+        await history.add_message(make_msg(server, channel, "unrelated", "user2", mynick))
 
         # Test the query
         followups = await history.get_recent_messages_since(server, channel, "user1", original_time)
@@ -153,18 +167,30 @@ class TestChatHistory:
         channel = "#general"
         mynick = "bot"
 
-        await history.add_message(server, channel, "before 1", "user1", mynick, platform_id="1")
-        await history.add_message(server, channel, "before 2", "user2", mynick, platform_id="2")
-        await history.add_message(server, channel, "starter", "user1", mynick, platform_id="100")
+        await history.add_message(
+            make_msg(server, channel, "before 1", "user1", mynick, platform_id="1")
+        )
+        await history.add_message(
+            make_msg(server, channel, "before 2", "user2", mynick, platform_id="2")
+        )
+        await history.add_message(
+            make_msg(server, channel, "starter", "user1", mynick, platform_id="100")
+        )
         starter_id = await history.get_message_id_by_platform_id(server, channel, "100")
         assert starter_id is not None
 
-        await history.add_message(server, channel, "after", "user3", mynick, platform_id="3")
         await history.add_message(
-            server, channel, "thread 1", "user1", mynick, thread_id="100", platform_id="101"
+            make_msg(server, channel, "after", "user3", mynick, platform_id="3")
         )
         await history.add_message(
-            server, channel, "thread 2", "user2", mynick, thread_id="100", platform_id="102"
+            make_msg(
+                server, channel, "thread 1", "user1", mynick, thread_id="100", platform_id="101"
+            )
+        )
+        await history.add_message(
+            make_msg(
+                server, channel, "thread 2", "user2", mynick, thread_id="100", platform_id="102"
+            )
         )
 
         thread_context = await history.get_context(
@@ -199,16 +225,18 @@ class TestChatHistory:
         mynick = "testbot"
 
         # Add regular messages
-        await history.add_message(server, channel, "Hello", "user1", mynick)
-        await history.add_message(server, channel, "Hi there!", mynick, mynick)
+        await history.add_message(make_msg(server, channel, "Hello", "user1", mynick))
+        await history.add_message(make_msg(server, channel, "Hi there!", mynick, mynick))
 
         # Add message with custom role (tool persistence)
         await history.add_message(
-            server,
-            channel,
-            "Tool summary: Performed web search and code execution",
-            mynick,
-            mynick,
+            make_msg(
+                server,
+                channel,
+                "Tool summary: Performed web search and code execution",
+                mynick,
+                mynick,
+            ),
             content_template="[internal monologue] {message}",
         )
 
@@ -240,21 +268,23 @@ class TestChatHistory:
         mynick = "testbot"
 
         # Add user message (no mode)
-        await history.add_message(server, channel, "Tell me a joke", "user1", mynick)
+        await history.add_message(make_msg(server, channel, "Tell me a joke", "user1", mynick))
 
         # Add assistant responses with different modes
         await history.add_message(
-            server, channel, "Why did the chicken...", mynick, mynick, mode="SARCASTIC"
+            make_msg(server, channel, "Why did the chicken...", mynick, mynick), mode="SARCASTIC"
         )
         await history.add_message(
-            server, channel, "Here's the answer", mynick, mynick, mode="EASY_SERIOUS"
+            make_msg(server, channel, "Here's the answer", mynick, mynick), mode="EASY_SERIOUS"
         )
         await history.add_message(
-            server, channel, "Deep analysis", mynick, mynick, mode="THINKING_SERIOUS"
+            make_msg(server, channel, "Deep analysis", mynick, mynick), mode="THINKING_SERIOUS"
         )
-        await history.add_message(server, channel, "Unsafe response", mynick, mynick, mode="UNSAFE")
+        await history.add_message(
+            make_msg(server, channel, "Unsafe response", mynick, mynick), mode="UNSAFE"
+        )
         # Assistant message without mode (legacy)
-        await history.add_message(server, channel, "No mode set", mynick, mynick)
+        await history.add_message(make_msg(server, channel, "No mode set", mynick, mynick))
 
         context = await history.get_context(server, channel)
         assert len(context) == 6

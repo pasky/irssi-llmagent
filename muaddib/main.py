@@ -248,21 +248,22 @@ async def cli_message(message: str, config_path: str | None = None) -> None:
 
         agent.irc_monitor.varlink_sender = MockSender()  # type: ignore
 
-        trigger_message_id = await agent.history.add_message(
-            "testserver", "#testchannel", message, "testuser", "testbot"
-        )
+        from muaddib.rooms.message import RoomMessage
 
         async def reply_sender(text: str) -> None:
             print(f"📤 Bot response: {text}")
 
-        await agent.irc_monitor.command_handler.handle_command(
+        msg = RoomMessage(
             server_tag="testserver",
             channel_name="#testchannel",
             nick="testuser",
             mynick="testbot",
-            message=message,
-            trigger_message_id=trigger_message_id,
-            reply_sender=reply_sender,
+            content=message,
+        )
+
+        trigger_message_id = await agent.history.add_message(msg)
+        await agent.irc_monitor.command_handler.handle_command(
+            msg, trigger_message_id, reply_sender
         )
 
     except Exception as e:

@@ -9,6 +9,7 @@ import muaddib
 
 from ...message_logging import MessageLoggingContext
 from ..command import RoomCommandHandler, get_room_config
+from ..message import RoomMessage
 from .varlink import VarlinkClient, VarlinkSender
 
 if TYPE_CHECKING:
@@ -104,35 +105,25 @@ class IRCRoomMonitor:
 
         cleaned_msg = match.group(2) if match else message
 
-        trigger_message_id = await self.agent.history.add_message(
-            server, chan_name, message, nick, mynick
-        )
-
         async def reply_sender(text: str) -> None:
             await self.varlink_sender.send_message(chan_name, text, server)
 
-        if is_direct:
-            arc = f"{server}#{chan_name}"
-            with MessageLoggingContext(arc, nick, message):
-                await self.command_handler.handle_command(
-                    server_tag=server,
-                    channel_name=chan_name,
-                    nick=nick,
-                    mynick=mynick,
-                    message=cleaned_msg,
-                    trigger_message_id=trigger_message_id,
-                    reply_sender=reply_sender,
-                )
-            return
-
-        await self.command_handler.handle_passive_message(
+        msg = RoomMessage(
             server_tag=server,
             channel_name=chan_name,
             nick=nick,
             mynick=mynick,
-            message=message,
-            reply_sender=reply_sender,
+            content=cleaned_msg if is_direct else message,
         )
+
+        trigger_message_id = await self.agent.history.add_message(msg)
+
+        if is_direct:
+            with MessageLoggingContext(msg.arc, nick, message):
+                await self.command_handler.handle_command(msg, trigger_message_id, reply_sender)
+            return
+
+        await self.command_handler.handle_passive_message(msg, reply_sender)
 
     async def _connect_with_retry(self, max_retries: int = 5) -> bool:
         """Connect to varlink sockets with exponential backoff retry."""
