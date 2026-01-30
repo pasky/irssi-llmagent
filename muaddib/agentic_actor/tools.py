@@ -26,6 +26,16 @@ from ..chronicler.tools import (
 logger = logging.getLogger(__name__)
 
 
+def _ensure_artifacts_dir(path: Path) -> None:
+    """Create artifacts directory with index.html to prevent directory listing."""
+    path.mkdir(parents=True, exist_ok=True)
+    index_file = path / "index.html"
+    if not index_file.exists():
+        index_file.write_text(
+            "<!DOCTYPE html><html><head><title>Artifacts</title></head><body></body></html>"
+        )
+
+
 def resolve_http_headers(url: str, secrets: dict[str, Any] | None) -> dict[str, str]:
     """Resolve HTTP headers for a URL from the secrets dict."""
     headers = {"User-Agent": "muaddib/1.0"}
@@ -1141,7 +1151,7 @@ class ArtifactStore:
         assert self.artifacts_url is not None
 
         try:
-            self.artifacts_path.mkdir(parents=True, exist_ok=True)
+            _ensure_artifacts_dir(self.artifacts_path)
         except Exception as e:
             logger.error(f"Failed to create artifacts directory: {e}")
             return f"Error: Failed to create artifacts directory: {e}"
@@ -1167,7 +1177,7 @@ class ArtifactStore:
         assert self.artifacts_url is not None
 
         try:
-            self.artifacts_path.mkdir(parents=True, exist_ok=True)
+            _ensure_artifacts_dir(self.artifacts_path)
         except Exception as e:
             logger.error(f"Failed to create artifacts directory: {e}")
             return f"Error: Failed to create artifacts directory: {e}"
