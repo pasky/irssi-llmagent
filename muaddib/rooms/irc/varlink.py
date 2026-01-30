@@ -133,6 +133,7 @@ class VarlinkSender(BaseVarlinkClient):
             for ch in text:
                 byte_count += len(ch.encode("utf-8"))
                 char_to_bytes.append(byte_count)
+            total_bytes = char_to_bytes[-1] if char_to_bytes else 0
 
             # Find the maximum character index that fits within max_payload
             max_char_idx = 0
@@ -146,9 +147,13 @@ class VarlinkSender(BaseVarlinkClient):
             if max_char_idx == 0:
                 return "", text
 
-            # Target: split as close to the middle as possible
-            # The ideal byte split point is max_payload // 2
-            target_bytes = max_payload // 2
+            # Target split point: we want both parts to fit in max_payload.
+            # If total_bytes <= 2 * max_payload, we can split near the middle.
+            # If total_bytes > 2 * max_payload, we MUST split so remaining fits,
+            # i.e., first part must be at least (total_bytes - max_payload) bytes.
+            min_first_bytes = max(0, total_bytes - max_payload)
+            # Ideal target: as close to middle as possible, but at least min_first_bytes
+            target_bytes = max(min_first_bytes, max_payload // 2)
 
             # Find all valid split points by delimiter type, ordered by preference
             # Each delimiter type: (pattern_check_func, split_after_offset)
@@ -206,6 +211,20 @@ class VarlinkSender(BaseVarlinkClient):
             if not candidates:
                 return text[:max_char_idx], text[max_char_idx:]
 
+            # Filter candidates: must leave second part small enough to fit in max_payload
+            # A candidate at bytes_at leaves (total_bytes - bytes_at) for second part
+            valid_candidates = [c for c in candidates if total_bytes - c[2] <= max_payload]
+
+            # If no valid candidates, find the minimum char index that satisfies the constraint
+            # (hard split without nice delimiter)
+            if not valid_candidates:
+                # Find first char index where remaining bytes <= max_payload
+                for i, cb in enumerate(char_to_bytes):
+                    if total_bytes - cb <= max_payload:
+                        return text[: i + 1], text[i + 1 :]
+                # Fallback (shouldn't happen if total_bytes <= 2 * max_payload)
+                return text[:max_char_idx], text[max_char_idx:]
+
             # Select the best candidate: closest to target_bytes, preferring higher-priority delimiters
             # Strategy: for each priority level, find the candidate closest to middle
             # Use the highest-priority level that has a candidate reasonably close to middle
@@ -217,10 +236,10 @@ class VarlinkSender(BaseVarlinkClient):
                 return (priority, distance)
 
             # Sort by priority first, then by distance from target
-            candidates.sort(key=score_candidate)
+            valid_candidates.sort(key=score_candidate)
 
             # Take the best candidate (lowest priority number, then closest to middle)
-            best_char_idx = candidates[0][0]
+            best_char_idx = valid_candidates[0][0]
 
             head = text[:best_char_idx]
             tail = text[best_char_idx:]
@@ -243,16 +262,25 @@ class VarlinkSender(BaseVarlinkClient):
             rest = rest[1:]
         rest_bytes = rest.encode("utf-8")
         if len(rest_bytes) > max_payload:
-            # Keep as many complete characters as fit
+            # Keep as many complete characters as fit, but leave room for "..."
+            ellipsis = "..."
+            ellipsis_bytes = len(ellipsis.encode("utf-8"))
+            effective_payload = max_payload - ellipsis_bytes
             byte_count = 0
             end_idx = 0
             for i, ch in enumerate(rest):
                 ch_bytes = len(ch.encode("utf-8"))
-                if byte_count + ch_bytes > max_payload:
+                if byte_count + ch_bytes > effective_payload:
                     break
                 byte_count += ch_bytes
                 end_idx = i + 1
-            rest = rest[:end_idx]
+            rest = rest[:end_idx] + ellipsis
+            logger.warning(
+                "Message exceeded 2x max IRC payload, truncated with ellipsis. "
+                "Original: %d bytes, max per message: %d bytes",
+                len(rest_bytes) + len(first.encode("utf-8")),
+                max_payload,
+            )
 
         ok = True
         for part in (first, rest):

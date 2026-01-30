@@ -55,6 +55,67 @@ class DummySenderTruncating(VarlinkSender):
 
 
 @pytest.mark.asyncio
+async def test_split_never_truncates_when_fitting_in_two():
+    """Test that messages fitting in 2 * max_payload are never truncated.
+
+    Regression test for issue where a sentence boundary early in the message
+    would be preferred even if it left too much content for the second message.
+    """
+    sender = DummySender()
+    target = "#test"
+    max_payload = max(1, 512 - 12 - len(target.encode("utf-8")) - 60)
+
+    # Create a message just under 2 * max_payload with sentence boundary early
+    # This should NOT truncate - it should find a valid split point
+    # Even if that means splitting at a less-nice boundary
+    early_sentence = 50  # Sentence very early
+
+    # "A"*50 + ". " + "B"*Xs where total > max_payload but <= 2*max_payload
+    msg = (
+        "A" * early_sentence
+        + ". "
+        + "B" * (max_payload - 20)  # This part alone exceeds when combined with As
+    )
+    total_len = len(msg)
+    assert total_len > max_payload  # Needs split
+    assert total_len <= 2 * max_payload  # Should fit in 2
+
+    sender.sent.clear()
+    await sender.send_message(target, msg, server="irc")
+
+    # Must have 2 messages
+    assert len(sender.sent) == 2
+
+    # Combined must equal original (no truncation!)
+    combined = sender.sent[0] + sender.sent[1]
+    assert combined == msg, f"Truncation detected! Lost: {msg[len(combined) :]!r}"
+
+
+@pytest.mark.asyncio
+async def test_split_adds_ellipsis_when_exceeding_two_messages():
+    """Test that messages exceeding 2 * max_payload get truncated with ellipsis."""
+    sender = DummySender()
+    target = "#test"
+    max_payload = max(1, 512 - 12 - len(target.encode("utf-8")) - 60)
+
+    # Create a message that's way too long
+    msg = "A" * (3 * max_payload)  # 3x max_payload, won't fit in 2
+
+    sender.sent.clear()
+    await sender.send_message(target, msg, server="irc")
+
+    # Must have 2 messages (we cap at 2)
+    assert len(sender.sent) == 2
+
+    # Second message should end with ellipsis
+    assert sender.sent[1].endswith("...")
+
+    # Combined should be shorter than original
+    combined = sender.sent[0] + sender.sent[1]
+    assert len(combined) < len(msg)
+
+
+@pytest.mark.asyncio
 async def test_split_integrity_with_multibyte_and_pipeline():
     """Single high-signal test that catches both classes of regressions.
 
@@ -85,9 +146,10 @@ async def test_split_integrity_with_multibyte_and_pipeline():
     filler_b = b"A" * filler_count
     # Append first byte of 'Ж' (0xD0) to end the head at byte index max_payload-1
     first_byte = b"\xd0"
-    # Tail begins with the continuation byte (0x96), which a naive errors="ignore" decoder will drop,
-    # then 'X' sentinel, then a long run of 'Ж'
-    tail_b = b"\x96" + b"X" + ("Ж" * 5000).encode("utf-8")
+    # Tail: continuation byte, 'X' sentinel, and Cyrillic chars that fit in 2 messages
+    # Use fewer Cyrillic chars to fit in 2 * max_payload (each Ж is 2 bytes)
+    cyrillic_count = (max_payload - 10) // 2  # Fit in second message with margin
+    tail_b = b"\x96" + b"X" + ("Ж" * cyrillic_count).encode("utf-8")
     msg_b = tee_b + filler_b + first_byte + tail_b
     # Decode to str for sending
     msg = msg_b.decode("utf-8")
@@ -124,52 +186,54 @@ async def test_split_prefers_middle_and_delimiter_priority():
     # Compute max_payload for this target
     max_payload = max(1, 512 - 12 - len(target.encode("utf-8")) - 60)
 
-    # Test 1: Sentence delimiter (". ") should be preferred and split near middle
-    # Create a message with a sentence boundary near the middle
-    half = max_payload // 2
-    # "A" * (half - 10) + ". " + "B" * (max_payload + 100)
-    # The sentence boundary is near the middle
-    msg1 = "A" * (half - 10) + ". " + "B" * (max_payload + 100)
+    # Test 1: Sentence delimiter (". ") should be preferred when it's a valid split point
+    # Create a message with a sentence boundary that leaves room for second part
+    # Message = "A"s + ". " + "B"s, where second part fits in max_payload
+    # Use (max_payload - 50) As + ". " + (max_payload - 50) Bs = ~2*max_payload - 98
+    msg1 = "A" * (max_payload - 50) + ". " + "B" * (max_payload - 50)
     sender.sent.clear()
     await sender.send_message(target, msg1, server="irc")
     assert len(sender.sent) == 2
-    # First part should end with ". " (the sentence boundary near middle)
+    # First part should end with ". " (the sentence boundary)
     assert sender.sent[0].endswith(". ")
-    # Check it split near the middle, not at the end
+    # Check it split at the sentence, not at the end
     first_len = len(sender.sent[0].encode("utf-8"))
-    assert first_len < max_payload * 0.8  # Should be closer to middle, not at 100%
+    assert first_len < max_payload * 0.95  # Should be at sentence, not forced to end
 
-    # Test 2: With semicolon and spaces, semicolon should be preferred
-    # "X" * (half - 5) + "; " + "Y " * 50 + "Z" * (max_payload)
-    msg2 = "X" * (half - 5) + "; " + "Y " * 50 + "Z" * max_payload
+    # Test 2: With semicolon and spaces, semicolon should be preferred when valid
+    # Ensure semicolon is placed where splitting there leaves second part fitting
+    msg2 = "X" * (max_payload - 50) + "; " + "Y " * 25 + "Z" * (max_payload - 100)
     sender.sent.clear()
     await sender.send_message(target, msg2, server="irc")
     assert len(sender.sent) == 2
     # Should split at semicolon, not at a later space
     assert sender.sent[0].endswith("; ")
 
-    # Test 3: Comma vs space - comma should be preferred when near middle
-    msg3 = "W" * (half - 5) + ", " + "V " * 50 + "U" * max_payload
+    # Test 3: Comma vs space - comma should be preferred when it's a valid split
+    msg3 = "W" * (max_payload - 50) + ", " + "V " * 25 + "U" * (max_payload - 100)
     sender.sent.clear()
     await sender.send_message(target, msg3, server="irc")
     assert len(sender.sent) == 2
     assert sender.sent[0].endswith(", ")
 
-    # Test 4: Only spaces available - should split at space nearest to middle
-    msg4 = " ".join(["word"] * 200)  # Many evenly-spaced words
+    # Test 4: Only spaces available - should split at space nearest to target
+    # Use fewer words so message fits in 2 * max_payload (allows middle split)
+    msg4 = " ".join(["word"] * 100)  # Fits in ~2x max_payload
     sender.sent.clear()
     await sender.send_message(target, msg4, server="irc")
     assert len(sender.sent) == 2
     first_bytes = len(sender.sent[0].encode("utf-8"))
-    # Should be reasonably close to middle (within 60% of max)
-    assert max_payload * 0.3 < first_bytes < max_payload * 0.7
+    # Should be reasonably close to middle (within 70% of max) when total fits in 2 messages
+    assert max_payload * 0.3 < first_bytes < max_payload * 0.8
 
-    # Test 5: Verify sentence at middle beats space at end
-    # Put sentence boundary at 40% and spaces throughout
-    pos_40 = int(max_payload * 0.4)
-    msg5 = "A" * (pos_40 - 2) + ". " + "B " * 100 + "C" * max_payload
+    # Test 5: Verify sentence beats space when both are valid split points
+    # Put sentence boundary at ~60% (valid for both messages to fit) with spaces after
+    # Total ~1.5 * max_payload so sentence at 60% leaves ~40% = valid
+    pos_60 = int(max_payload * 0.6)
+    remaining = int(max_payload * 0.4) - 10  # Leave room in second part
+    msg5 = "A" * (pos_60 - 2) + ". " + "B " * 20 + "C" * remaining
     sender.sent.clear()
     await sender.send_message(target, msg5, server="irc")
     assert len(sender.sent) == 2
-    # Should prefer sentence boundary at 40% over spaces at end
+    # Should prefer sentence boundary over later spaces
     assert sender.sent[0].endswith(". ")
