@@ -149,7 +149,7 @@
         "output": " No markdown."
       },
       "command": {
-        "response_max_chars": 800,
+        "response_max_chars": 700,
         "ignore_users": [],
         "channel_modes": {
           "testserver##random": "classifier",
