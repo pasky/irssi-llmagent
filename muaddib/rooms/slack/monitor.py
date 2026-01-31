@@ -422,6 +422,23 @@ class SlackRoomMonitor:
 
         return "\n".join(["[Attachments]", *attachment_lines, "[/Attachments]"])
 
+    def _get_reply_thread_ts(
+        self, channel_type: str | None, platform_id: str | None, existing_thread_id: str | None
+    ) -> str | None:
+        """Determine the thread_ts to use for replies based on configuration.
+
+        Returns the thread_ts that should be used when sending replies.
+        """
+        if existing_thread_id:
+            return existing_thread_id
+
+        if not platform_id:
+            return None
+
+        if channel_type == "im":
+            return platform_id if self.reply_start_thread.get("dm") else None
+        return platform_id if self.reply_start_thread.get("channel") else None
+
     async def process_message_event(
         self, body: dict[str, Any], event: dict[str, Any], *, is_direct: bool
     ) -> None:
@@ -461,7 +478,6 @@ class SlackRoomMonitor:
             channel_name = await self._get_channel_name(team_id, client, channel_id)
             channel_name = f"#{channel_name}"
 
-        arc = f"{server_tag}#{channel_name}"
         bot_name = self.bot_display_names.get(team_id)
         if not bot_name:
             bot_name = await self._get_user_display_name(team_id, client, bot_user_id)
@@ -497,28 +513,46 @@ class SlackRoomMonitor:
                 server_tag, channel_name, thread_id
             )
 
-        reply_thread_ts = thread_id
-        if not reply_thread_ts:
-            if channel_type == "im":
-                if self.reply_start_thread.get("dm"):
-                    reply_thread_ts = platform_id
-            else:
-                if self.reply_start_thread.get("channel"):
-                    reply_thread_ts = platform_id
+        reply_thread_ts = self._get_reply_thread_ts(channel_type, platform_id, thread_id)
 
-        response_thread_id = reply_thread_ts if reply_thread_ts else None
+        # Fix thread_id bug: when starting a new thread, align thread_id for context
+        # so that context lookup and storage both use the same thread_id
+        if reply_thread_ts and not thread_id:
+            thread_id = reply_thread_ts
+
+        secrets: dict[str, Any] | None = None
+        if files:
+            workspace = self.workspaces.get(team_id, {})
+            bot_token = workspace.get("bot_token")
+            if bot_token:
+                secrets = {
+                    "http_header_prefixes": {
+                        "https://files.slack.com/": {"Authorization": f"Bearer {bot_token}"}
+                    }
+                }
+
+        msg = RoomMessage(
+            server_tag=server_tag,
+            channel_name=channel_name,
+            nick=nick,
+            mynick=mynick,
+            content=content,
+            platform_id=platform_id,
+            thread_id=thread_id,
+            thread_starter_id=thread_starter_id,
+            _response_thread_id=reply_thread_ts,
+            secrets=secrets,
+        )
 
         last_reply_ts: str | None = None
         last_reply_text: str | None = None
         last_reply_time: float | None = None
-        # Track typing indicator state for re-setting after progress messages
         typing_indicator_thread_ts: str | None = None
 
         async def reply_sender(text: str) -> None:
             nonlocal last_reply_ts, last_reply_time, last_reply_text
             now = self._now()
 
-            # Convert @DisplayName to <@USER_ID> for proper Slack mentions
             formatted_text = self._format_mentions_for_slack(text, team_id)
 
             if (
@@ -534,74 +568,33 @@ class SlackRoomMonitor:
                 last_reply_time = now
             else:
                 send_kwargs: dict[str, Any] = {"channel": channel_id, "text": formatted_text}
-                if reply_thread_ts:
-                    send_kwargs["thread_ts"] = reply_thread_ts
+                if msg.response_thread_id:
+                    send_kwargs["thread_ts"] = msg.response_thread_id
                 response = await client.chat_postMessage(**send_kwargs)
                 last_reply_ts = response.get("ts")
                 last_reply_text = formatted_text
                 last_reply_time = now
 
-            # Re-set typing indicator after sending a message (it auto-clears on send)
-            # This keeps the indicator visible during multi-message responses
             if typing_indicator_thread_ts:
                 await self._set_typing_indicator(client, channel_id, typing_indicator_thread_ts)
 
-        secrets: dict[str, Any] | None = None
-        if files:
-            workspace = self.workspaces.get(team_id, {})
-            bot_token = workspace.get("bot_token")
-            if bot_token:
-                secrets = {
-                    "http_header_prefixes": {
-                        "https://files.slack.com/": {"Authorization": f"Bearer {bot_token}"}
-                    }
-                }
+        trigger_message_id = await self.agent.history.add_message(msg)
 
         if is_direct:
-            # Show typing indicator before processing the command
-            # Use the message ts as thread reference (works even for non-threaded replies)
-            typing_thread_ts = thread_id or platform_id
+            typing_thread_ts = msg.thread_id or platform_id
             typing_indicator_set = await self._set_typing_indicator(
                 client, channel_id, typing_thread_ts
             )
-            # Store for re-setting after progress messages
             if typing_indicator_set:
                 typing_indicator_thread_ts = typing_thread_ts
 
-            msg = RoomMessage(
-                server_tag=server_tag,
-                channel_name=channel_name,
-                nick=nick,
-                mynick=mynick,
-                content=content,
-                platform_id=platform_id,
-                thread_id=thread_id,
-                thread_starter_id=thread_starter_id,
-                _response_thread_id=response_thread_id,
-                secrets=secrets,
-            )
-            trigger_message_id = await self.agent.history.add_message(msg)
-            with MessageLoggingContext(arc, nick, content):
+            with MessageLoggingContext(msg.arc, msg.nick, msg.content):
                 await self.command_handler.handle_command(msg, trigger_message_id, reply_sender)
 
-            # Clear typing indicator after processing completes
-            # (we re-set it after each message, so need explicit clear at the end)
             if typing_indicator_set and typing_thread_ts:
                 await self._clear_typing_indicator(client, channel_id, typing_thread_ts)
             return
 
-        msg = RoomMessage(
-            server_tag=server_tag,
-            channel_name=channel_name,
-            nick=nick,
-            mynick=mynick,
-            content=content,
-            platform_id=platform_id,
-            thread_id=thread_id,
-            thread_starter_id=thread_starter_id,
-            secrets=secrets,
-        )
-        trigger_message_id = await self.agent.history.add_message(msg)
         await self.command_handler.handle_passive_message(msg, reply_sender)
 
     async def run(self) -> None:
