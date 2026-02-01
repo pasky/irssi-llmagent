@@ -694,12 +694,17 @@ class WebpageVisitorExecutor:
 
 
 def _normalize_arc_id(arc: str) -> str:
-    """Normalize arc ID for use as Sprite name (alphanumeric + hyphens only)."""
-    import re
+    """Normalize arc ID for use as Sprite name (must be injective).
 
-    # Replace non-alphanumeric chars with hyphens, collapse multiple hyphens
-    normalized = re.sub(r"[^a-zA-Z0-9]+", "-", arc)
-    return normalized.strip("-").lower()
+    Uses hash-based naming to guarantee different arcs always map to different
+    Sprite names, preventing any possibility of cross-arc access.
+    """
+    import hashlib
+
+    # Use SHA256 hash truncated to 16 hex chars (64 bits) for uniqueness
+    # This is injective for all practical purposes (collision probability ~1/2^64)
+    arc_hash = hashlib.sha256(arc.encode()).hexdigest()[:16]
+    return arc_hash
 
 
 # Global cache of Sprites per arc (singleton pattern for sprite reuse)
@@ -1580,9 +1585,9 @@ def create_tool_executors(
     # Tool configs
     tools = config.get("tools", {}) if config else {}
 
-    # Sprites config (with fallback to e2b for backwards compat during migration)
-    sprites_config = tools.get("sprites", tools.get("e2b", {}))
-    sprites_token = sprites_config.get("token", sprites_config.get("api_key"))
+    # Sprites config
+    sprites_config = tools.get("sprites", {})
+    sprites_token = sprites_config.get("token")
 
     # Jina config
     jina_config = tools.get("jina", {})

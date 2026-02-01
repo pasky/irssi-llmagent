@@ -376,8 +376,9 @@ class TestToolExecutors:
                 result2 = await executor.execute("print(x)")
 
                 # Verify sprite was created only once and cached
-                assert "arc-test-arc" in tools._sprite_cache
-                mock_client.create_sprite.assert_called_once_with("arc-test-arc")
+                # Hash of "test-arc" -> 42a4bfdcf352d480
+                assert "arc-42a4bfdcf352d480" in tools._sprite_cache
+                mock_client.create_sprite.assert_called_once_with("arc-42a4bfdcf352d480")
                 assert "result" in result1
                 assert "result" in result2
 
@@ -421,8 +422,8 @@ class TestToolExecutors:
                 assert workdir in rm_calls[0][0]
                 assert executor._workdir is None
 
-                # Sprite should still be in cache
-                assert "arc-test-arc" in tools._sprite_cache
+                # Sprite should still be in cache (hash of "test-arc")
+                assert "arc-42a4bfdcf352d480" in tools._sprite_cache
 
     @pytest.mark.asyncio
     async def test_code_executor_sprites_error_handling(self):
@@ -1067,17 +1068,6 @@ class TestToolDefinitions:
         assert isinstance(code_executor, CodeExecutorSprites)
         assert code_executor.token is None
         assert code_executor.arc == "test"
-
-    def test_create_tool_executors_e2b_compat(self, mock_agent):
-        """Test that e2b config key still works for backwards compatibility."""
-        config = {"tools": {"e2b": {"api_key": "test-key-123"}}}
-
-        executors = create_tool_executors(config, agent=mock_agent, arc="test")
-
-        assert "execute_code" in executors
-        code_executor = executors["execute_code"]
-        assert isinstance(code_executor, CodeExecutorSprites)
-        assert code_executor.token == "test-key-123"
 
     def test_make_plan_tool_in_tools_list(self):
         """Test that make_plan tool is included in TOOLS list."""
