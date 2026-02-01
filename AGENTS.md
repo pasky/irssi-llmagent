@@ -14,7 +14,7 @@
 - **Room Isolation**: IRC-specific functionality isolated in `rooms/irc/monitor.py` (IRCRoomMonitor class)
 - **Modular Structure**: Clean separation between platform-agnostic core and IRC-specific implementation
 - **Varlink Protocol**: Dual async socket architecture (events + sender) over UNIX socket at `~/.irssi/varlink.sock`
-- **APIs**: Anthropic Claude (sarcastic/serious modes with automatic classification using claude-3-5-haiku), E2B sandbox for Python code execution
+- **APIs**: Anthropic Claude (sarcastic/serious modes with automatic classification using claude-3-5-haiku), Sprites sandbox for Python/Bash code execution
 - **Config & Data**: All files live in `$MUADDIB_HOME` (defaults to `~/.muaddib/`):
   - `config.json` - JSON configuration (copy from `config.json.example`)
   - `chat_history.db` - SQLite persistent chat history
