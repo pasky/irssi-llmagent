@@ -26,8 +26,8 @@
   },
 
   "tools": {
-    "e2b": {
-      "api_key": "your-e2b-api-key-here"
+    "sprites": {
+      "token": "your-sprites-token-here"
     },
     "brave": {
       "api_key": "your-brave-api-key-here"

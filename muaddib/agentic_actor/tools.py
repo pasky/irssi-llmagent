@@ -693,70 +693,147 @@ class WebpageVisitorExecutor:
         raise RuntimeError("This should not be reached")
 
 
-class CodeExecutorE2B:
-    """Code executor using E2B sandbox. Supports Python and Bash."""
+def _normalize_arc_id(arc: str) -> str:
+    """Normalize arc ID for use as Sprite name (alphanumeric + hyphens only)."""
+    import re
+
+    # Replace non-alphanumeric chars with hyphens, collapse multiple hyphens
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "-", arc)
+    return normalized.strip("-").lower()
+
+
+# Global cache of Sprites per arc (singleton pattern for sprite reuse)
+_sprite_cache: dict[str, Any] = {}
+_sprite_cache_lock: asyncio.Lock | None = None
+
+
+def _get_sprite_cache_lock() -> asyncio.Lock:
+    """Get or create the sprite cache lock (lazy init for thread safety)."""
+    global _sprite_cache_lock
+    if _sprite_cache_lock is None:
+        _sprite_cache_lock = asyncio.Lock()
+    return _sprite_cache_lock
+
+
+class CodeExecutorSprites:
+    """Code executor using Fly.io Sprites sandbox. Supports Python and Bash.
+
+    Architecture:
+    - One Sprite per arc (persisted, reused across actor calls)
+    - Per-actor-call isolated workdir in /tmp/actor-{uuid}/
+    - Shared workspace in /workspace/ (persists across calls)
+    """
 
     def __init__(
         self,
-        api_key: str | None = None,
+        token: str | None = None,
+        arc: str = "default",
         timeout: int = 600,
         artifact_store: ArtifactStore | None = None,
         webpage_visitor: WebpageVisitorExecutor | None = None,
     ):
-        self.api_key = api_key
+        self.token = token
+        self.arc = arc
         self.timeout = timeout
-        self.sandbox = None
         self.artifact_store = artifact_store
         self.webpage_visitor = webpage_visitor
         self._version_counter = 0
+        self._workdir: str | None = None  # Per-call isolated workdir
 
-    async def _ensure_sandbox(self):
-        """Ensure sandbox is created and connected."""
+    def _get_sprite_name(self) -> str:
+        """Get the Sprite name for this arc."""
+        return f"arc-{_normalize_arc_id(self.arc)}"
+
+    async def _ensure_sprite(self) -> Any:
+        """Ensure Sprite exists and is connected. Returns the sprite."""
         try:
-            from e2b_code_interpreter import Sandbox
+            from sprites import SpritesClient
         except ImportError:
             raise ImportError(
-                "e2b-code-interpreter package not installed. Install with: pip install e2b-code-interpreter"
+                "sprites-py package not installed. Install with: pip install sprites-py"
             ) from None
 
-        if self.sandbox is None:
-            import asyncio
+        sprite_name = self._get_sprite_name()
 
-            def create_sandbox():
-                sandbox_args: dict[str, Any] = {"timeout": self.timeout}
-                if self.api_key:
-                    sandbox_args["api_key"] = self.api_key
-                sandbox = Sandbox(**sandbox_args)
-                return sandbox
+        async with _get_sprite_cache_lock():
+            if sprite_name in _sprite_cache:
+                sprite = _sprite_cache[sprite_name]
+                logger.debug(f"Reusing existing Sprite: {sprite_name}")
+                return sprite
 
-            self.sandbox = await asyncio.to_thread(create_sandbox)
-            logger.info(f"Created new E2B sandbox with ID: {self.sandbox.sandbox_id}")
+            # Create new Sprite
+            def create_sprite():
+                client_args: dict[str, Any] = {}
+                if self.token:
+                    client_args["token"] = self.token
+                client = SpritesClient(**client_args)
 
-    def _upload_image_data(self, data: bytes, suffix: str) -> str | None:
+                # Create or get existing sprite
+                try:
+                    sprite = client.create_sprite(sprite_name)
+                    logger.info(f"Created new Sprite: {sprite_name}")
+                except Exception:
+                    # Sprite may already exist, get handle
+                    sprite = client.sprite(sprite_name)
+                    logger.info(f"Connected to existing Sprite: {sprite_name}")
+
+                return sprite
+
+            sprite = await asyncio.to_thread(create_sprite)
+            _sprite_cache[sprite_name] = sprite
+            return sprite
+
+    async def _ensure_workdir(self, sprite: Any) -> str:
+        """Ensure per-actor-call workdir exists. Returns the workdir path."""
+        if self._workdir is None:
+            import uuid
+
+            actor_id = str(uuid.uuid4())[:8]
+            self._workdir = f"/tmp/actor-{actor_id}"
+
+            # Create the workdir
+            result = await asyncio.to_thread(
+                sprite.run, "mkdir", "-p", self._workdir, capture_output=True
+            )
+            if result.returncode != 0:
+                logger.warning(f"Failed to create workdir: {result.stderr}")
+
+            # Also ensure /workspace exists for shared data
+            await asyncio.to_thread(sprite.run, "mkdir", "-p", "/workspace", capture_output=True)
+
+            logger.debug(f"Created actor workdir: {self._workdir}")
+
+        return self._workdir
+
+    def _upload_image_data(self, data: bytes | bytearray, suffix: str) -> str | None:
         """Upload image data to artifact store, return URL or None."""
         if not self.artifact_store:
             return None
-        url = self.artifact_store.write_bytes(data, suffix)
+        url = self.artifact_store.write_bytes(bytes(data), suffix)
         if url.startswith("Error:"):
             logger.warning(f"Failed to upload image artifact: {url}")
             return None
         return url
 
-    async def _download_sandbox_file(self, path: str) -> tuple[bytes | bytearray, str] | None:
-        """Download a file from the sandbox, return (data, filename) or None."""
-        import asyncio
+    async def _download_sprite_file(
+        self, sprite: Any, path: str
+    ) -> tuple[bytes | bytearray, str] | None:
+        """Download a file from the Sprite, return (data, filename) or None."""
         from pathlib import PurePosixPath
 
-        assert self.sandbox is not None
         try:
-            # E2B files.read returns str by default, use format='bytes' for binary
-            data = await asyncio.to_thread(
-                lambda: self.sandbox.files.read(path, format="bytes")  # type: ignore[union-attr]
-            )
+            # Use cat to read file content
+            result = await asyncio.to_thread(sprite.run, "cat", path, capture_output=True)
+            if result.returncode != 0:
+                logger.warning(f"Failed to read file {path}: {result.stderr}")
+                return None
+
+            # stdout is bytes when capture_output=True
+            data = result.stdout if isinstance(result.stdout, bytes) else result.stdout.encode()
             filename = PurePosixPath(path).name
             return data, filename
         except Exception as e:
-            logger.warning(f"Failed to download sandbox file {path}: {e}")
+            logger.warning(f"Failed to download sprite file {path}: {e}")
             return None
 
     def _get_suffix_from_filename(self, filename: str) -> str:
@@ -775,15 +852,13 @@ class CodeExecutorE2B:
                     return base64.b64decode(source["data"])
         return None
 
-    async def _upload_input_artifacts(self, input_artifacts: list[str]) -> list[str]:
-        """Download artifacts and upload them to sandbox. Returns list of messages."""
-        import asyncio
-
+    async def _upload_input_artifacts(self, sprite: Any, input_artifacts: list[str]) -> list[str]:
+        """Download artifacts and upload them to Sprite. Returns list of messages."""
         if not self.webpage_visitor:
             return ["Warning: input_artifacts requested but webpage visitor not configured"]
 
-        assert self.sandbox is not None
-        await asyncio.to_thread(self.sandbox.files.make_dir, "/artifacts")
+        # Ensure /artifacts directory exists
+        await asyncio.to_thread(sprite.run, "mkdir", "-p", "/artifacts", capture_output=True)
 
         messages = []
         for artifact_url in input_artifacts:
@@ -794,7 +869,7 @@ class CodeExecutorE2B:
 
             try:
                 content = await self.webpage_visitor.execute(artifact_url)
-                sandbox_path = f"/artifacts/{filename}"
+                sprite_path = f"/artifacts/{filename}"
 
                 if isinstance(content, list):
                     data = self._extract_image_data(content)
@@ -803,12 +878,23 @@ class CodeExecutorE2B:
                         continue
                     content_type = "image"
                 else:
-                    data = content
+                    data = content.encode() if isinstance(content, str) else content
                     content_type = "text"
 
-                await asyncio.to_thread(self.sandbox.files.write, sandbox_path, data)  # type: ignore[union-attr]
-                logger.info(f"Uploaded {content_type} to sandbox: {artifact_url} -> {sandbox_path}")
-                messages.append(f"Uploaded {content_type}: {sandbox_path}")
+                # Write file using tee (sprites doesn't have direct file write)
+                result = await asyncio.to_thread(
+                    sprite.run,
+                    "tee",
+                    sprite_path,
+                    capture_output=True,
+                    input=data,
+                )
+                if result.returncode != 0:
+                    messages.append(f"Error: Failed to write {sprite_path}: {result.stderr}")
+                    continue
+
+                logger.info(f"Uploaded {content_type} to sprite: {artifact_url} -> {sprite_path}")
+                messages.append(f"Uploaded {content_type}: {sprite_path}")
 
             except Exception as e:
                 logger.warning(f"Failed to upload artifact {artifact_url}: {e}")
@@ -823,99 +909,119 @@ class CodeExecutorE2B:
         input_artifacts: list[str] | None = None,
         output_files: list[str] | None = None,
     ) -> str:
-        """Execute code in E2B sandbox and return output."""
+        """Execute code in Sprites sandbox and return output."""
         try:
-            await self._ensure_sandbox()
+            sprite = await self._ensure_sprite()
         except ImportError as e:
             return str(e)
 
         try:
-            import asyncio
-
-            assert self.sandbox is not None
-
+            workdir = await self._ensure_workdir(sprite)
             output_parts = []
 
             # Upload input artifacts first
             if input_artifacts:
-                artifact_messages = await self._upload_input_artifacts(input_artifacts)
+                artifact_messages = await self._upload_input_artifacts(sprite, input_artifacts)
                 for msg in artifact_messages:
                     output_parts.append(f"**{msg}**")
 
-            # Auto-save code to /tmp/_v{n}.py for re-runs
+            # Auto-save code to workdir/_v{n}.py for re-runs
             self._version_counter += 1
             ext = ".py" if language == "python" else ".sh"
-            saved_file = f"/tmp/_v{self._version_counter}{ext}"
-            await asyncio.to_thread(self.sandbox.files.write, saved_file, code)  # type: ignore[union-attr]
+            saved_file = f"{workdir}/_v{self._version_counter}{ext}"
 
-            result = await asyncio.to_thread(self.sandbox.run_code, code, language=language)
-            logger.debug(result)
+            # Write code to file
+            code_bytes = code.encode()
+            await asyncio.to_thread(
+                sprite.run, "tee", saved_file, capture_output=True, input=code_bytes
+            )
+
+            # Execute based on language
+            if language == "python":
+                # Run Python code
+                result = await asyncio.to_thread(
+                    sprite.run,
+                    "python3",
+                    "-c",
+                    code,
+                    capture_output=True,
+                    timeout=self.timeout,
+                    cwd=workdir,
+                )
+            else:
+                # Run Bash code
+                result = await asyncio.to_thread(
+                    sprite.run,
+                    "bash",
+                    "-c",
+                    code,
+                    capture_output=True,
+                    timeout=self.timeout,
+                    cwd=workdir,
+                )
+
+            logger.debug(f"Sprite execution result: returncode={result.returncode}")
 
             artifact_urls = []
 
-            # Check for execution error first (e.g., ModuleNotFoundError)
-            error = getattr(result, "error", None)
-            if error:
-                output_parts.append(f"**Execution error:** {error}")
+            # Check for execution error
+            if result.returncode != 0:
+                stderr = (
+                    result.stderr.decode() if isinstance(result.stderr, bytes) else result.stderr
+                )
+                if stderr:
+                    output_parts.append(
+                        f"**Execution error (exit {result.returncode}):**\n```\n{stderr.strip()}\n```"
+                    )
+                else:
+                    output_parts.append(f"**Execution error:** Exit code {result.returncode}")
 
-            # Check logs for stdout/stderr (E2B stores them in logs.stdout/stderr as lists)
-            logs = getattr(result, "logs", None)
-            if logs:
-                stdout_list = getattr(logs, "stdout", None)
-                if stdout_list:
-                    stdout_text = "".join(stdout_list).strip()
-                    if stdout_text:
-                        output_parts.append(f"**Output:**\n```\n{stdout_text}\n```")
+            # Process stdout
+            stdout = result.stdout.decode() if isinstance(result.stdout, bytes) else result.stdout
+            if stdout and stdout.strip():
+                output_parts.append(f"**Output:**\n```\n{stdout.strip()}\n```")
 
-                stderr_list = getattr(logs, "stderr", None)
-                if stderr_list:
-                    stderr_text = "".join(stderr_list).strip()
-                    if stderr_text:
-                        output_parts.append(f"**Errors:**\n```\n{stderr_text}\n```")
+            # Process stderr (warnings, etc.) if command succeeded
+            if result.returncode == 0:
+                stderr = (
+                    result.stderr.decode() if isinstance(result.stderr, bytes) else result.stderr
+                )
+                if stderr and stderr.strip():
+                    output_parts.append(f"**Warnings:**\n```\n{stderr.strip()}\n```")
 
-            # Check for text result (final evaluation result) - only if no stdout to avoid duplicates
-            text = getattr(result, "text", None)
-            if text and text.strip() and not (logs and getattr(logs, "stdout", None)):
-                output_parts.append(f"**Result:**\n```\n{text.strip()}\n```")
+            # Check for generated images in workdir (matplotlib saves)
+            for img_ext in ["*.png", "*.jpg", "*.jpeg"]:
+                find_result = await asyncio.to_thread(
+                    sprite.run,
+                    "find",
+                    workdir,
+                    "-name",
+                    img_ext,
+                    "-type",
+                    "f",
+                    capture_output=True,
+                )
+                if find_result.returncode == 0:
+                    stdout_find = (
+                        find_result.stdout.decode()
+                        if isinstance(find_result.stdout, bytes)
+                        else find_result.stdout
+                    )
+                    for img_path in stdout_find.strip().split("\n"):
+                        if img_path:
+                            file_result = await self._download_sprite_file(sprite, img_path)
+                            if file_result:
+                                data, filename = file_result
+                                suffix = self._get_suffix_from_filename(filename)
+                                url = self._upload_image_data(data, suffix)
+                                if url:
+                                    artifact_urls.append(url)
+                                    output_parts.append(f"**Generated image:** {url}")
 
-            # Check for rich results (plots, images, etc.) - auto-capture and upload
-            results_list = getattr(result, "results", None)
-            if results_list:
-                for res in results_list:
-                    result_text = getattr(res, "text", None)
-                    if result_text and result_text.strip():
-                        output_parts.append(f"**Result:**\n```\n{result_text.strip()}\n```")
-
-                    # Auto-capture PNG images
-                    png_data = getattr(res, "png", None)
-                    if png_data:
-                        img_bytes = base64.b64decode(png_data)
-                        url = self._upload_image_data(img_bytes, ".png")
-                        if url:
-                            artifact_urls.append(url)
-                            output_parts.append(f"**Generated image:** {url}")
-                        else:
-                            output_parts.append(
-                                "**Result:** Generated plot/image (PNG, artifact upload unavailable)"
-                            )
-
-                    # Auto-capture JPEG images
-                    jpeg_data = getattr(res, "jpeg", None)
-                    if jpeg_data:
-                        img_bytes = base64.b64decode(jpeg_data)
-                        url = self._upload_image_data(img_bytes, ".jpg")
-                        if url:
-                            artifact_urls.append(url)
-                            output_parts.append(f"**Generated image:** {url}")
-                        else:
-                            output_parts.append(
-                                "**Result:** Generated plot/image (JPEG, artifact upload unavailable)"
-                            )
-
-            # Download explicit output files from sandbox
+            # Download explicit output files from sprite
             if output_files and self.artifact_store:
                 for file_path in output_files:
-                    file_result = await self._download_sandbox_file(file_path)
+                    file_result = await self._download_sprite_file(sprite, file_path)
                     if file_result:
                         data, filename = file_result
                         suffix = self._get_suffix_from_filename(filename)
@@ -939,31 +1045,35 @@ class CodeExecutorE2B:
             output_parts.append(f"_Code saved to `{saved_file}` for re-run._")
 
             logger.info(
-                f"Executed {language} code in E2B sandbox: {code[:512]}... -> {output_parts[:512]}"
+                f"Executed {language} code in Sprite {self._get_sprite_name()}: "
+                f"{code[:512]}... -> {str(output_parts)[:512]}"
             )
 
             return "\n\n".join(output_parts)
 
         except Exception as e:
-            logger.error(f"E2B sandbox execution failed: {e}")
-            # If sandbox connection is broken, reset it for next call
-            if "sandbox" in str(e).lower() or "connection" in str(e).lower():
-                self.sandbox = None
+            logger.error(f"Sprites execution failed: {e}")
             return f"Error executing code: {e}"
 
     async def cleanup(self):
-        """Clean up sandbox resources."""
-        if self.sandbox:
+        """Clean up per-call workdir (but not the Sprite itself)."""
+        if self._workdir:
             try:
-                import asyncio
-
-                sandbox_id = self.sandbox.sandbox_id
-                await asyncio.to_thread(self.sandbox.kill)
-                logger.info(f"Cleaned up E2B sandbox with ID: {sandbox_id}")
+                sprite_name = self._get_sprite_name()
+                if sprite_name in _sprite_cache:
+                    sprite = _sprite_cache[sprite_name]
+                    await asyncio.to_thread(
+                        sprite.run, "rm", "-rf", self._workdir, capture_output=True
+                    )
+                    logger.debug(f"Cleaned up workdir: {self._workdir}")
             except Exception as e:
-                logger.warning(f"Failed to clean up E2B sandbox: {e}")
+                logger.warning(f"Failed to clean up workdir {self._workdir}: {e}")
             finally:
-                self.sandbox = None
+                self._workdir = None
+
+
+# Alias for backwards compatibility in tests
+CodeExecutorE2B = CodeExecutorSprites
 
 
 class ProgressReportExecutor:
@@ -1470,9 +1580,9 @@ def create_tool_executors(
     # Tool configs
     tools = config.get("tools", {}) if config else {}
 
-    # E2B config
-    e2b_config = tools.get("e2b", {})
-    e2b_api_key = e2b_config.get("api_key")
+    # Sprites config (with fallback to e2b for backwards compat during migration)
+    sprites_config = tools.get("sprites", tools.get("e2b", {}))
+    sprites_token = sprites_config.get("token", sprites_config.get("api_key"))
 
     # Jina config
     jina_config = tools.get("jina", {})
@@ -1519,7 +1629,12 @@ def create_tool_executors(
     executors = {
         "web_search": search_executor,
         "visit_webpage": webpage_visitor,
-        "execute_code": CodeExecutorE2B(api_key=e2b_api_key, artifact_store=artifact_store),
+        "execute_code": CodeExecutorSprites(
+            token=sprites_token,
+            arc=arc,
+            artifact_store=artifact_store,
+            webpage_visitor=webpage_visitor,
+        ),
         "progress_report": ProgressReportExecutor(
             send_callback=progress_callback, min_interval_seconds=min_interval
         ),
@@ -1532,11 +1647,6 @@ def create_tool_executors(
         "chronicle_append": ChapterAppendExecutor(agent=agent, arc=arc),
         "chronicle_read": ChapterRenderExecutor(chronicle=agent.chronicle, arc=arc),
     }
-
-    # Update execute_code with webpage_visitor for input_artifacts support
-    executors["execute_code"] = CodeExecutorE2B(
-        api_key=e2b_api_key, artifact_store=artifact_store, webpage_visitor=webpage_visitor
-    )
 
     # Add quest tools conditionally based on current_quest_id
     if current_quest_id is None:

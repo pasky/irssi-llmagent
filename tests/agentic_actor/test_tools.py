@@ -7,7 +7,7 @@ import pytest
 
 from muaddib.agentic_actor.actor import AgentResult
 from muaddib.agentic_actor.tools import (
-    CodeExecutorE2B,
+    CodeExecutorSprites,
     EditArtifactExecutor,
     JinaSearchExecutor,
     OracleExecutor,
@@ -304,152 +304,170 @@ class TestToolExecutors:
                 mock_sleep.assert_has_calls([call(30), call(90)])
 
     @pytest.mark.asyncio
-    async def test_code_executor_e2b_success(self):
+    async def test_code_executor_sprites_success(self):
         """Test code executor with successful execution."""
-        executor = CodeExecutorE2B()
+        # Clear sprite cache for clean test
+        from muaddib.agentic_actor import tools
 
-        mock_execution = MagicMock()
-        mock_execution.text = None
-        mock_logs = MagicMock()
-        mock_logs.stdout = ["Hello, World!\n"]
-        mock_logs.stderr = []
-        mock_execution.logs = mock_logs
-        mock_execution.results = None
+        tools._sprite_cache.clear()
 
-        mock_sandbox = MagicMock()
-        mock_sandbox.run_code.return_value = mock_execution
-        mock_sandbox.__enter__ = MagicMock(return_value=mock_sandbox)
-        mock_sandbox.__exit__ = MagicMock(return_value=None)
+        executor = CodeExecutorSprites(arc="test-arc")
 
-        with patch("e2b_code_interpreter.Sandbox", return_value=mock_sandbox):
-            with patch("asyncio.get_event_loop") as mock_loop:
-                mock_executor = AsyncMock()
-                mock_executor.return_value = mock_execution
-                mock_loop.return_value.run_in_executor = mock_executor
+        # Mock run result
+        mock_run_result = MagicMock()
+        mock_run_result.returncode = 0
+        mock_run_result.stdout = b"Hello, World!\n"
+        mock_run_result.stderr = b""
 
+        mock_sprite = MagicMock()
+        mock_sprite.run.return_value = mock_run_result
+
+        mock_client = MagicMock()
+        mock_client.create_sprite.return_value = mock_sprite
+
+        with patch("sprites.SpritesClient", return_value=mock_client):
+            with patch("asyncio.to_thread", side_effect=lambda f, *a, **kw: f(*a, **kw)):
                 result = await executor.execute("print('Hello, World!')")
 
                 assert "**Output:**" in result
                 assert "Hello, World!" in result
 
     @pytest.mark.asyncio
-    async def test_code_executor_e2b_import_error(self):
-        """Test code executor when e2b package is not available."""
-        executor = CodeExecutorE2B()
+    async def test_code_executor_sprites_import_error(self):
+        """Test code executor when sprites package is not available."""
+        # Clear sprite cache for clean test
+        from muaddib.agentic_actor import tools
 
-        with patch(
-            "builtins.__import__", side_effect=ImportError("No module named 'e2b_code_interpreter'")
-        ):
+        tools._sprite_cache.clear()
+
+        executor = CodeExecutorSprites(arc="test-arc")
+
+        with patch("builtins.__import__", side_effect=ImportError("No module named 'sprites'")):
             result = await executor.execute("print('test')")
 
-            assert "e2b-code-interpreter package not installed" in result
+            assert "sprites-py package not installed" in result
 
     @pytest.mark.asyncio
-    async def test_code_executor_e2b_persistence_across_calls(self):
-        """Test that sandbox persists state across multiple execute() calls."""
-        executor = CodeExecutorE2B()
+    async def test_code_executor_sprites_persistence_across_calls(self):
+        """Test that sprite persists across multiple execute() calls."""
+        # Clear sprite cache for clean test
+        from muaddib.agentic_actor import tools
 
-        mock_execution = MagicMock()
-        mock_execution.text = None
-        mock_execution.logs = MagicMock(stdout=["result\n"], stderr=[])
-        mock_execution.results = None
+        tools._sprite_cache.clear()
 
-        mock_sandbox = MagicMock()
-        mock_sandbox.sandbox_id = "test-sandbox-123"
+        executor = CodeExecutorSprites(arc="test-arc")
 
-        sandbox_created = False
+        mock_run_result = MagicMock()
+        mock_run_result.returncode = 0
+        mock_run_result.stdout = b"result\n"
+        mock_run_result.stderr = b""
 
-        async def mock_to_thread_impl(func, *args, **kwargs):
-            nonlocal sandbox_created
-            # First call is creating the sandbox
-            if not sandbox_created:
-                sandbox_created = True
-                return mock_sandbox
-            # Subsequent calls are run_code
-            return mock_execution
+        mock_sprite = MagicMock()
+        mock_sprite.run.return_value = mock_run_result
 
-        with patch("e2b_code_interpreter.Sandbox"):
-            with patch("asyncio.to_thread", side_effect=mock_to_thread_impl):
-                # First execute should create sandbox
+        mock_client = MagicMock()
+        mock_client.create_sprite.return_value = mock_sprite
+
+        with patch("sprites.SpritesClient", return_value=mock_client):
+            with patch("asyncio.to_thread", side_effect=lambda f, *a, **kw: f(*a, **kw)):
+                # First execute should create sprite
                 result1 = await executor.execute("x = 1")
-                # Second execute should reuse sandbox
+                # Second execute should reuse sprite
                 result2 = await executor.execute("print(x)")
 
-                # Verify sandbox was created and reused
-                assert executor.sandbox is mock_sandbox
+                # Verify sprite was created only once and cached
+                assert "arc-test-arc" in tools._sprite_cache
+                mock_client.create_sprite.assert_called_once_with("arc-test-arc")
                 assert "result" in result1
                 assert "result" in result2
 
     @pytest.mark.asyncio
-    async def test_code_executor_e2b_cleanup(self):
-        """Test that cleanup properly kills the sandbox."""
-        executor = CodeExecutorE2B()
+    async def test_code_executor_sprites_cleanup(self):
+        """Test that cleanup removes workdir but not the sprite."""
+        # Clear sprite cache for clean test
+        from muaddib.agentic_actor import tools
 
-        mock_sandbox = MagicMock()
-        mock_sandbox.sandbox_id = "test-sandbox-456"
-        mock_sandbox.kill = MagicMock()
+        tools._sprite_cache.clear()
 
-        executor.sandbox = mock_sandbox
+        executor = CodeExecutorSprites(arc="test-arc")
 
-        with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
-            await executor.cleanup()
+        mock_run_result = MagicMock()
+        mock_run_result.returncode = 0
+        mock_run_result.stdout = b"done\n"
+        mock_run_result.stderr = b""
 
-            # Verify kill was called via to_thread
-            mock_to_thread.assert_called_once()
-            assert executor.sandbox is None
+        mock_sprite = MagicMock()
+        mock_sprite.run.return_value = mock_run_result
+
+        mock_client = MagicMock()
+        mock_client.create_sprite.return_value = mock_sprite
+
+        with patch("sprites.SpritesClient", return_value=mock_client):
+            with patch("asyncio.to_thread", side_effect=lambda f, *a, **kw: f(*a, **kw)):
+                await executor.execute("print('test')")
+
+                # Store workdir before cleanup
+                workdir = executor._workdir
+                assert workdir is not None
+
+                await executor.cleanup()
+
+                # Verify workdir was removed via rm -rf
+                # Find the rm -rf call
+                rm_calls = [
+                    c for c in mock_sprite.run.call_args_list if c[0][0] == "rm" and "-rf" in c[0]
+                ]
+                assert len(rm_calls) == 1
+                assert workdir in rm_calls[0][0]
+                assert executor._workdir is None
+
+                # Sprite should still be in cache
+                assert "arc-test-arc" in tools._sprite_cache
 
     @pytest.mark.asyncio
-    async def test_code_executor_e2b_error_resets_sandbox(self):
-        """Test that connection errors reset the sandbox."""
-        executor = CodeExecutorE2B()
+    async def test_code_executor_sprites_error_handling(self):
+        """Test that execution errors are reported properly."""
+        # Clear sprite cache for clean test
+        from muaddib.agentic_actor import tools
 
-        mock_sandbox = MagicMock()
-        mock_sandbox.sandbox_id = "test-sandbox-789"
+        tools._sprite_cache.clear()
 
-        executor.sandbox = mock_sandbox
+        executor = CodeExecutorSprites(arc="test-arc")
 
-        async def mock_to_thread_fail(*args):
-            raise Exception("sandbox connection lost")
+        mock_run_result = MagicMock()
+        mock_run_result.returncode = 1
+        mock_run_result.stdout = b""
+        mock_run_result.stderr = b"NameError: name 'undefined' is not defined"
 
-        with patch("asyncio.to_thread", side_effect=mock_to_thread_fail):
-            result = await executor.execute("print('test')")
+        mock_sprite = MagicMock()
+        mock_sprite.run.return_value = mock_run_result
 
-            assert "Error executing code" in result
-            assert executor.sandbox is None  # Should be reset
+        mock_client = MagicMock()
+        mock_client.create_sprite.return_value = mock_sprite
+
+        with patch("sprites.SpritesClient", return_value=mock_client):
+            with patch("asyncio.to_thread", side_effect=lambda f, *a, **kw: f(*a, **kw)):
+                result = await executor.execute("print(undefined)")
+
+                assert "**Execution error" in result
+                assert "NameError" in result
 
     @pytest.mark.asyncio
-    async def test_code_executor_e2b_timeout_parameter(self):
-        """Test that timeout is passed to Sandbox constructor."""
-        executor = CodeExecutorE2B(timeout=180)
-
+    async def test_code_executor_sprites_timeout_parameter(self):
+        """Test that timeout parameter is stored correctly."""
+        executor = CodeExecutorSprites(arc="test-arc", timeout=180)
         assert executor.timeout == 180
 
-        mock_sandbox = MagicMock()
-        mock_sandbox.sandbox_id = "test-sandbox-timeout"
-
-        sandbox_args_captured = None
-
-        def capture_sandbox(**kwargs):
-            nonlocal sandbox_args_captured
-            sandbox_args_captured = kwargs
-            return mock_sandbox
-
-        # Mock to_thread to call our function directly
-        async def mock_to_thread_impl(func, *args):
-            return func()
-
-        with patch("e2b_code_interpreter.Sandbox", side_effect=capture_sandbox):
-            with patch("asyncio.to_thread", side_effect=mock_to_thread_impl):
-                await executor._ensure_sandbox()
-
-                # Verify Sandbox was called with timeout=180
-                assert sandbox_args_captured == {"timeout": 180}
-
     @pytest.mark.asyncio
-    async def test_python_executor_e2b_auto_capture_png(self):
-        """Test that PNG images from results are auto-captured and uploaded."""
+    async def test_code_executor_sprites_output_files_download(self):
+        """Test that explicit output_files are downloaded from sprite and uploaded."""
         import tempfile
         from pathlib import Path
+
+        # Clear sprite cache for clean test
+        from muaddib.agentic_actor import tools
+
+        tools._sprite_cache.clear()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             from muaddib.agentic_actor.tools import ArtifactStore
@@ -457,93 +475,41 @@ class TestToolExecutors:
             artifacts_path = str(Path(temp_dir) / "artifacts")
             artifacts_url = "https://example.com/artifacts"
             store = ArtifactStore(artifacts_path=artifacts_path, artifacts_url=artifacts_url)
-            executor = CodeExecutorE2B(artifact_store=store)
+            executor = CodeExecutorSprites(arc="test-arc", artifact_store=store)
 
-            # Mock result with PNG data (base64 encoded small PNG)
-            mock_result_item = MagicMock()
-            mock_result_item.text = None
-            # Minimal valid PNG (1x1 transparent pixel)
-            mock_result_item.png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-            mock_result_item.jpeg = None
+            # Mock run results
+            mock_run_result = MagicMock()
+            mock_run_result.returncode = 0
+            mock_run_result.stdout = b"Done\n"
+            mock_run_result.stderr = b""
 
-            mock_execution = MagicMock()
-            mock_execution.text = None
-            mock_execution.logs = MagicMock(stdout=[], stderr=[])
-            mock_execution.results = [mock_result_item]
+            # Mock cat result for file download
+            mock_cat_result = MagicMock()
+            mock_cat_result.returncode = 0
+            mock_cat_result.stdout = b"col1,col2\nval1,val2\n"
+            mock_cat_result.stderr = b""
 
-            mock_sandbox = MagicMock()
-            mock_sandbox.sandbox_id = "test-sandbox-png"
+            # Mock find result (no images)
+            mock_find_result = MagicMock()
+            mock_find_result.returncode = 0
+            mock_find_result.stdout = b""
 
-            sandbox_created = False
+            mock_sprite = MagicMock()
 
-            async def mock_to_thread_impl(func, *args, **kwargs):
-                nonlocal sandbox_created
-                if not sandbox_created:
-                    sandbox_created = True
-                    return mock_sandbox
-                return mock_execution
+            def mock_run(*args, **kwargs):
+                if args[0] == "cat":
+                    return mock_cat_result
+                if args[0] == "find":
+                    return mock_find_result
+                return mock_run_result
 
-            with patch("e2b_code_interpreter.Sandbox"):
-                with patch("asyncio.to_thread", side_effect=mock_to_thread_impl):
-                    result = await executor.execute("import matplotlib; plt.savefig('test.png')")
+            mock_sprite.run.side_effect = mock_run
 
-                    assert "**Generated image:**" in result
-                    assert "https://example.com/artifacts/" in result
-                    assert ".png" in result
+            mock_client = MagicMock()
+            mock_client.create_sprite.return_value = mock_sprite
 
-                    # Verify file was created
-                    artifacts_dir = Path(artifacts_path)
-                    assert artifacts_dir.exists()
-                    png_files = list(artifacts_dir.glob("*.png"))
-                    assert len(png_files) == 1
-
-    @pytest.mark.asyncio
-    async def test_code_executor_e2b_output_files_download(self):
-        """Test that explicit output_files are downloaded from sandbox and uploaded."""
-        import tempfile
-        from pathlib import Path
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            from muaddib.agentic_actor.tools import ArtifactStore
-
-            artifacts_path = str(Path(temp_dir) / "artifacts")
-            artifacts_url = "https://example.com/artifacts"
-            store = ArtifactStore(artifacts_path=artifacts_path, artifacts_url=artifacts_url)
-            executor = CodeExecutorE2B(artifact_store=store)
-
-            mock_execution = MagicMock()
-            mock_execution.text = None
-            mock_execution.logs = MagicMock(stdout=["Done\n"], stderr=[])
-            mock_execution.results = []
-
-            mock_sandbox = MagicMock()
-            mock_sandbox.sandbox_id = "test-sandbox-files"
-            mock_sandbox.files = MagicMock()
-            # E2B returns bytearray, not bytes
-            mock_sandbox.files.read = MagicMock(return_value=bytearray(b"col1,col2\nval1,val2\n"))
-
-            sandbox_created = False
-            code_saved = False
-            code_executed = False
-
-            async def mock_to_thread_impl(func, *args, **kwargs):
-                nonlocal sandbox_created, code_saved, code_executed
-                if not sandbox_created:
-                    sandbox_created = True
-                    return mock_sandbox
-                # Auto-save to /tmp/_last.py
-                if not code_saved:
-                    code_saved = True
-                    return None  # files.write returns None
-                # After sandbox created, next call is run_code, then file reads are lambdas
-                if not code_executed:
-                    code_executed = True
-                    return mock_execution
-                # Subsequent calls are lambdas for files.read - call them
-                return func()
-
-            with patch("e2b_code_interpreter.Sandbox"):
-                with patch("asyncio.to_thread", side_effect=mock_to_thread_impl):
+            with patch("sprites.SpritesClient", return_value=mock_client):
+                with patch("asyncio.to_thread", side_effect=lambda f, *a, **kw: f(*a, **kw)):
                     result = await executor.execute(
                         "import pandas; df.to_csv('/tmp/report.csv')",
                         output_files=["/tmp/report.csv"],
@@ -561,34 +527,38 @@ class TestToolExecutors:
                     assert len(csv_files) == 1
 
     @pytest.mark.asyncio
-    async def test_code_executor_e2b_output_files_no_store(self):
+    async def test_code_executor_sprites_output_files_no_store(self):
         """Test that output_files warns when artifact store is not configured."""
-        executor = CodeExecutorE2B(artifact_store=None)
+        # Clear sprite cache for clean test
+        from muaddib.agentic_actor import tools
 
-        mock_execution = MagicMock()
-        mock_execution.text = None
-        mock_execution.logs = MagicMock(stdout=["Done\n"], stderr=[])
-        mock_execution.results = []
+        tools._sprite_cache.clear()
 
-        mock_sandbox = MagicMock()
-        mock_sandbox.sandbox_id = "test-sandbox-nostore"
+        executor = CodeExecutorSprites(arc="test-arc", artifact_store=None)
 
-        sandbox_created = False
-        code_saved = False
+        mock_run_result = MagicMock()
+        mock_run_result.returncode = 0
+        mock_run_result.stdout = b"Done\n"
+        mock_run_result.stderr = b""
 
-        async def mock_to_thread_impl(func, *args, **kwargs):
-            nonlocal sandbox_created, code_saved
-            if not sandbox_created:
-                sandbox_created = True
-                return mock_sandbox
-            # Auto-save to /tmp/_last.py
-            if not code_saved:
-                code_saved = True
-                return None
-            return mock_execution
+        mock_find_result = MagicMock()
+        mock_find_result.returncode = 0
+        mock_find_result.stdout = b""
 
-        with patch("e2b_code_interpreter.Sandbox"):
-            with patch("asyncio.to_thread", side_effect=mock_to_thread_impl):
+        mock_sprite = MagicMock()
+
+        def mock_run(*args, **kwargs):
+            if args[0] == "find":
+                return mock_find_result
+            return mock_run_result
+
+        mock_sprite.run.side_effect = mock_run
+
+        mock_client = MagicMock()
+        mock_client.create_sprite.return_value = mock_sprite
+
+        with patch("sprites.SpritesClient", return_value=mock_client):
+            with patch("asyncio.to_thread", side_effect=lambda f, *a, **kw: f(*a, **kw)):
                 result = await executor.execute(
                     "print('test')",
                     output_files=["/tmp/report.csv"],
@@ -597,11 +567,16 @@ class TestToolExecutors:
                 assert "artifact store not configured" in result
 
     @pytest.mark.asyncio
-    async def test_code_executor_e2b_input_artifacts(self):
-        """Test that input_artifacts are downloaded and uploaded to sandbox."""
+    async def test_code_executor_sprites_input_artifacts(self):
+        """Test that input_artifacts are downloaded and uploaded to sprite."""
         import tempfile
         from pathlib import Path
         from unittest.mock import AsyncMock
+
+        # Clear sprite cache for clean test
+        from muaddib.agentic_actor import tools
+
+        tools._sprite_cache.clear()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             from muaddib.agentic_actor.tools import ArtifactStore, WebpageVisitorExecutor
@@ -614,45 +589,33 @@ class TestToolExecutors:
             mock_visitor = AsyncMock(spec=WebpageVisitorExecutor)
             mock_visitor.execute.return_value = "col1,col2\nval1,val2\n"
 
-            executor = CodeExecutorE2B(artifact_store=store, webpage_visitor=mock_visitor)
+            executor = CodeExecutorSprites(
+                arc="test-arc", artifact_store=store, webpage_visitor=mock_visitor
+            )
 
-            mock_execution = MagicMock()
-            mock_execution.error = None
-            mock_execution.text = None
-            mock_execution.logs = MagicMock(stdout=["Processed data\n"], stderr=[])
-            mock_execution.results = []
+            mock_run_result = MagicMock()
+            mock_run_result.returncode = 0
+            mock_run_result.stdout = b"Processed data\n"
+            mock_run_result.stderr = b""
 
-            mock_sandbox = MagicMock()
-            mock_sandbox.sandbox_id = "test-sandbox-input"
-            mock_sandbox.files = MagicMock()
-            mock_sandbox.files.make_dir = MagicMock()
-            mock_sandbox.files.write = MagicMock()
+            mock_find_result = MagicMock()
+            mock_find_result.returncode = 0
+            mock_find_result.stdout = b""
 
-            sandbox_created = False
-            dir_created = False
-            files_written = 0
-            code_executed = False
+            mock_sprite = MagicMock()
 
-            async def mock_to_thread_impl(func, *args, **kwargs):
-                nonlocal sandbox_created, dir_created, files_written, code_executed
-                if not sandbox_created:
-                    sandbox_created = True
-                    return mock_sandbox
-                # files.make_dir for /artifacts
-                if not dir_created:
-                    dir_created = True
-                    return None
-                # files.write for artifact upload and _last.py
-                if files_written < 2:
-                    files_written += 1
-                    return None
-                if not code_executed:
-                    code_executed = True
-                    return mock_execution
-                return func()
+            def mock_run(*args, **kwargs):
+                if args[0] == "find":
+                    return mock_find_result
+                return mock_run_result
 
-            with patch("e2b_code_interpreter.Sandbox"):
-                with patch("asyncio.to_thread", side_effect=mock_to_thread_impl):
+            mock_sprite.run.side_effect = mock_run
+
+            mock_client = MagicMock()
+            mock_client.create_sprite.return_value = mock_sprite
+
+            with patch("sprites.SpritesClient", return_value=mock_client):
+                with patch("asyncio.to_thread", side_effect=lambda f, *a, **kw: f(*a, **kw)):
                     result = await executor.execute(
                         "import pandas as pd; df = pd.read_csv('/artifacts/data.csv')",
                         input_artifacts=["https://example.com/artifacts/data.csv"],
@@ -661,7 +624,7 @@ class TestToolExecutors:
                     assert "**Output:**" in result
                     assert "Processed data" in result
                     assert "Uploaded text: /artifacts/data.csv" in result
-                    assert "_v1.py" in result  # versioned file
+                    assert "_v1" in result  # versioned file
 
                     # Verify visitor was called with artifact URL
                     mock_visitor.execute.assert_called_once_with(
@@ -669,34 +632,38 @@ class TestToolExecutors:
                     )
 
     @pytest.mark.asyncio
-    async def test_code_executor_e2b_input_artifacts_no_visitor(self):
+    async def test_code_executor_sprites_input_artifacts_no_visitor(self):
         """Test that input_artifacts warns when webpage visitor not configured."""
-        executor = CodeExecutorE2B(artifact_store=None, webpage_visitor=None)
+        # Clear sprite cache for clean test
+        from muaddib.agentic_actor import tools
 
-        mock_execution = MagicMock()
-        mock_execution.error = None
-        mock_execution.text = None
-        mock_execution.logs = MagicMock(stdout=["Done\n"], stderr=[])
-        mock_execution.results = []
+        tools._sprite_cache.clear()
 
-        mock_sandbox = MagicMock()
-        mock_sandbox.sandbox_id = "test-sandbox-novisitor"
+        executor = CodeExecutorSprites(arc="test-arc", artifact_store=None, webpage_visitor=None)
 
-        sandbox_created = False
-        code_saved = False
+        mock_run_result = MagicMock()
+        mock_run_result.returncode = 0
+        mock_run_result.stdout = b"Done\n"
+        mock_run_result.stderr = b""
 
-        async def mock_to_thread_impl(func, *args, **kwargs):
-            nonlocal sandbox_created, code_saved
-            if not sandbox_created:
-                sandbox_created = True
-                return mock_sandbox
-            if not code_saved:
-                code_saved = True
-                return None
-            return mock_execution
+        mock_find_result = MagicMock()
+        mock_find_result.returncode = 0
+        mock_find_result.stdout = b""
 
-        with patch("e2b_code_interpreter.Sandbox"):
-            with patch("asyncio.to_thread", side_effect=mock_to_thread_impl):
+        mock_sprite = MagicMock()
+
+        def mock_run(*args, **kwargs):
+            if args[0] == "find":
+                return mock_find_result
+            return mock_run_result
+
+        mock_sprite.run.side_effect = mock_run
+
+        mock_client = MagicMock()
+        mock_client.create_sprite.return_value = mock_sprite
+
+        with patch("sprites.SpritesClient", return_value=mock_client):
+            with patch("asyncio.to_thread", side_effect=lambda f, *a, **kw: f(*a, **kw)):
                 result = await executor.execute(
                     "print('test')",
                     input_artifacts=["https://example.com/artifacts/data.csv"],
@@ -705,12 +672,17 @@ class TestToolExecutors:
                 assert "webpage visitor not configured" in result
 
     @pytest.mark.asyncio
-    async def test_code_executor_e2b_input_artifacts_image(self):
-        """Test that image artifacts are decoded and uploaded to sandbox."""
+    async def test_code_executor_sprites_input_artifacts_image(self):
+        """Test that image artifacts are decoded and uploaded to sprite."""
         import base64
         import tempfile
         from pathlib import Path
         from unittest.mock import AsyncMock
+
+        # Clear sprite cache for clean test
+        from muaddib.agentic_actor import tools
+
+        tools._sprite_cache.clear()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             from muaddib.agentic_actor.tools import ArtifactStore, WebpageVisitorExecutor
@@ -733,46 +705,38 @@ class TestToolExecutors:
                 }
             ]
 
-            executor = CodeExecutorE2B(artifact_store=store, webpage_visitor=mock_visitor)
+            executor = CodeExecutorSprites(
+                arc="test-arc", artifact_store=store, webpage_visitor=mock_visitor
+            )
 
-            mock_execution = MagicMock()
-            mock_execution.error = None
-            mock_execution.text = None
-            mock_execution.logs = MagicMock(stdout=["Image processed\n"], stderr=[])
-            mock_execution.results = []
+            mock_run_result = MagicMock()
+            mock_run_result.returncode = 0
+            mock_run_result.stdout = b"Image processed\n"
+            mock_run_result.stderr = b""
 
-            mock_sandbox = MagicMock()
-            mock_sandbox.sandbox_id = "test-sandbox-image"
-            mock_sandbox.files = MagicMock()
-            mock_sandbox.files.make_dir = MagicMock()
+            mock_find_result = MagicMock()
+            mock_find_result.returncode = 0
+            mock_find_result.stdout = b""
+
             written_files = []
 
-            sandbox_created = False
-            dir_created = False
-            files_written = 0
-            code_executed = False
+            mock_sprite = MagicMock()
 
-            async def mock_to_thread_impl(func, *args, **kwargs):
-                nonlocal sandbox_created, dir_created, files_written, code_executed
-                if not sandbox_created:
-                    sandbox_created = True
-                    return mock_sandbox
-                if not dir_created:
-                    dir_created = True
-                    return None
-                # Capture files.write calls (image upload + _v1.py)
-                if files_written < 2:
-                    files_written += 1
-                    if args:
-                        written_files.append((args[0], args[1] if len(args) > 1 else None))
-                    return None
-                if not code_executed:
-                    code_executed = True
-                    return mock_execution
-                return func(*args, **kwargs)
+            def mock_run(*args, **kwargs):
+                if args[0] == "find":
+                    return mock_find_result
+                if args[0] == "tee" and len(args) > 1:
+                    # Capture tee calls for file writes
+                    written_files.append((args[1], kwargs.get("input")))
+                return mock_run_result
 
-            with patch("e2b_code_interpreter.Sandbox"):
-                with patch("asyncio.to_thread", side_effect=mock_to_thread_impl):
+            mock_sprite.run.side_effect = mock_run
+
+            mock_client = MagicMock()
+            mock_client.create_sprite.return_value = mock_sprite
+
+            with patch("sprites.SpritesClient", return_value=mock_client):
+                with patch("asyncio.to_thread", side_effect=lambda f, *a, **kw: f(*a, **kw)):
                     result = await executor.execute(
                         "from PIL import Image; img = Image.open('/artifacts/test.png')",
                         input_artifacts=["https://example.com/artifacts/test.png"],
@@ -1040,7 +1004,7 @@ class TestToolRegistry:
     @pytest.mark.asyncio
     async def test_execute_tool_code_executor(self, mock_agent):
         """Test executing code tool."""
-        with patch.object(CodeExecutorE2B, "execute", new_callable=AsyncMock) as mock_execute:
+        with patch.object(CodeExecutorSprites, "execute", new_callable=AsyncMock) as mock_execute:
             mock_execute.return_value = "Code output"
 
             tool_executors = create_tool_executors(agent=mock_agent, arc="test")
@@ -1084,14 +1048,15 @@ class TestToolDefinitions:
 
     def test_create_tool_executors_with_config(self, mock_agent):
         """Test that tool executors are created with configuration."""
-        config = {"tools": {"e2b": {"api_key": "test-key-123"}}}
+        config = {"tools": {"sprites": {"token": "test-token-123"}}}
 
         executors = create_tool_executors(config, agent=mock_agent, arc="test")
 
         assert "execute_code" in executors
         code_executor = executors["execute_code"]
-        assert isinstance(code_executor, CodeExecutorE2B)
-        assert code_executor.api_key == "test-key-123"
+        assert isinstance(code_executor, CodeExecutorSprites)
+        assert code_executor.token == "test-token-123"
+        assert code_executor.arc == "test"
 
     def test_create_tool_executors_without_config(self, mock_agent):
         """Test that tool executors are created without configuration."""
@@ -1099,8 +1064,20 @@ class TestToolDefinitions:
 
         assert "execute_code" in executors
         code_executor = executors["execute_code"]
-        assert isinstance(code_executor, CodeExecutorE2B)
-        assert code_executor.api_key is None
+        assert isinstance(code_executor, CodeExecutorSprites)
+        assert code_executor.token is None
+        assert code_executor.arc == "test"
+
+    def test_create_tool_executors_e2b_compat(self, mock_agent):
+        """Test that e2b config key still works for backwards compatibility."""
+        config = {"tools": {"e2b": {"api_key": "test-key-123"}}}
+
+        executors = create_tool_executors(config, agent=mock_agent, arc="test")
+
+        assert "execute_code" in executors
+        code_executor = executors["execute_code"]
+        assert isinstance(code_executor, CodeExecutorSprites)
+        assert code_executor.token == "test-key-123"
 
     def test_make_plan_tool_in_tools_list(self):
         """Test that make_plan tool is included in TOOLS list."""
