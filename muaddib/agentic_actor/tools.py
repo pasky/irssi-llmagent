@@ -720,6 +720,15 @@ def _get_sprite_cache_lock() -> asyncio.Lock:
     return _sprite_cache_lock
 
 
+class _CommandResult:
+    """Result of a command execution, compatible with subprocess.CompletedProcess."""
+
+    def __init__(self, returncode: int, stdout: bytes, stderr: bytes):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
 class CodeExecutorSprites:
     """Code executor using Fly.io Sprites sandbox. Supports Python and Bash.
 
@@ -748,6 +757,45 @@ class CodeExecutorSprites:
     def _get_sprite_name(self) -> str:
         """Get the Sprite name for this arc."""
         return f"arc-{_normalize_arc_id(self.arc)}"
+
+    def _run_command(
+        self,
+        sprite: Any,
+        *args: str,
+        cwd: str | None = None,
+        timeout: float | None = None,
+        stdin_data: bytes | None = None,
+    ) -> _CommandResult:
+        """Run a command on the sprite and return result with returncode/stdout/stderr.
+
+        This wraps the sprites-py API (sprite.command()) to provide a
+        subprocess.CompletedProcess-like interface.
+        """
+        import io
+
+        from sprites.exceptions import ExitError
+
+        cmd_kwargs: dict[str, Any] = {}
+        if cwd:
+            cmd_kwargs["cwd"] = cwd
+        if timeout:
+            cmd_kwargs["timeout"] = timeout
+        if stdin_data is not None:
+            cmd_kwargs["stdin"] = io.BytesIO(stdin_data)
+
+        cmd = sprite.command(*args, **cmd_kwargs)
+
+        try:
+            # combined_output() captures both stdout and stderr
+            output = cmd.combined_output()
+            return _CommandResult(returncode=0, stdout=output, stderr=b"")
+        except ExitError as e:
+            # ExitError contains exit code and captured output
+            return _CommandResult(
+                returncode=e.exit_code(),
+                stdout=e.stdout if e.stdout else b"",
+                stderr=e.stderr if e.stderr else b"",
+            )
 
     async def _ensure_sprite(self) -> Any:
         """Ensure Sprite exists and is connected. Returns the sprite."""
@@ -779,7 +827,7 @@ class CodeExecutorSprites:
                     logger.info(f"Created new Sprite: {sprite_name}")
                 except Exception:
                     # Sprite may already exist, get handle
-                    sprite = client.sprite(sprite_name)
+                    sprite = client.get_sprite(sprite_name)
                     logger.info(f"Connected to existing Sprite: {sprite_name}")
 
                 return sprite
@@ -798,13 +846,13 @@ class CodeExecutorSprites:
 
             # Create the workdir
             result = await asyncio.to_thread(
-                sprite.run, "mkdir", "-p", self._workdir, capture_output=True
+                self._run_command, sprite, "mkdir", "-p", self._workdir
             )
             if result.returncode != 0:
                 logger.warning(f"Failed to create workdir: {result.stderr}")
 
             # Also ensure /workspace exists for shared data
-            await asyncio.to_thread(sprite.run, "mkdir", "-p", "/workspace", capture_output=True)
+            await asyncio.to_thread(self._run_command, sprite, "mkdir", "-p", "/workspace")
 
             logger.debug(f"Created actor workdir: {self._workdir}")
 
@@ -828,12 +876,12 @@ class CodeExecutorSprites:
 
         try:
             # Use cat to read file content
-            result = await asyncio.to_thread(sprite.run, "cat", path, capture_output=True)
+            result = await asyncio.to_thread(self._run_command, sprite, "cat", path)
             if result.returncode != 0:
                 logger.warning(f"Failed to read file {path}: {result.stderr}")
                 return None
 
-            # stdout is bytes when capture_output=True
+            # stdout is bytes
             data = result.stdout if isinstance(result.stdout, bytes) else result.stdout.encode()
             filename = PurePosixPath(path).name
             return data, filename
@@ -863,7 +911,7 @@ class CodeExecutorSprites:
             return ["Warning: input_artifacts requested but webpage visitor not configured"]
 
         # Ensure /artifacts directory exists
-        await asyncio.to_thread(sprite.run, "mkdir", "-p", "/artifacts", capture_output=True)
+        await asyncio.to_thread(self._run_command, sprite, "mkdir", "-p", "/artifacts")
 
         messages = []
         for artifact_url in input_artifacts:
@@ -888,11 +936,11 @@ class CodeExecutorSprites:
 
                 # Write file using tee (sprites doesn't have direct file write)
                 result = await asyncio.to_thread(
-                    sprite.run,
+                    self._run_command,
+                    sprite,
                     "tee",
                     sprite_path,
-                    capture_output=True,
-                    input=data,
+                    stdin_data=data,
                 )
                 if result.returncode != 0:
                     messages.append(f"Error: Failed to write {sprite_path}: {result.stderr}")
@@ -938,29 +986,29 @@ class CodeExecutorSprites:
             # Write code to file
             code_bytes = code.encode()
             await asyncio.to_thread(
-                sprite.run, "tee", saved_file, capture_output=True, input=code_bytes
+                self._run_command, sprite, "tee", saved_file, stdin_data=code_bytes
             )
 
             # Execute based on language
             if language == "python":
                 # Run Python code
                 result = await asyncio.to_thread(
-                    sprite.run,
+                    self._run_command,
+                    sprite,
                     "python3",
                     "-c",
                     code,
-                    capture_output=True,
                     timeout=self.timeout,
                     cwd=workdir,
                 )
             else:
                 # Run Bash code
                 result = await asyncio.to_thread(
-                    sprite.run,
+                    self._run_command,
+                    sprite,
                     "bash",
                     "-c",
                     code,
-                    capture_output=True,
                     timeout=self.timeout,
                     cwd=workdir,
                 )
@@ -997,14 +1045,14 @@ class CodeExecutorSprites:
             # Check for generated images in workdir (matplotlib saves)
             for img_ext in ["*.png", "*.jpg", "*.jpeg"]:
                 find_result = await asyncio.to_thread(
-                    sprite.run,
+                    self._run_command,
+                    sprite,
                     "find",
                     workdir,
                     "-name",
                     img_ext,
                     "-type",
                     "f",
-                    capture_output=True,
                 )
                 if find_result.returncode == 0:
                     stdout_find = (
@@ -1067,9 +1115,7 @@ class CodeExecutorSprites:
                 sprite_name = self._get_sprite_name()
                 if sprite_name in _sprite_cache:
                     sprite = _sprite_cache[sprite_name]
-                    await asyncio.to_thread(
-                        sprite.run, "rm", "-rf", self._workdir, capture_output=True
-                    )
+                    await asyncio.to_thread(self._run_command, sprite, "rm", "-rf", self._workdir)
                     logger.debug(f"Cleaned up workdir: {self._workdir}")
             except Exception as e:
                 logger.warning(f"Failed to clean up workdir {self._workdir}: {e}")

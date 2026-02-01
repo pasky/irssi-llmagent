@@ -313,14 +313,14 @@ class TestToolExecutors:
 
         executor = CodeExecutorSprites(arc="test-arc")
 
-        # Mock run result
-        mock_run_result = MagicMock()
-        mock_run_result.returncode = 0
-        mock_run_result.stdout = b"Hello, World!\n"
-        mock_run_result.stderr = b""
+        # Mock command that returns output via combined_output()
+        def make_mock_cmd(output: bytes):
+            mock_cmd = MagicMock()
+            mock_cmd.combined_output.return_value = output
+            return mock_cmd
 
         mock_sprite = MagicMock()
-        mock_sprite.run.return_value = mock_run_result
+        mock_sprite.command.return_value = make_mock_cmd(b"Hello, World!\n")
 
         mock_client = MagicMock()
         mock_client.create_sprite.return_value = mock_sprite
@@ -357,13 +357,13 @@ class TestToolExecutors:
 
         executor = CodeExecutorSprites(arc="test-arc")
 
-        mock_run_result = MagicMock()
-        mock_run_result.returncode = 0
-        mock_run_result.stdout = b"result\n"
-        mock_run_result.stderr = b""
+        def make_mock_cmd(output: bytes):
+            mock_cmd = MagicMock()
+            mock_cmd.combined_output.return_value = output
+            return mock_cmd
 
         mock_sprite = MagicMock()
-        mock_sprite.run.return_value = mock_run_result
+        mock_sprite.command.return_value = make_mock_cmd(b"result\n")
 
         mock_client = MagicMock()
         mock_client.create_sprite.return_value = mock_sprite
@@ -392,13 +392,19 @@ class TestToolExecutors:
 
         executor = CodeExecutorSprites(arc="test-arc")
 
-        mock_run_result = MagicMock()
-        mock_run_result.returncode = 0
-        mock_run_result.stdout = b"done\n"
-        mock_run_result.stderr = b""
+        def make_mock_cmd(output: bytes):
+            mock_cmd = MagicMock()
+            mock_cmd.combined_output.return_value = output
+            return mock_cmd
+
+        command_calls = []
+
+        def mock_command(*args, **kwargs):
+            command_calls.append((args, kwargs))
+            return make_mock_cmd(b"done\n")
 
         mock_sprite = MagicMock()
-        mock_sprite.run.return_value = mock_run_result
+        mock_sprite.command.side_effect = mock_command
 
         mock_client = MagicMock()
         mock_client.create_sprite.return_value = mock_sprite
@@ -414,10 +420,7 @@ class TestToolExecutors:
                 await executor.cleanup()
 
                 # Verify workdir was removed via rm -rf
-                # Find the rm -rf call
-                rm_calls = [
-                    c for c in mock_sprite.run.call_args_list if c[0][0] == "rm" and "-rf" in c[0]
-                ]
+                rm_calls = [c for c in command_calls if c[0][0] == "rm" and "-rf" in c[0]]
                 assert len(rm_calls) == 1
                 assert workdir in rm_calls[0][0]
                 assert executor._workdir is None
@@ -429,19 +432,31 @@ class TestToolExecutors:
     async def test_code_executor_sprites_error_handling(self):
         """Test that execution errors are reported properly."""
         # Clear sprite cache for clean test
+        from sprites.exceptions import ExitError
+
         from muaddib.agentic_actor import tools
 
         tools._sprite_cache.clear()
 
         executor = CodeExecutorSprites(arc="test-arc")
 
-        mock_run_result = MagicMock()
-        mock_run_result.returncode = 1
-        mock_run_result.stdout = b""
-        mock_run_result.stderr = b"NameError: name 'undefined' is not defined"
+        call_count = 0
+
+        def mock_command(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            mock_cmd = MagicMock()
+            # First few calls (mkdir, tee) succeed, then python fails
+            if call_count <= 3:
+                mock_cmd.combined_output.return_value = b""
+            else:
+                mock_cmd.combined_output.side_effect = ExitError(
+                    "Command failed", 1, b"", b"NameError: name 'undefined' is not defined"
+                )
+            return mock_cmd
 
         mock_sprite = MagicMock()
-        mock_sprite.run.return_value = mock_run_result
+        mock_sprite.command.side_effect = mock_command
 
         mock_client = MagicMock()
         mock_client.create_sprite.return_value = mock_sprite
@@ -478,33 +493,20 @@ class TestToolExecutors:
             store = ArtifactStore(artifacts_path=artifacts_path, artifacts_url=artifacts_url)
             executor = CodeExecutorSprites(arc="test-arc", artifact_store=store)
 
-            # Mock run results
-            mock_run_result = MagicMock()
-            mock_run_result.returncode = 0
-            mock_run_result.stdout = b"Done\n"
-            mock_run_result.stderr = b""
+            def make_mock_cmd(output: bytes):
+                mock_cmd = MagicMock()
+                mock_cmd.combined_output.return_value = output
+                return mock_cmd
 
-            # Mock cat result for file download
-            mock_cat_result = MagicMock()
-            mock_cat_result.returncode = 0
-            mock_cat_result.stdout = b"col1,col2\nval1,val2\n"
-            mock_cat_result.stderr = b""
-
-            # Mock find result (no images)
-            mock_find_result = MagicMock()
-            mock_find_result.returncode = 0
-            mock_find_result.stdout = b""
+            def mock_command(*args, **kwargs):
+                if args[0] == "cat":
+                    return make_mock_cmd(b"col1,col2\nval1,val2\n")
+                if args[0] == "find":
+                    return make_mock_cmd(b"")
+                return make_mock_cmd(b"Done\n")
 
             mock_sprite = MagicMock()
-
-            def mock_run(*args, **kwargs):
-                if args[0] == "cat":
-                    return mock_cat_result
-                if args[0] == "find":
-                    return mock_find_result
-                return mock_run_result
-
-            mock_sprite.run.side_effect = mock_run
+            mock_sprite.command.side_effect = mock_command
 
             mock_client = MagicMock()
             mock_client.create_sprite.return_value = mock_sprite
@@ -537,23 +539,18 @@ class TestToolExecutors:
 
         executor = CodeExecutorSprites(arc="test-arc", artifact_store=None)
 
-        mock_run_result = MagicMock()
-        mock_run_result.returncode = 0
-        mock_run_result.stdout = b"Done\n"
-        mock_run_result.stderr = b""
+        def make_mock_cmd(output: bytes):
+            mock_cmd = MagicMock()
+            mock_cmd.combined_output.return_value = output
+            return mock_cmd
 
-        mock_find_result = MagicMock()
-        mock_find_result.returncode = 0
-        mock_find_result.stdout = b""
+        def mock_command(*args, **kwargs):
+            if args[0] == "find":
+                return make_mock_cmd(b"")
+            return make_mock_cmd(b"Done\n")
 
         mock_sprite = MagicMock()
-
-        def mock_run(*args, **kwargs):
-            if args[0] == "find":
-                return mock_find_result
-            return mock_run_result
-
-        mock_sprite.run.side_effect = mock_run
+        mock_sprite.command.side_effect = mock_command
 
         mock_client = MagicMock()
         mock_client.create_sprite.return_value = mock_sprite
@@ -594,23 +591,18 @@ class TestToolExecutors:
                 arc="test-arc", artifact_store=store, webpage_visitor=mock_visitor
             )
 
-            mock_run_result = MagicMock()
-            mock_run_result.returncode = 0
-            mock_run_result.stdout = b"Processed data\n"
-            mock_run_result.stderr = b""
+            def make_mock_cmd(output: bytes):
+                mock_cmd = MagicMock()
+                mock_cmd.combined_output.return_value = output
+                return mock_cmd
 
-            mock_find_result = MagicMock()
-            mock_find_result.returncode = 0
-            mock_find_result.stdout = b""
+            def mock_command(*args, **kwargs):
+                if args[0] == "find":
+                    return make_mock_cmd(b"")
+                return make_mock_cmd(b"Processed data\n")
 
             mock_sprite = MagicMock()
-
-            def mock_run(*args, **kwargs):
-                if args[0] == "find":
-                    return mock_find_result
-                return mock_run_result
-
-            mock_sprite.run.side_effect = mock_run
+            mock_sprite.command.side_effect = mock_command
 
             mock_client = MagicMock()
             mock_client.create_sprite.return_value = mock_sprite
@@ -642,23 +634,18 @@ class TestToolExecutors:
 
         executor = CodeExecutorSprites(arc="test-arc", artifact_store=None, webpage_visitor=None)
 
-        mock_run_result = MagicMock()
-        mock_run_result.returncode = 0
-        mock_run_result.stdout = b"Done\n"
-        mock_run_result.stderr = b""
+        def make_mock_cmd(output: bytes):
+            mock_cmd = MagicMock()
+            mock_cmd.combined_output.return_value = output
+            return mock_cmd
 
-        mock_find_result = MagicMock()
-        mock_find_result.returncode = 0
-        mock_find_result.stdout = b""
+        def mock_command(*args, **kwargs):
+            if args[0] == "find":
+                return make_mock_cmd(b"")
+            return make_mock_cmd(b"Done\n")
 
         mock_sprite = MagicMock()
-
-        def mock_run(*args, **kwargs):
-            if args[0] == "find":
-                return mock_find_result
-            return mock_run_result
-
-        mock_sprite.run.side_effect = mock_run
+        mock_sprite.command.side_effect = mock_command
 
         mock_client = MagicMock()
         mock_client.create_sprite.return_value = mock_sprite
@@ -710,28 +697,23 @@ class TestToolExecutors:
                 arc="test-arc", artifact_store=store, webpage_visitor=mock_visitor
             )
 
-            mock_run_result = MagicMock()
-            mock_run_result.returncode = 0
-            mock_run_result.stdout = b"Image processed\n"
-            mock_run_result.stderr = b""
-
-            mock_find_result = MagicMock()
-            mock_find_result.returncode = 0
-            mock_find_result.stdout = b""
+            def make_mock_cmd(output: bytes):
+                mock_cmd = MagicMock()
+                mock_cmd.combined_output.return_value = output
+                return mock_cmd
 
             written_files = []
 
-            mock_sprite = MagicMock()
-
-            def mock_run(*args, **kwargs):
+            def mock_command(*args, **kwargs):
                 if args[0] == "find":
-                    return mock_find_result
+                    return make_mock_cmd(b"")
                 if args[0] == "tee" and len(args) > 1:
-                    # Capture tee calls for file writes
-                    written_files.append((args[1], kwargs.get("input")))
-                return mock_run_result
+                    # Capture tee calls for file writes (stdin_data is passed via kwargs)
+                    written_files.append((args[1], kwargs.get("stdin")))
+                return make_mock_cmd(b"Image processed\n")
 
-            mock_sprite.run.side_effect = mock_run
+            mock_sprite = MagicMock()
+            mock_sprite.command.side_effect = mock_command
 
             mock_client = MagicMock()
             mock_client.create_sprite.return_value = mock_sprite
@@ -749,7 +731,13 @@ class TestToolExecutors:
                     # Verify image was written with decoded binary data
                     image_writes = [f for f in written_files if f[0] == "/artifacts/test.png"]
                     assert len(image_writes) == 1
-                    assert image_writes[0][1] == fake_image_data
+                    # Verify image was written with decoded binary data
+                    image_writes = [f for f in written_files if f[0] == "/artifacts/test.png"]
+                    assert len(image_writes) == 1
+                    # stdin is a BytesIO, read from it to verify content
+                    stdin_bio = image_writes[0][1]
+                    stdin_bio.seek(0)
+                    assert stdin_bio.read() == fake_image_data
 
     @pytest.mark.asyncio
     async def test_share_artifact_executor_success(self):

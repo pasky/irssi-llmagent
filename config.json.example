@@ -27,7 +27,7 @@
 
   "tools": {
     "sprites": {
-      "_note": "Get token at https://fly.io/dashboard/personal/tokens (FLY_API_TOKEN)",
+      "_note": "Get token at https://sprites.dev (sign in with Fly.io, then Settings > API Tokens)",
       "token": "your-sprites-token-here"
     },
     "brave": {
