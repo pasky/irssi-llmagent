@@ -764,15 +764,21 @@ class CodeExecutorSprites:
         *args: str,
         cwd: str | None = None,
         timeout: float | None = None,
-        stdin_data: bytes | None = None,
+        capture_on_error: bool = False,
     ) -> _CommandResult:
         """Run a command on the sprite and return result with returncode/stdout/stderr.
 
         This wraps the sprites-py API (sprite.command()) to provide a
         subprocess.CompletedProcess-like interface.
-        """
-        import io
 
+        Args:
+            capture_on_error: If True, wrap the command to capture output even on
+                non-zero exit. sprites-py doesn't capture output in ExitError, so
+                this is needed for commands where we care about error messages.
+
+        Note: stdin is not supported by sprites-py command API. Use the filesystem
+        API (sprite.filesystem().write_bytes()) to write data to files instead.
+        """
         from sprites.exceptions import ExitError
 
         cmd_kwargs: dict[str, Any] = {}
@@ -780,9 +786,70 @@ class CodeExecutorSprites:
             cmd_kwargs["cwd"] = cwd
         if timeout:
             cmd_kwargs["timeout"] = timeout
-        if stdin_data is not None:
-            cmd_kwargs["stdin"] = io.BytesIO(stdin_data)
 
+        if capture_on_error and len(args) >= 1:
+            # Wrap command to capture output to temp file, then read it back
+            # This works around sprites-py not returning output on ExitError
+            import uuid
+
+            tmp_id = uuid.uuid4().hex[:8]
+            output_file = f"/tmp/.cmd_output_{tmp_id}"
+            exit_file = f"/tmp/.cmd_exit_{tmp_id}"
+            script_file = f"/tmp/.cmd_script_{tmp_id}"
+
+            fs = sprite.filesystem("/tmp")
+
+            # Write script to file to handle multiline code properly
+            if args[0] == "bash" and len(args) >= 3 and args[1] == "-c":
+                script_content = args[2]
+                script_file = f"/tmp/.cmd_script_{tmp_id}.sh"
+                run_cmd = f"bash {script_file}"
+            elif args[0] == "python3" and len(args) >= 3 and args[1] == "-c":
+                script_content = args[2]
+                script_file = f"/tmp/.cmd_script_{tmp_id}.py"
+                run_cmd = f"python3 {script_file}"
+            else:
+                # Generic command - just run directly, quote args
+                import shlex
+
+                script_content = None
+                run_cmd = " ".join(shlex.quote(a) for a in args)
+
+            # Write script if needed
+            if script_content is not None:
+                (fs / script_file.split("/")[-1]).write_text(script_content)
+
+            # Wrapper captures output and exit code, always exits 0
+            wrapper = f"""
+{{ {run_cmd} ; }} 2>&1 | tee {output_file}
+echo ${{PIPESTATUS[0]}} > {exit_file}
+exit 0
+"""
+            from contextlib import suppress
+
+            cmd = sprite.command("bash", "-c", wrapper, **cmd_kwargs)
+            with suppress(ExitError):
+                cmd.combined_output()  # We don't use this, just trigger execution
+
+            # Read captured output and exit code
+            try:
+                output = (fs / output_file.split("/")[-1]).read_bytes()
+            except Exception:
+                output = b""
+            try:
+                exit_code_str = (fs / exit_file.split("/")[-1]).read_text().strip()
+                exit_code = int(exit_code_str) if exit_code_str else 0
+            except Exception:
+                exit_code = 0
+
+            # Clean up temp files
+            for f in [output_file, exit_file, script_file]:
+                with suppress(Exception):
+                    (fs / f.split("/")[-1]).unlink()
+
+            return _CommandResult(returncode=exit_code, stdout=output, stderr=b"")
+
+        # Standard execution (no error output capture)
         cmd = sprite.command(*args, **cmd_kwargs)
 
         try:
@@ -790,9 +857,10 @@ class CodeExecutorSprites:
             output = cmd.combined_output()
             return _CommandResult(returncode=0, stdout=output, stderr=b"")
         except ExitError as e:
-            # ExitError contains exit code and captured output
+            # ExitError contains exit code in args[0], output in stdout/stderr attrs
+            exit_code = e.args[0] if e.args else 1
             return _CommandResult(
-                returncode=e.exit_code(),
+                returncode=exit_code,
                 stdout=e.stdout if e.stdout else b"",
                 stderr=e.stderr if e.stderr else b"",
             )
@@ -934,16 +1002,27 @@ class CodeExecutorSprites:
                     data = content.encode() if isinstance(content, str) else content
                     content_type = "text"
 
-                # Write file using tee (sprites doesn't have direct file write)
-                result = await asyncio.to_thread(
-                    self._run_command,
-                    sprite,
-                    "tee",
-                    sprite_path,
-                    stdin_data=data,
-                )
-                if result.returncode != 0:
-                    messages.append(f"Error: Failed to write {sprite_path}: {result.stderr}")
+                data_bytes: bytes
+                if isinstance(data, bytearray):
+                    data_bytes = bytes(data)
+                elif isinstance(data, bytes):
+                    data_bytes = data
+                elif isinstance(data, str):
+                    data_bytes = data.encode()
+                else:
+                    raise ValueError("Unsupported artifact data type")
+
+                # Write file using filesystem API
+                def write_file(
+                    data_bytes: bytes = data_bytes, sprite_path: str = sprite_path
+                ) -> None:
+                    fs = sprite.filesystem("/")
+                    (fs / sprite_path.lstrip("/")).write_bytes(data_bytes)
+
+                try:
+                    await asyncio.to_thread(write_file)
+                except Exception as write_err:
+                    messages.append(f"Error: Failed to write {sprite_path}: {write_err}")
                     continue
 
                 logger.info(f"Uploaded {content_type} to sprite: {artifact_url} -> {sprite_path}")
@@ -983,13 +1062,14 @@ class CodeExecutorSprites:
             ext = ".py" if language == "python" else ".sh"
             saved_file = f"{workdir}/_v{self._version_counter}{ext}"
 
-            # Write code to file
-            code_bytes = code.encode()
-            await asyncio.to_thread(
-                self._run_command, sprite, "tee", saved_file, stdin_data=code_bytes
-            )
+            # Write code to file using filesystem API
+            def write_code():
+                fs = sprite.filesystem("/")
+                (fs / saved_file.lstrip("/")).write_text(code)
 
-            # Execute based on language
+            await asyncio.to_thread(write_code)
+
+            # Execute based on language (with capture_on_error for error messages)
             if language == "python":
                 # Run Python code
                 result = await asyncio.to_thread(
@@ -1000,6 +1080,7 @@ class CodeExecutorSprites:
                     code,
                     timeout=self.timeout,
                     cwd=workdir,
+                    capture_on_error=True,
                 )
             else:
                 # Run Bash code
@@ -1011,6 +1092,7 @@ class CodeExecutorSprites:
                     code,
                     timeout=self.timeout,
                     cwd=workdir,
+                    capture_on_error=True,
                 )
 
             logger.debug(f"Sprite execution result: returncode={result.returncode}")

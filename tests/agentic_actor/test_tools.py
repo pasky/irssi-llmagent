@@ -20,6 +20,26 @@ from muaddib.agentic_actor.tools import (
 )
 
 
+def _make_mock_fs(
+    output_bytes: bytes = b"",
+    exit_code: str = "0",
+    capture_writes: list[bytes] | None = None,
+) -> MagicMock:
+    mock_path = MagicMock()
+    mock_path.read_bytes.return_value = output_bytes
+    mock_path.read_text.return_value = exit_code
+    mock_path.write_text.return_value = None
+    if capture_writes is not None:
+        mock_path.write_bytes.side_effect = lambda data: capture_writes.append(data)
+    else:
+        mock_path.write_bytes.return_value = None
+    mock_path.unlink.return_value = None
+
+    mock_fs = MagicMock()
+    mock_fs.__truediv__ = MagicMock(return_value=mock_path)
+    return mock_fs
+
+
 class TestToolExecutors:
     """Test tool executor functionality."""
 
@@ -319,8 +339,12 @@ class TestToolExecutors:
             mock_cmd.combined_output.return_value = output
             return mock_cmd
 
+        # Mock filesystem for capture_on_error wrapper
+        mock_fs = _make_mock_fs(output_bytes=b"Hello, World!\n")
+
         mock_sprite = MagicMock()
-        mock_sprite.command.return_value = make_mock_cmd(b"Hello, World!\n")
+        mock_sprite.command.return_value = make_mock_cmd(b"")
+        mock_sprite.filesystem.return_value = mock_fs
 
         mock_client = MagicMock()
         mock_client.create_sprite.return_value = mock_sprite
@@ -362,8 +386,12 @@ class TestToolExecutors:
             mock_cmd.combined_output.return_value = output
             return mock_cmd
 
+        # Mock filesystem for capture_on_error wrapper
+        mock_fs = _make_mock_fs(output_bytes=b"result\n")
+
         mock_sprite = MagicMock()
-        mock_sprite.command.return_value = make_mock_cmd(b"result\n")
+        mock_sprite.command.return_value = make_mock_cmd(b"")
+        mock_sprite.filesystem.return_value = mock_fs
 
         mock_client = MagicMock()
         mock_client.create_sprite.return_value = mock_sprite
@@ -403,8 +431,11 @@ class TestToolExecutors:
             command_calls.append((args, kwargs))
             return make_mock_cmd(b"done\n")
 
+        mock_fs = _make_mock_fs(output_bytes=b"done\n")
+
         mock_sprite = MagicMock()
         mock_sprite.command.side_effect = mock_command
+        mock_sprite.filesystem.return_value = mock_fs
 
         mock_client = MagicMock()
         mock_client.create_sprite.return_value = mock_sprite
@@ -432,31 +463,26 @@ class TestToolExecutors:
     async def test_code_executor_sprites_error_handling(self):
         """Test that execution errors are reported properly."""
         # Clear sprite cache for clean test
-        from sprites.exceptions import ExitError
-
         from muaddib.agentic_actor import tools
 
         tools._sprite_cache.clear()
 
         executor = CodeExecutorSprites(arc="test-arc")
 
-        call_count = 0
-
-        def mock_command(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
+        def make_mock_cmd(output: bytes):
             mock_cmd = MagicMock()
-            # First few calls (mkdir, tee) succeed, then python fails
-            if call_count <= 3:
-                mock_cmd.combined_output.return_value = b""
-            else:
-                mock_cmd.combined_output.side_effect = ExitError(
-                    "Command failed", 1, b"", b"NameError: name 'undefined' is not defined"
-                )
+            mock_cmd.combined_output.return_value = output
             return mock_cmd
 
+        # Mock filesystem for capture_on_error wrapper - simulate error with exit code 1
+        mock_fs = _make_mock_fs(
+            output_bytes=b"NameError: name 'undefined' is not defined\n",
+            exit_code="1",
+        )
+
         mock_sprite = MagicMock()
-        mock_sprite.command.side_effect = mock_command
+        mock_sprite.command.return_value = make_mock_cmd(b"")
+        mock_sprite.filesystem.return_value = mock_fs
 
         mock_client = MagicMock()
         mock_client.create_sprite.return_value = mock_sprite
@@ -503,10 +529,14 @@ class TestToolExecutors:
                     return make_mock_cmd(b"col1,col2\nval1,val2\n")
                 if args[0] == "find":
                     return make_mock_cmd(b"")
-                return make_mock_cmd(b"Done\n")
+                return make_mock_cmd(b"")  # wrapper script returns empty
+
+            # Mock filesystem for capture_on_error wrapper
+            mock_fs = _make_mock_fs(output_bytes=b"Done\n")
 
             mock_sprite = MagicMock()
             mock_sprite.command.side_effect = mock_command
+            mock_sprite.filesystem.return_value = mock_fs
 
             mock_client = MagicMock()
             mock_client.create_sprite.return_value = mock_sprite
@@ -547,10 +577,13 @@ class TestToolExecutors:
         def mock_command(*args, **kwargs):
             if args[0] == "find":
                 return make_mock_cmd(b"")
-            return make_mock_cmd(b"Done\n")
+            return make_mock_cmd(b"")
+
+        mock_fs = _make_mock_fs(output_bytes=b"Done\n")
 
         mock_sprite = MagicMock()
         mock_sprite.command.side_effect = mock_command
+        mock_sprite.filesystem.return_value = mock_fs
 
         mock_client = MagicMock()
         mock_client.create_sprite.return_value = mock_sprite
@@ -599,10 +632,14 @@ class TestToolExecutors:
             def mock_command(*args, **kwargs):
                 if args[0] == "find":
                     return make_mock_cmd(b"")
-                return make_mock_cmd(b"Processed data\n")
+                return make_mock_cmd(b"")  # wrapper returns empty
+
+            # Mock filesystem for capture_on_error wrapper and file writes
+            mock_fs = _make_mock_fs(output_bytes=b"Processed data\n")
 
             mock_sprite = MagicMock()
             mock_sprite.command.side_effect = mock_command
+            mock_sprite.filesystem.return_value = mock_fs
 
             mock_client = MagicMock()
             mock_client.create_sprite.return_value = mock_sprite
@@ -642,10 +679,13 @@ class TestToolExecutors:
         def mock_command(*args, **kwargs):
             if args[0] == "find":
                 return make_mock_cmd(b"")
-            return make_mock_cmd(b"Done\n")
+            return make_mock_cmd(b"")
+
+        mock_fs = _make_mock_fs(output_bytes=b"Done\n")
 
         mock_sprite = MagicMock()
         mock_sprite.command.side_effect = mock_command
+        mock_sprite.filesystem.return_value = mock_fs
 
         mock_client = MagicMock()
         mock_client.create_sprite.return_value = mock_sprite
@@ -702,18 +742,35 @@ class TestToolExecutors:
                 mock_cmd.combined_output.return_value = output
                 return mock_cmd
 
-            written_files = []
+            written_files: dict[str, bytes] = {}
+            path_mocks: dict[str, MagicMock] = {}
+
+            def get_path(name: str) -> MagicMock:
+                if name not in path_mocks:
+                    path = MagicMock()
+                    path.read_bytes.return_value = b"Image processed\n"
+                    path.read_text.return_value = "0"
+                    path.write_text.return_value = None
+                    path.unlink.return_value = None
+
+                    def write_bytes(data: bytes, path_name: str = name) -> None:
+                        written_files[path_name] = data
+
+                    path.write_bytes.side_effect = write_bytes
+                    path_mocks[name] = path
+                return path_mocks[name]
 
             def mock_command(*args, **kwargs):
                 if args[0] == "find":
                     return make_mock_cmd(b"")
-                if args[0] == "tee" and len(args) > 1:
-                    # Capture tee calls for file writes (stdin_data is passed via kwargs)
-                    written_files.append((args[1], kwargs.get("stdin")))
-                return make_mock_cmd(b"Image processed\n")
+                return make_mock_cmd(b"")
+
+            mock_fs = MagicMock()
+            mock_fs.__truediv__.side_effect = get_path
 
             mock_sprite = MagicMock()
             mock_sprite.command.side_effect = mock_command
+            mock_sprite.filesystem.return_value = mock_fs
 
             mock_client = MagicMock()
             mock_client.create_sprite.return_value = mock_sprite
@@ -729,15 +786,7 @@ class TestToolExecutors:
                     assert "Image processed" in result
 
                     # Verify image was written with decoded binary data
-                    image_writes = [f for f in written_files if f[0] == "/artifacts/test.png"]
-                    assert len(image_writes) == 1
-                    # Verify image was written with decoded binary data
-                    image_writes = [f for f in written_files if f[0] == "/artifacts/test.png"]
-                    assert len(image_writes) == 1
-                    # stdin is a BytesIO, read from it to verify content
-                    stdin_bio = image_writes[0][1]
-                    stdin_bio.seek(0)
-                    assert stdin_bio.read() == fake_image_data
+                    assert written_files["artifacts/test.png"] == fake_image_data
 
     @pytest.mark.asyncio
     async def test_share_artifact_executor_success(self):
