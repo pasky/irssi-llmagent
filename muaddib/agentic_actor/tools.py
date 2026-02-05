@@ -159,7 +159,7 @@ TOOLS: list[Tool] = [
     },
     {
         "name": "execute_code",
-        "description": "Execute code in a sandbox environment and return the output. The sandbox environment is persisted to follow-up calls of this tool within this thread. For Python, generated plots/images are automatically captured and uploaded. Use output_files to download additional files from the sandbox.",
+        "description": "Execute code in a sandbox environment and return the output. The sandbox environment is persisted to follow-up calls of this tool within this thread. Use output_files to download any generated files from the sandbox.",
         "input_schema": {
             "type": "object",
             "properties": {
