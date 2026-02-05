@@ -19,6 +19,7 @@ ANTHROPIC_PRICING: dict[str, dict[str, float]] = {
     "claude-3-haiku-20240307": {"prompt": 0.25, "completion": 1.25},
     "claude-3-opus-20240229": {"prompt": 15.0, "completion": 75.0},
     "claude-opus-4-5": {"prompt": 5.0, "completion": 25.0},
+    "claude-opus-4-6": {"prompt": 5.0, "completion": 25.0},
     "claude-haiku-4-5-20251001": {"prompt": 1.0, "completion": 5.0},
 }
 
