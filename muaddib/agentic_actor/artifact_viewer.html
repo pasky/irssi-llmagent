@@ -80,14 +80,32 @@
       display: block;
     }
 
+    img.wide-media {
+      max-width: min(1400px, calc(100vw - 2rem));
+      width: auto;
+      margin-left: 50%;
+      transform: translateX(-50%);
+    }
+
     .error {
       color: #fca5a5;
     }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
+    .wide-block {
+      width: min(1400px, calc(100vw - 2rem));
+      margin-left: 50%;
+      transform: translateX(-50%);
+    }
+
+    .wide-scroll {
+      overflow-x: auto;
       margin: 0.75rem 0;
+    }
+
+    table {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: collapse;
       border: 1px solid var(--border);
     }
 
@@ -168,7 +186,7 @@
         )
         .join("")}</tbody>`;
 
-      return `<table>${thead}${tbody}</table>`;
+      return `<div class="wide-block wide-scroll"><table>${thead}${tbody}</table></div>`;
     }
 
     function renderMarkdown(md) {
@@ -250,7 +268,7 @@
         const isImage = contentType.startsWith("image/") || imageExts.some((ext) => lower.endsWith(ext));
 
         if (isImage) {
-          content.innerHTML = `<img src="${rawHref}" alt="${escapeHtml(filename)}" />`;
+          content.innerHTML = `<img class="wide-media" src="${rawHref}" alt="${escapeHtml(filename)}" />`;
           return;
         }
 
