@@ -826,8 +826,9 @@ class TestToolExecutors:
             index_file = artifacts_dir / "index.html"
             assert index_file.exists()
             index_content = index_file.read_text()
-            assert "Artifact Viewer" in index_content
+            assert 'id="raw-link" class="raw-icon"' in index_content
             assert "function renderTable" in index_content
+            assert "<h1>Artifact Viewer</h1>" not in index_content
 
             # Verify content
             file_content = artifact_file.read_text()

@@ -24,30 +24,34 @@
 
     .wrap {
       max-width: 920px;
-      margin: 2rem auto;
-      padding: 0 1rem;
+      margin: 1rem auto;
+      padding: 0 1rem 2rem;
     }
 
-    .panel {
+    .raw-icon {
+      position: fixed;
+      top: 0.65rem;
+      right: 0.8rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.8rem;
+      height: 1.8rem;
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 9999px;
       background: var(--card);
-      padding: 1rem 1.25rem;
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 1rem;
+      line-height: 1;
     }
 
-    h1 {
-      margin: 0 0 0.5rem 0;
-      font-size: 1.3rem;
+    .raw-icon:hover {
+      filter: brightness(1.15);
     }
 
-    .meta {
-      color: var(--muted);
-      margin-bottom: 0.8rem;
-      word-break: break-all;
-    }
-
-    .actions {
-      margin-bottom: 1rem;
+    #content {
+      margin-top: 1.75rem;
     }
 
     a {
@@ -101,13 +105,9 @@
   </style>
 </head>
 <body>
+  <a id="raw-link" class="raw-icon" href="#" download title="Download raw file">⤓</a>
   <div class="wrap">
-    <div class="panel">
-      <h1>Artifact Viewer</h1>
-      <div class="meta" id="meta"></div>
-      <div class="actions"><a id="raw-link" href="#" download>Download raw file</a></div>
-      <div id="content"></div>
-    </div>
+    <div id="content"></div>
   </div>
   <script>
     function escapeHtml(text) {
@@ -224,20 +224,19 @@
 
     async function main() {
       const filename = readFilenameFromQuery();
-      const meta = document.getElementById("meta");
       const content = document.getElementById("content");
       const rawLink = document.getElementById("raw-link");
 
       if (!filename) {
-        meta.textContent = "Missing filename. Open this page as /?myfile.txt";
+        content.innerHTML = "<p class=\"error\">Missing filename. Open this page as /?myfile.txt</p>";
         rawLink.style.display = "none";
         return;
       }
 
       const rawHref = encodeURI(filename);
-      meta.textContent = filename;
       rawLink.href = rawHref;
       rawLink.download = filename;
+      rawLink.title = `Download raw: ${filename}`;
 
       try {
         const response = await fetch(rawHref, { cache: "no-store" });
