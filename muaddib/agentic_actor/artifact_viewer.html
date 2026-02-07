@@ -23,7 +23,7 @@
     }
 
     .wrap {
-      max-width: 920px;
+      max-width: 1400px;
       margin: 1rem auto;
       padding: 0 1rem 2rem;
     }
@@ -80,32 +80,14 @@
       display: block;
     }
 
-    img.wide-media {
-      max-width: min(1400px, calc(100vw - 2rem));
-      width: auto;
-      margin-left: 50%;
-      transform: translateX(-50%);
-    }
-
     .error {
       color: #fca5a5;
     }
 
-    .wide-block {
-      width: min(1400px, calc(100vw - 2rem));
-      margin-left: 50%;
-      transform: translateX(-50%);
-    }
-
-    .wide-scroll {
-      overflow-x: auto;
-      margin: 0.75rem 0;
-    }
-
     table {
-      width: max-content;
-      min-width: 100%;
+      width: 100%;
       border-collapse: collapse;
+      margin: 0.75rem 0;
       border: 1px solid var(--border);
     }
 
@@ -186,7 +168,7 @@
         )
         .join("")}</tbody>`;
 
-      return `<div class="wide-block wide-scroll"><table>${thead}${tbody}</table></div>`;
+      return `<table>${thead}${tbody}</table>`;
     }
 
     function renderMarkdown(md) {
@@ -268,7 +250,7 @@
         const isImage = contentType.startsWith("image/") || imageExts.some((ext) => lower.endsWith(ext));
 
         if (isImage) {
-          content.innerHTML = `<img class="wide-media" src="${rawHref}" alt="${escapeHtml(filename)}" />`;
+          content.innerHTML = `<img src="${rawHref}" alt="${escapeHtml(filename)}" />`;
           return;
         }
 
