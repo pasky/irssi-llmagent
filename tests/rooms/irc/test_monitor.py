@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from muaddib.main import MuaddibAgent
+from muaddib.rooms.message import RoomMessage
 
 
 class TestIRCMonitor:
@@ -99,3 +100,47 @@ class TestIRCMonitor:
 
         agent.irc_monitor.command_handler.handle_command.assert_not_called()
         agent.irc_monitor.command_handler.handle_passive_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_active_steering_session_queues_message_instead_of_routing(
+        self, temp_config_file
+    ):
+        agent = MuaddibAgent(temp_config_file)
+        agent.irc_monitor.varlink_sender = AsyncMock()
+        agent.irc_monitor.server_nicks["test"] = "mybot"
+
+        await agent.history.initialize()
+        await agent.chronicle.initialize()
+
+        active_key = await agent.irc_monitor.command_handler.start_steering_session(
+            RoomMessage(
+                server_tag="test",
+                channel_name="#test",
+                nick="testuser",
+                mynick="mybot",
+                content="start",
+            )
+        )
+
+        agent.irc_monitor.command_handler.handle_command = AsyncMock()
+        agent.irc_monitor.command_handler.handle_passive_message = AsyncMock()
+
+        event = {
+            "type": "message",
+            "subtype": "public",
+            "server": "test",
+            "target": "#test",
+            "nick": "testuser",
+            "message": "follow up while active",
+        }
+
+        await agent.irc_monitor.process_message_event(event)
+
+        agent.irc_monitor.command_handler.handle_command.assert_not_called()
+        agent.irc_monitor.command_handler.handle_passive_message.assert_not_called()
+
+        injected = await agent.irc_monitor.command_handler.drain_steering_context_messages(
+            active_key
+        )
+        assert [m["content"] for m in injected] == ["<testuser> follow up while active"]
+        await agent.irc_monitor.command_handler.end_steering_session(active_key)

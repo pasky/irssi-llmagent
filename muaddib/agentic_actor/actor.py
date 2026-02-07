@@ -99,6 +99,7 @@ class AgenticLLMActor:
         persistence_callback: Callable[[str], Awaitable[None]] | None = None,
         arc: str,
         current_quest_id: str | None = None,
+        steering_message_provider: Callable[[], Awaitable[list[dict[str, str]]]] | None = None,
     ) -> AgentResult:
         """Run the agent with tool-calling loop.
 
@@ -107,6 +108,8 @@ class AgenticLLMActor:
             progress_callback: Called with progress updates to send to IRC.
             persistence_callback: Called with tool summaries to store for future context.
             arc: The arc identifier (e.g., "server#channel").
+            steering_message_provider: Optional callback that returns queued user
+                messages to inject before each turn (before any <meta> reminders).
 
         Returns:
             AgentResult with response text and accumulated token usage/cost.
@@ -190,6 +193,16 @@ class AgenticLLMActor:
                     model = self.model[iteration] if iteration < len(self.model) else self.model[-1]
                 else:
                     model = self.model
+
+                if steering_message_provider is not None:
+                    steering_messages = await steering_message_provider()
+                    if steering_messages:
+                        messages.extend(steering_messages)
+                        logger.info(
+                            "Injected %s steering message(s) before iteration %s",
+                            len(steering_messages),
+                            iteration + 1,
+                        )
 
                 extra_messages = []
 

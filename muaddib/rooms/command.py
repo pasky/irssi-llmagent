@@ -10,7 +10,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeAlias
 
 from ..agentic_actor.actor import AgentResult
 from ..providers import parse_model_spec
@@ -23,6 +23,18 @@ logger = logging.getLogger(__name__)
 
 MODE_TOKENS = {"!s", "!S", "!a", "!d", "!D", "!u", "!h"}
 FLAG_TOKENS = {"!c"}
+
+SteeringKey: TypeAlias = tuple[str, str, str | None]
+SteeringReplay: TypeAlias = Callable[[], Awaitable[None]]
+
+
+@dataclass
+class SteeringQueuedMessage:
+    """A message queued for steering into an active actor loop."""
+
+    msg: RoomMessage
+    trigger_message_id: int
+    replay_callback: SteeringReplay
 
 
 @dataclass
@@ -119,6 +131,10 @@ class RoomCommandHandler:
         self.proactive_debouncer = ProactiveDebouncer(proactive_config["debounce_seconds"])
         self.autochronicler = AutoChronicler(self.agent.history, self)
 
+        # Active steering sessions keyed by (arc, nick_lower, thread_id)
+        self._steering_sessions: dict[SteeringKey, list[SteeringQueuedMessage]] = {}
+        self._steering_lock = asyncio.Lock()
+
     @property
     def command_config(self) -> dict[str, Any]:
         return self.room_config["command"]
@@ -139,6 +155,59 @@ class RoomCommandHandler:
     def should_ignore_user(self, nick: str) -> bool:
         ignore_list = self.command_config.get("ignore_users", [])
         return any(nick.lower() == ignored.lower() for ignored in ignore_list)
+
+    @staticmethod
+    def _steering_key(msg: RoomMessage) -> SteeringKey:
+        return (msg.arc, msg.nick.lower(), msg.thread_id)
+
+    @staticmethod
+    def _steering_context_message(msg: RoomMessage) -> dict[str, str]:
+        return {"role": "user", "content": f"<{msg.nick}> {msg.content}"}
+
+    async def start_steering_session(self, msg: RoomMessage) -> SteeringKey:
+        """Mark a user+arc(+thread) as having an active steering-capable actor run."""
+        key = self._steering_key(msg)
+        async with self._steering_lock:
+            self._steering_sessions[key] = []
+        return key
+
+    async def drain_steering_context_messages(self, key: SteeringKey) -> list[dict[str, str]]:
+        """Drain queued steering messages for actor-loop context injection."""
+        async with self._steering_lock:
+            queued = self._steering_sessions.get(key)
+            if not queued:
+                return []
+            drained = list(queued)
+            queued.clear()
+
+        return [self._steering_context_message(entry.msg) for entry in drained]
+
+    async def end_steering_session(self, key: SteeringKey) -> list[SteeringQueuedMessage]:
+        """End active steering session and return any unconsumed queued messages."""
+        async with self._steering_lock:
+            remaining = self._steering_sessions.pop(key, [])
+        return remaining
+
+    async def enqueue_steering_message(
+        self,
+        msg: RoomMessage,
+        trigger_message_id: int,
+        replay_callback: SteeringReplay,
+    ) -> bool:
+        """Queue a message for steering if its user currently has an active session."""
+        key = self._steering_key(msg)
+        async with self._steering_lock:
+            queued = self._steering_sessions.get(key)
+            if queued is None:
+                return False
+            queued.append(
+                SteeringQueuedMessage(
+                    msg=msg,
+                    trigger_message_id=trigger_message_id,
+                    replay_callback=replay_callback,
+                )
+            )
+            return True
 
     @staticmethod
     def _normalize_server_tag(server_tag: str) -> str:
@@ -457,6 +526,7 @@ class RoomCommandHandler:
         model: str | list[str] | None = None,
         no_context: bool = False,
         secrets: dict[str, Any] | None = None,
+        steering_message_provider: Callable[[], Awaitable[list[dict[str, str]]]] | None = None,
         **actor_kwargs,
     ) -> AgentResult | None:
         mode_cfg = self.command_config["modes"][mode].copy()
@@ -476,6 +546,7 @@ class RoomCommandHandler:
                 system_prompt=system_prompt,
                 model=model,
                 secrets=secrets,
+                steering_message_provider=steering_message_provider,
                 **actor_kwargs,
             )
         except Exception as e:
@@ -775,6 +846,15 @@ class RoomCommandHandler:
                 mode = await self.classify_mode(context)
                 logger.debug("Auto-classified message as %s mode", mode)
 
+        steering_key: SteeringKey | None = None
+        if mode != "SARCASTIC" and not no_context:
+            steering_key = await self.start_steering_session(msg)
+
+        async def steering_message_provider() -> list[dict[str, str]]:
+            if steering_key is None:
+                return []
+            return await self.drain_steering_context_messages(steering_key)
+
         async def progress_cb(text: str) -> None:
             await reply_sender(text)
             response_msg = dataclasses.replace(msg, nick=msg.mynick, content=text)
@@ -786,115 +866,133 @@ class RoomCommandHandler:
                 response_msg, content_template="[internal monologue] {message}"
             )
 
-        if mode == "SARCASTIC":
-            agent_result = await self._run_actor(
-                context[-modes_config["sarcastic"].get("history_size", default_size) :],
-                msg.mynick,
-                mode="sarcastic",
-                reasoning_effort=reasoning_effort,
-                allowed_tools=[],
-                progress_callback=progress_cb,
-                persistence_callback=persistence_cb,
-                arc=msg.arc,
-                no_context=no_context,
-                model=model_override,
-                secrets=msg.secrets,
-            )
-        elif mode and mode.endswith("SERIOUS"):
-            assert reasoning_effort == "minimal"
-            agent_result = await self._run_actor(
-                context[-modes_config["serious"].get("history_size", default_size) :],
-                msg.mynick,
-                mode="serious",
-                reasoning_effort="low" if mode == "EASY_SERIOUS" else "medium",
-                model=model_override
-                or (
-                    modes_config["serious"].get("thinking_model")
-                    if mode == "THINKING_SERIOUS"
-                    else None
-                ),
-                progress_callback=progress_cb,
-                persistence_callback=persistence_cb,
-                arc=msg.arc,
-                no_context=no_context,
-                secrets=msg.secrets,
-            )
-        elif mode == "UNSAFE":
-            agent_result = await self._run_actor(
-                context[-modes_config["unsafe"].get("history_size", default_size) :],
-                msg.mynick,
-                mode="unsafe",
-                reasoning_effort="low",
-                progress_callback=progress_cb,
-                persistence_callback=persistence_cb,
-                arc=msg.arc,
-                model=model_override,
-                no_context=no_context,
-                secrets=msg.secrets,
-            )
-        else:
-            raise ValueError(f"Unknown mode {mode}")
-
-        if agent_result and agent_result.text:
-            response_text = self._clean_response_text(agent_result.text, msg.nick)
-            cost_str = f"${agent_result.total_cost:.4f}" if agent_result.total_cost else "?"
-            logger.info(
-                "Sending %s response (%s) to %s: %s",
-                mode,
-                cost_str,
-                msg.channel_name,
-                response_text,
-            )
-
-            llm_call_id = None
-            if agent_result.primary_model:
-                try:
-                    spec = parse_model_spec(agent_result.primary_model)
-                    llm_call_id = await self.agent.history.log_llm_call(
-                        provider=spec.provider,
-                        model=spec.name,
-                        input_tokens=agent_result.total_input_tokens,
-                        output_tokens=agent_result.total_output_tokens,
-                        cost=agent_result.total_cost,
-                        call_type="agent_run",
-                        arc_name=msg.arc,
-                        trigger_message_id=trigger_message_id,
-                    )
-                except ValueError:
-                    logger.warning("Could not parse model spec: %s", agent_result.primary_model)
-
-            await reply_sender(response_text)
-            response_msg = dataclasses.replace(msg, nick=msg.mynick, content=response_text)
-            response_message_id = await self.agent.history.add_message(
-                response_msg, mode=mode, llm_call_id=llm_call_id
-            )
-            if llm_call_id:
-                await self.agent.history.update_llm_call_response(llm_call_id, response_message_id)
-
-            if agent_result.total_cost and agent_result.total_cost > 0.2:
-                in_tokens = agent_result.total_input_tokens or 0
-                out_tokens = agent_result.total_output_tokens or 0
-                cost_msg = (
-                    f"(this message used {agent_result.tool_calls_count} tool calls, "
-                    f"{in_tokens} in / {out_tokens} out tokens, "
-                    f"and cost ${agent_result.total_cost:.4f})"
+        try:
+            if mode == "SARCASTIC":
+                agent_result = await self._run_actor(
+                    context[-modes_config["sarcastic"].get("history_size", default_size) :],
+                    msg.mynick,
+                    mode="sarcastic",
+                    reasoning_effort=reasoning_effort,
+                    allowed_tools=[],
+                    progress_callback=progress_cb,
+                    persistence_callback=persistence_cb,
+                    arc=msg.arc,
+                    no_context=no_context,
+                    model=model_override,
+                    secrets=msg.secrets,
+                    steering_message_provider=steering_message_provider,
                 )
-                logger.info("Cost followup for %s: %s", msg.channel_name, cost_msg)
-                await reply_sender(cost_msg)
-                response_msg = dataclasses.replace(msg, nick=msg.mynick, content=cost_msg)
-                await self.agent.history.add_message(response_msg)
+            elif mode and mode.endswith("SERIOUS"):
+                assert reasoning_effort == "minimal"
+                agent_result = await self._run_actor(
+                    context[-modes_config["serious"].get("history_size", default_size) :],
+                    msg.mynick,
+                    mode="serious",
+                    reasoning_effort="low" if mode == "EASY_SERIOUS" else "medium",
+                    model=model_override
+                    or (
+                        modes_config["serious"].get("thinking_model")
+                        if mode == "THINKING_SERIOUS"
+                        else None
+                    ),
+                    progress_callback=progress_cb,
+                    persistence_callback=persistence_cb,
+                    arc=msg.arc,
+                    no_context=no_context,
+                    secrets=msg.secrets,
+                    steering_message_provider=steering_message_provider,
+                )
+            elif mode == "UNSAFE":
+                agent_result = await self._run_actor(
+                    context[-modes_config["unsafe"].get("history_size", default_size) :],
+                    msg.mynick,
+                    mode="unsafe",
+                    reasoning_effort="low",
+                    progress_callback=progress_cb,
+                    persistence_callback=persistence_cb,
+                    arc=msg.arc,
+                    model=model_override,
+                    no_context=no_context,
+                    secrets=msg.secrets,
+                    steering_message_provider=steering_message_provider,
+                )
+            else:
+                raise ValueError(f"Unknown mode {mode}")
 
-            if agent_result.total_cost:
-                cost_before = await self.agent.history.get_arc_cost_today(msg.arc)
-                cost_before -= agent_result.total_cost
-                dollars_before = int(cost_before)
-                dollars_after = int(cost_before + agent_result.total_cost)
-                if dollars_after > dollars_before:
-                    total_today = cost_before + agent_result.total_cost
-                    fun_msg = f"(fun fact: my messages in this channel have already cost ${total_today:.4f} today)"
-                    logger.info("Daily cost milestone for %s: %s", msg.arc, fun_msg)
-                    await reply_sender(fun_msg)
-                    response_msg = dataclasses.replace(msg, nick=msg.mynick, content=fun_msg)
+            if agent_result and agent_result.text:
+                response_text = self._clean_response_text(agent_result.text, msg.nick)
+                cost_str = f"${agent_result.total_cost:.4f}" if agent_result.total_cost else "?"
+                logger.info(
+                    "Sending %s response (%s) to %s: %s",
+                    mode,
+                    cost_str,
+                    msg.channel_name,
+                    response_text,
+                )
+
+                llm_call_id = None
+                if agent_result.primary_model:
+                    try:
+                        spec = parse_model_spec(agent_result.primary_model)
+                        llm_call_id = await self.agent.history.log_llm_call(
+                            provider=spec.provider,
+                            model=spec.name,
+                            input_tokens=agent_result.total_input_tokens,
+                            output_tokens=agent_result.total_output_tokens,
+                            cost=agent_result.total_cost,
+                            call_type="agent_run",
+                            arc_name=msg.arc,
+                            trigger_message_id=trigger_message_id,
+                        )
+                    except ValueError:
+                        logger.warning("Could not parse model spec: %s", agent_result.primary_model)
+
+                await reply_sender(response_text)
+                response_msg = dataclasses.replace(msg, nick=msg.mynick, content=response_text)
+                response_message_id = await self.agent.history.add_message(
+                    response_msg, mode=mode, llm_call_id=llm_call_id
+                )
+                if llm_call_id:
+                    await self.agent.history.update_llm_call_response(
+                        llm_call_id, response_message_id
+                    )
+
+                if agent_result.total_cost and agent_result.total_cost > 0.2:
+                    in_tokens = agent_result.total_input_tokens or 0
+                    out_tokens = agent_result.total_output_tokens or 0
+                    cost_msg = (
+                        f"(this message used {agent_result.tool_calls_count} tool calls, "
+                        f"{in_tokens} in / {out_tokens} out tokens, "
+                        f"and cost ${agent_result.total_cost:.4f})"
+                    )
+                    logger.info("Cost followup for %s: %s", msg.channel_name, cost_msg)
+                    await reply_sender(cost_msg)
+                    response_msg = dataclasses.replace(msg, nick=msg.mynick, content=cost_msg)
                     await self.agent.history.add_message(response_msg)
-        else:
-            logger.info("Agent in %s mode chose not to answer for %s", mode, msg.channel_name)
+
+                if agent_result.total_cost:
+                    cost_before = await self.agent.history.get_arc_cost_today(msg.arc)
+                    cost_before -= agent_result.total_cost
+                    dollars_before = int(cost_before)
+                    dollars_after = int(cost_before + agent_result.total_cost)
+                    if dollars_after > dollars_before:
+                        total_today = cost_before + agent_result.total_cost
+                        fun_msg = f"(fun fact: my messages in this channel have already cost ${total_today:.4f} today)"
+                        logger.info("Daily cost milestone for %s: %s", msg.arc, fun_msg)
+                        await reply_sender(fun_msg)
+                        response_msg = dataclasses.replace(msg, nick=msg.mynick, content=fun_msg)
+                        await self.agent.history.add_message(response_msg)
+            else:
+                logger.info("Agent in %s mode chose not to answer for %s", mode, msg.channel_name)
+        finally:
+            if steering_key is not None:
+                queued_messages = await self.end_steering_session(steering_key)
+                if queued_messages:
+                    logger.info(
+                        "Reprocessing %s queued steering message(s) from %s in %s",
+                        len(queued_messages),
+                        msg.nick,
+                        msg.arc,
+                    )
+                for queued in queued_messages:
+                    await queued.replay_callback()

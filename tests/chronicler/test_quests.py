@@ -49,6 +49,7 @@ async def test_quest_operator_triggers_and_announces(shared_agent):
             persistence_callback=None,
             arc: str,
             current_quest_id: str | None = None,
+            steering_message_provider=None,
         ):
             call_counter["count"] += 1
             if call_counter["count"] == 2:
@@ -145,6 +146,7 @@ async def test_heartbeat_triggers_open_quests(shared_agent):
             persistence_callback=None,
             arc: str,
             current_quest_id: str | None = None,
+            steering_message_provider=None,
         ):
             return AgentResult(
                 text=next_para,
@@ -211,6 +213,7 @@ async def test_chapter_rollover_copies_unresolved_quests(shared_agent):
             persistence_callback=None,
             arc: str,
             current_quest_id: str | None = None,
+            steering_message_provider=None,
         ):
             actor_call_count["n"] += 1
             return AgentResult(
@@ -348,6 +351,7 @@ async def test_subquest_finish_resumes_parent(shared_agent):
             persistence_callback=None,
             arc: str,
             current_quest_id: str | None = None,
+            steering_message_provider=None,
         ):
             triggered_quest_ids.append(current_quest_id)
             # Return finished for sub-quest, continuation for parent

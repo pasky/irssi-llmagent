@@ -220,6 +220,20 @@ class DiscordRoomMonitor:
                 thread_starter_id=thread_starter_id,
             )
             trigger_message_id = await self.agent.history.add_message(msg)
+
+            async def replay_original() -> None:
+                with MessageLoggingContext(arc, nick, content):
+                    async with message.channel.typing():
+                        await self.command_handler.handle_command(
+                            msg, trigger_message_id, reply_sender
+                        )
+
+            if await self.command_handler.enqueue_steering_message(
+                msg, trigger_message_id, replay_original
+            ):
+                logger.debug("Queued steering message from %s in %s", msg.nick, msg.arc)
+                return
+
             with MessageLoggingContext(arc, nick, content):
                 async with message.channel.typing():
                     await self.command_handler.handle_command(msg, trigger_message_id, reply_sender)
@@ -236,6 +250,16 @@ class DiscordRoomMonitor:
             thread_starter_id=thread_starter_id,
         )
         trigger_message_id = await self.agent.history.add_message(msg)
+
+        async def replay_original() -> None:
+            await self.command_handler.handle_passive_message(msg, reply_sender)
+
+        if await self.command_handler.enqueue_steering_message(
+            msg, trigger_message_id, replay_original
+        ):
+            logger.debug("Queued steering message from %s in %s", msg.nick, msg.arc)
+            return
+
         await self.command_handler.handle_passive_message(msg, reply_sender)
 
     async def process_message_edit(self, before: discord.Message, after: discord.Message) -> None:

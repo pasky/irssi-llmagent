@@ -253,3 +253,124 @@ async def test_automatic_unsafe_classification(temp_config_file):
     handler._run_actor.assert_awaited_once()
     assert handler._run_actor.call_args.kwargs["mode"] == "unsafe"
     assert sent
+
+
+@pytest.mark.asyncio
+async def test_steering_injected_and_unconsumed_messages_replayed(temp_config_file):
+    agent = MuaddibAgent(temp_config_file)
+    await agent.history.initialize()
+    await agent.chronicle.initialize()
+
+    handler, sent, reply_sender = build_handler(agent)
+    handler.autochronicler.check_and_chronicle = AsyncMock(return_value=False)
+
+    replayed: list[str] = []
+
+    async def replay_consumed() -> None:
+        replayed.append("consumed")
+
+    async def replay_late() -> None:
+        replayed.append("late")
+
+    async def fake_run_actor(*args, **kwargs):
+        steering_provider = kwargs["steering_message_provider"]
+
+        consumed_msg = RoomMessage(
+            server_tag="test",
+            channel_name="#test",
+            nick="user",
+            mynick="mybot",
+            content="steer-now",
+        )
+        assert await handler.enqueue_steering_message(consumed_msg, 1, replay_consumed)
+
+        injected = await steering_provider()
+        assert [m["content"] for m in injected] == ["<user> steer-now"]
+
+        late_msg = RoomMessage(
+            server_tag="test",
+            channel_name="#test",
+            nick="user",
+            mynick="mybot",
+            content="steer-too-late",
+        )
+        assert await handler.enqueue_steering_message(late_msg, 2, replay_late)
+
+        return AgentResult(
+            text="serious response",
+            total_input_tokens=0,
+            total_output_tokens=0,
+            total_cost=0.0,
+            tool_calls_count=0,
+            primary_model=None,
+        )
+
+    handler._run_actor = AsyncMock(side_effect=fake_run_actor)
+
+    msg = RoomMessage(
+        server_tag="test",
+        channel_name="#test",
+        nick="user",
+        mynick="mybot",
+        content="!s tell me",
+    )
+    trigger_message_id = await agent.history.add_message(msg)
+    await handler.handle_command(msg, trigger_message_id, reply_sender)
+
+    assert sent
+    assert sent[0] == "serious response"
+    assert replayed == ["late"]
+
+
+@pytest.mark.parametrize("command", ["!d be mean", "!c !s be concise"])
+@pytest.mark.asyncio
+async def test_steering_disabled_for_sarcastic_and_no_context(temp_config_file, command):
+    agent = MuaddibAgent(temp_config_file)
+    await agent.history.initialize()
+    await agent.chronicle.initialize()
+
+    handler, sent, reply_sender = build_handler(agent)
+    handler.autochronicler.check_and_chronicle = AsyncMock(return_value=False)
+
+    replayed: list[str] = []
+
+    async def replay() -> None:
+        replayed.append("replayed")
+
+    async def fake_run_actor(*args, **kwargs):
+        steering_provider = kwargs["steering_message_provider"]
+        followup = RoomMessage(
+            server_tag="test",
+            channel_name="#test",
+            nick="user",
+            mynick="mybot",
+            content="followup",
+        )
+        queued = await handler.enqueue_steering_message(followup, 1, replay)
+        injected = await steering_provider()
+        assert queued is False
+        assert injected == []
+
+        return AgentResult(
+            text="ok",
+            total_input_tokens=0,
+            total_output_tokens=0,
+            total_cost=0.0,
+            tool_calls_count=0,
+            primary_model=None,
+        )
+
+    handler._run_actor = AsyncMock(side_effect=fake_run_actor)
+
+    msg = RoomMessage(
+        server_tag="test",
+        channel_name="#test",
+        nick="user",
+        mynick="mybot",
+        content=command,
+    )
+    trigger_message_id = await agent.history.add_message(msg)
+    await handler.handle_command(msg, trigger_message_id, reply_sender)
+
+    assert sent and sent[0] == "ok"
+    assert replayed == []

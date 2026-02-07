@@ -1566,3 +1566,65 @@ class TestAPIAgent:
         # Verify persistence callback was called with the summary
         assert len(persistence_calls) == 1
         assert persistence_calls[0] == "Summary: Successfully visited image and web page."
+
+
+@pytest.mark.asyncio
+async def test_steering_messages_inserted_before_meta(test_config, mock_agent):
+    captured_messages: list[dict] = []
+
+    actor = AgenticLLMActor(
+        config=test_config,
+        model="anthropic:dummy-serious",
+        system_prompt_generator=lambda: "System prompt",
+        prompt_reminder_generator=lambda: "Reminder",
+        agent=mock_agent,
+    )
+
+    class FakeClient:
+        def extract_text_from_response(self, r):
+            return "done"
+
+        def has_tool_calls(self, r):
+            return False
+
+        def extract_tool_calls(self, r):
+            return None
+
+        def format_assistant_message(self, r):
+            return {"role": "assistant", "content": "ok"}
+
+        def format_tool_results(self, tool_results):
+            return {"role": "user", "content": []}
+
+    async def fake_call_raw_with_model(model, messages, *args, **kwargs):
+        captured_messages.extend(messages)
+        return (
+            {"content": [{"type": "text", "text": "done"}], "stop_reason": "end_turn"},
+            FakeClient(),
+            parse_model_spec(model),
+            UsageInfo(None, None, None),
+        )
+
+    steering_calls = {"count": 0}
+
+    async def steering_provider() -> list[dict[str, str]]:
+        if steering_calls["count"] == 0:
+            steering_calls["count"] += 1
+            return [{"role": "user", "content": "<user> steer this"}]
+        return []
+
+    with patch.object(
+        ModelRouter, "call_raw_with_model", new=AsyncMock(side_effect=fake_call_raw_with_model)
+    ):
+        result = await actor.run_agent(
+            [{"role": "user", "content": "original"}],
+            arc="test",
+            steering_message_provider=steering_provider,
+        )
+
+    assert result.text == "done"
+    assert [m["content"] for m in captured_messages] == [
+        "original",
+        "<user> steer this",
+        "<meta>Reminder</meta>",
+    ]

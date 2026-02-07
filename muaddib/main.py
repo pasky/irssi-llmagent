@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import sys
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -126,6 +127,7 @@ class MuaddibAgent:
         model: str | list[str] | None = None,
         current_quest_id: str | None = None,
         secrets: dict[str, Any] | None = None,
+        steering_message_provider: Callable[[], Awaitable[list[dict[str, str]]]] | None = None,
         **actor_kwargs,
     ) -> AgentResult | None:
         prepended_context: list[dict[str, str]] = []
@@ -155,6 +157,7 @@ class MuaddibAgent:
             persistence_callback=persistence_callback,
             arc=arc,
             current_quest_id=current_quest_id,
+            steering_message_provider=steering_message_provider,
         )
 
         if not agent_result.text or agent_result.text.strip().upper().startswith("NULL"):
