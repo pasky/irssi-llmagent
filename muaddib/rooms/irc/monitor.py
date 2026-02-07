@@ -118,19 +118,6 @@ class IRCRoomMonitor:
 
         trigger_message_id = await self.agent.history.add_message(msg)
 
-        async def replay_original() -> None:
-            if is_direct:
-                with MessageLoggingContext(msg.arc, nick, message):
-                    await self.command_handler.handle_command(msg, trigger_message_id, reply_sender)
-                return
-            await self.command_handler.handle_passive_message(msg, reply_sender)
-
-        if await self.command_handler.enqueue_steering_message(
-            msg, trigger_message_id, replay_original
-        ):
-            logger.debug("Queued steering message from %s in %s", msg.nick, msg.arc)
-            return
-
         if is_direct:
             with MessageLoggingContext(msg.arc, nick, message):
                 await self.command_handler.handle_command(msg, trigger_message_id, reply_sender)

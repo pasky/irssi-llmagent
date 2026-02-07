@@ -1,5 +1,6 @@
 """Tests for shared room command handling."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -256,7 +257,7 @@ async def test_automatic_unsafe_classification(temp_config_file):
 
 
 @pytest.mark.asyncio
-async def test_steering_injected_and_unconsumed_messages_replayed(temp_config_file):
+async def test_queued_followup_commands_collapse_to_single_followup_actor(temp_config_file):
     agent = MuaddibAgent(temp_config_file)
     await agent.history.initialize()
     await agent.chronicle.initialize()
@@ -264,40 +265,29 @@ async def test_steering_injected_and_unconsumed_messages_replayed(temp_config_fi
     handler, sent, reply_sender = build_handler(agent)
     handler.autochronicler.check_and_chronicle = AsyncMock(return_value=False)
 
-    replayed: list[str] = []
-
-    async def replay_consumed() -> None:
-        replayed.append("consumed")
-
-    async def replay_late() -> None:
-        replayed.append("late")
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    run_calls = {"count": 0}
+    injected_second: list[str] = []
 
     async def fake_run_actor(*args, **kwargs):
-        steering_provider = kwargs["steering_message_provider"]
+        run_calls["count"] += 1
+        if run_calls["count"] == 1:
+            first_started.set()
+            await release_first.wait()
+            return AgentResult(
+                text="first response",
+                total_input_tokens=0,
+                total_output_tokens=0,
+                total_cost=0.0,
+                tool_calls_count=0,
+                primary_model=None,
+            )
 
-        consumed_msg = RoomMessage(
-            server_tag="test",
-            channel_name="#test",
-            nick="user",
-            mynick="mybot",
-            content="steer-now",
-        )
-        assert await handler.enqueue_steering_message(consumed_msg, 1, replay_consumed)
-
-        injected = await steering_provider()
-        assert [m["content"] for m in injected] == ["<user> steer-now"]
-
-        late_msg = RoomMessage(
-            server_tag="test",
-            channel_name="#test",
-            nick="user",
-            mynick="mybot",
-            content="steer-too-late",
-        )
-        assert await handler.enqueue_steering_message(late_msg, 2, replay_late)
-
+        injected = await kwargs["steering_message_provider"]()
+        injected_second.extend(m["content"] for m in injected)
         return AgentResult(
-            text="serious response",
+            text="second response",
             total_input_tokens=0,
             total_output_tokens=0,
             total_cost=0.0,
@@ -307,19 +297,44 @@ async def test_steering_injected_and_unconsumed_messages_replayed(temp_config_fi
 
     handler._run_actor = AsyncMock(side_effect=fake_run_actor)
 
-    msg = RoomMessage(
+    msg1 = RoomMessage(
         server_tag="test",
         channel_name="#test",
         nick="user",
         mynick="mybot",
-        content="!s tell me",
+        content="!s first",
     )
-    trigger_message_id = await agent.history.add_message(msg)
-    await handler.handle_command(msg, trigger_message_id, reply_sender)
+    msg2 = RoomMessage(
+        server_tag="test",
+        channel_name="#test",
+        nick="user",
+        mynick="mybot",
+        content="!s second",
+    )
+    msg3 = RoomMessage(
+        server_tag="test",
+        channel_name="#test",
+        nick="user",
+        mynick="mybot",
+        content="!s third",
+    )
 
-    assert sent
-    assert sent[0] == "serious response"
-    assert replayed == ["late"]
+    id1 = await agent.history.add_message(msg1)
+    id2 = await agent.history.add_message(msg2)
+    id3 = await agent.history.add_message(msg3)
+
+    t1 = asyncio.create_task(handler.handle_command(msg1, id1, reply_sender))
+    await first_started.wait()
+
+    t2 = asyncio.create_task(handler.handle_command(msg2, id2, reply_sender))
+    t3 = asyncio.create_task(handler.handle_command(msg3, id3, reply_sender))
+
+    release_first.set()
+    await asyncio.gather(t1, t2, t3)
+
+    assert run_calls["count"] == 2
+    assert injected_second == ["<user> !s third"]
+    assert sent == ["first response", "second response"]
 
 
 @pytest.mark.parametrize("command", ["!d be mean", "!c !s be concise"])
@@ -332,27 +347,21 @@ async def test_steering_disabled_for_sarcastic_and_no_context(temp_config_file, 
     handler, sent, reply_sender = build_handler(agent)
     handler.autochronicler.check_and_chronicle = AsyncMock(return_value=False)
 
-    replayed: list[str] = []
-
-    async def replay() -> None:
-        replayed.append("replayed")
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    run_calls = {"count": 0}
 
     async def fake_run_actor(*args, **kwargs):
-        steering_provider = kwargs["steering_message_provider"]
-        followup = RoomMessage(
-            server_tag="test",
-            channel_name="#test",
-            nick="user",
-            mynick="mybot",
-            content="followup",
-        )
-        queued = await handler.enqueue_steering_message(followup, 1, replay)
-        injected = await steering_provider()
-        assert queued is False
-        assert injected == []
+        run_calls["count"] += 1
+        if run_calls["count"] == 1:
+            first_started.set()
+            await release_first.wait()
+        else:
+            injected = await kwargs["steering_message_provider"]()
+            assert injected == []
 
         return AgentResult(
-            text="ok",
+            text=f"response-{run_calls['count']}",
             total_input_tokens=0,
             total_output_tokens=0,
             total_cost=0.0,
@@ -362,15 +371,30 @@ async def test_steering_disabled_for_sarcastic_and_no_context(temp_config_file, 
 
     handler._run_actor = AsyncMock(side_effect=fake_run_actor)
 
-    msg = RoomMessage(
+    msg1 = RoomMessage(
         server_tag="test",
         channel_name="#test",
         nick="user",
         mynick="mybot",
         content=command,
     )
-    trigger_message_id = await agent.history.add_message(msg)
-    await handler.handle_command(msg, trigger_message_id, reply_sender)
+    msg2 = RoomMessage(
+        server_tag="test",
+        channel_name="#test",
+        nick="user",
+        mynick="mybot",
+        content="!s followup",
+    )
 
-    assert sent and sent[0] == "ok"
-    assert replayed == []
+    id1 = await agent.history.add_message(msg1)
+    id2 = await agent.history.add_message(msg2)
+
+    t1 = asyncio.create_task(handler.handle_command(msg1, id1, reply_sender))
+    await first_started.wait()
+    t2 = asyncio.create_task(handler.handle_command(msg2, id2, reply_sender))
+
+    release_first.set()
+    await asyncio.gather(t1, t2)
+
+    assert run_calls["count"] == 2
+    assert sent == ["response-1", "response-2"]

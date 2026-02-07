@@ -580,31 +580,6 @@ class SlackRoomMonitor:
 
         trigger_message_id = await self.agent.history.add_message(msg)
 
-        async def replay_original() -> None:
-            nonlocal typing_indicator_thread_ts
-            if is_direct:
-                typing_thread_ts = msg.thread_id or platform_id
-                typing_indicator_set = await self._set_typing_indicator(
-                    client, channel_id, typing_thread_ts
-                )
-                if typing_indicator_set:
-                    typing_indicator_thread_ts = typing_thread_ts
-
-                with MessageLoggingContext(msg.arc, msg.nick, msg.content):
-                    await self.command_handler.handle_command(msg, trigger_message_id, reply_sender)
-
-                if typing_indicator_set and typing_thread_ts:
-                    await self._clear_typing_indicator(client, channel_id, typing_thread_ts)
-                return
-
-            await self.command_handler.handle_passive_message(msg, reply_sender)
-
-        if await self.command_handler.enqueue_steering_message(
-            msg, trigger_message_id, replay_original
-        ):
-            logger.debug("Queued steering message from %s in %s", msg.nick, msg.arc)
-            return
-
         if is_direct:
             typing_thread_ts = msg.thread_id or platform_id
             typing_indicator_set = await self._set_typing_indicator(
