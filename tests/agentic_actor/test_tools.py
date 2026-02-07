@@ -99,6 +99,7 @@ class TestToolExecutors:
             mock_session_cls.return_value.__aenter__.return_value = mock_session
 
             mock_response = AsyncMock()
+            mock_response.status = 200
             mock_response.text.return_value = "Search results"
             mock_response.raise_for_status = MagicMock()
 
@@ -117,6 +118,53 @@ class TestToolExecutors:
             )
             assert "## Search Results" in result
             assert "Search results" in result
+
+    @pytest.mark.asyncio
+    async def test_jina_executor_no_results_422_plaintext(self):
+        """Test Jina executor maps 422 no-results to friendly message."""
+        executor = JinaSearchExecutor()
+
+        with patch("aiohttp.ClientSession") as mock_session_cls:
+            mock_session = AsyncMock()
+            mock_session_cls.return_value.__aenter__.return_value = mock_session
+
+            mock_response = AsyncMock()
+            mock_response.status = 422
+            mock_response.text.return_value = (
+                "AssertionFailureError: No search results available for query nohit"
+            )
+
+            mock_get_ctx = AsyncMock()
+            mock_get_ctx.__aenter__.return_value = mock_response
+            mock_get_ctx.__aexit__.return_value = None
+            mock_session.get = MagicMock(return_value=mock_get_ctx)
+
+            result = await executor.execute("nohit")
+
+            assert result == "No search results found. Try a different query."
+
+    @pytest.mark.asyncio
+    async def test_jina_executor_422_other_error(self):
+        """Test Jina executor keeps non no-results 422 as an error."""
+        executor = JinaSearchExecutor()
+
+        with patch("aiohttp.ClientSession") as mock_session_cls:
+            mock_session = AsyncMock()
+            mock_session_cls.return_value.__aenter__.return_value = mock_session
+
+            mock_response = AsyncMock()
+            mock_response.status = 422
+            mock_response.text.return_value = "AssertionFailureError: Query syntax invalid"
+
+            mock_get_ctx = AsyncMock()
+            mock_get_ctx.__aenter__.return_value = mock_response
+            mock_get_ctx.__aexit__.return_value = None
+            mock_session.get = MagicMock(return_value=mock_get_ctx)
+
+            result = await executor.execute("bad query")
+
+            assert "Search failed: Jina HTTP 422" in result
+            assert "Query syntax invalid" in result
 
     @pytest.mark.asyncio
     async def test_webpage_visitor_invalid_url(self):

@@ -529,15 +529,29 @@ class JinaSearchExecutor:
                     headers=headers,
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as response:
-                    response.raise_for_status()
-                    content = await response.text()
+                    content = (await response.text()).strip()
+
+                    if (
+                        response.status == 422
+                        and "No search results available for query" in content
+                    ):
+                        logger.info(f"Jina searching '{query}': no results")
+                        return f"{warning_prefix}No search results found. Try a different query."
+
+                    if response.status >= 400:
+                        logger.error(
+                            f"Jina search failed with HTTP {response.status}: {content[:300]}"
+                        )
+                        return (
+                            f"{warning_prefix}Search failed: Jina HTTP {response.status}: {content}"
+                        )
 
                     logger.info(f"Jina searching '{query}': retrieved search results")
 
-                    if not content.strip():
+                    if not content:
                         return f"{warning_prefix}No search results found. Try a different query."
 
-                    return f"{warning_prefix}## Search Results\n\n{content.strip()}"
+                    return f"{warning_prefix}## Search Results\n\n{content}"
 
             except Exception as e:
                 logger.error(f"Jina search failed: {e}")
