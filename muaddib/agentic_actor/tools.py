@@ -11,6 +11,7 @@ import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, TypedDict
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import aiohttp
 from ddgs import DDGS
@@ -26,14 +27,86 @@ from ..chronicler.tools import (
 logger = logging.getLogger(__name__)
 
 
+_ARTIFACT_INDEX_HTML = Path(__file__).with_name("artifact_viewer.html").read_text(encoding="utf-8")
+
+
+def _extract_filename_from_query(query: str) -> str | None:
+    """Extract artifact filename from query string."""
+    if not query:
+        return None
+
+    if "=" in query:
+        params = parse_qs(query)
+        for key in ("file", "filename"):
+            values = params.get(key)
+            if values:
+                value = values[0].strip()
+                if value:
+                    return unquote(value)
+        return None
+
+    value = query.strip()
+    return unquote(value) if value else None
+
+
+def _extract_local_artifact_path(url: str, artifacts_url: str) -> str | None:
+    """Extract local artifact relative path from raw or viewer URL."""
+    base = artifacts_url.rstrip("/")
+    if not (url == base or url.startswith(base + "/") or url.startswith(base + "?")):
+        return None
+
+    remainder = url[len(base) :]
+    if remainder.startswith("/"):
+        remainder = remainder[1:]
+
+    if remainder.startswith("?"):
+        return _extract_filename_from_query(remainder[1:])
+
+    if remainder.startswith("index.html?"):
+        return _extract_filename_from_query(remainder[len("index.html?") :])
+
+    if "?" in remainder:
+        path_part, query = remainder.split("?", 1)
+        if path_part == "index.html":
+            return _extract_filename_from_query(query)
+
+    if not remainder:
+        return None
+
+    return unquote(remainder)
+
+
+def _extract_filename_from_url(url: str) -> str | None:
+    """Extract filename from generic URL, including viewer-style query URLs."""
+    parsed = urlparse(url)
+
+    filename = _extract_filename_from_query(parsed.query)
+    if filename:
+        return filename
+
+    path = unquote(parsed.path)
+    if not path or path.endswith("/"):
+        return None
+
+    leaf = path.rsplit("/", 1)[-1]
+    if leaf == "index.html":
+        return None
+    return leaf
+
+
+def _to_artifact_viewer_url(base_url: str, filename: str) -> str:
+    """Build artifact viewer URL in /?filename format."""
+    return f"{base_url.rstrip('/')}/?{quote(filename, safe='')}"
+
+
 def _ensure_artifacts_dir(path: Path) -> None:
-    """Create artifacts directory with index.html to prevent directory listing."""
+    """Create artifacts directory and install artifact viewer index.html."""
     path.mkdir(parents=True, exist_ok=True)
     index_file = path / "index.html"
-    if not index_file.exists():
-        index_file.write_text(
-            "<!DOCTYPE html><html><head><title>Artifacts</title></head><body></body></html>"
-        )
+
+    current = index_file.read_text(encoding="utf-8") if index_file.exists() else None
+    if current != _ARTIFACT_INDEX_HTML:
+        index_file.write_text(_ARTIFACT_INDEX_HTML, encoding="utf-8")
 
 
 def resolve_http_headers(url: str, secrets: dict[str, Any] | None) -> dict[str, str]:
@@ -176,7 +249,7 @@ TOOLS: list[Tool] = [
                 "input_artifacts": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Optional list of artifact URLs to download into the sandbox at /artifacts/ before execution (e.g., ['https://example.com/artifacts/abc123.csv'] -> /artifacts/abc123.csv).",
+                    "description": "Optional list of artifact URLs to download into the sandbox at /artifacts/ before execution (e.g., ['https://example.com/artifacts/?abc123.csv'] -> /artifacts/abc123.csv).",
                 },
                 "output_files": {
                     "type": "array",
@@ -505,69 +578,73 @@ class WebpageVisitorExecutor:
             self.artifact_store
             and self.artifact_store.artifacts_url
             and self.artifact_store.artifacts_path
-            and url.startswith(self.artifact_store.artifacts_url + "/")
         ):
-            # Direct file system access for local artifacts
-            logger.info(f"Using direct filesystem access for local artifact: {url}")
-            filename = url[len(self.artifact_store.artifacts_url) + 1 :]
-            filepath = self.artifact_store.artifacts_path / filename
+            filename = _extract_local_artifact_path(url, self.artifact_store.artifacts_url)
+            if filename is None:
+                filename = ""
+            else:
+                # Direct file system access for local artifacts
+                logger.info(f"Using direct filesystem access for local artifact: {url}")
+                filepath = self.artifact_store.artifacts_path / filename
 
-            # Resolve paths and validate no path traversal
-            try:
-                # Resolve paths (non-strict to catch traversal even if target doesn't exist)
-                resolved_path = filepath.resolve()
-                artifacts_base = self.artifact_store.artifacts_path.resolve()
+                # Resolve paths and validate no path traversal
+                try:
+                    # Resolve paths (non-strict to catch traversal even if target doesn't exist)
+                    resolved_path = filepath.resolve()
+                    artifacts_base = self.artifact_store.artifacts_path.resolve()
 
-                # Validate containment
-                if not resolved_path.is_relative_to(artifacts_base):
-                    raise ValueError("Path traversal detected")
+                    # Validate containment
+                    if not resolved_path.is_relative_to(artifacts_base):
+                        raise ValueError("Path traversal detected")
 
-                # Check existence after validating path
-                if not resolved_path.exists():
-                    raise ValueError("Artifact file not found")
+                    # Check existence after validating path
+                    if not resolved_path.exists():
+                        raise ValueError("Artifact file not found")
 
-                # Check if it's an image file
-                suffix = resolved_path.suffix.lower()
-                if suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+                    # Check if it's an image file
+                    suffix = resolved_path.suffix.lower()
+                    if suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+                        file_size = resolved_path.stat().st_size
+                        if file_size > self.max_image_size:
+                            raise ValueError(f"Image too large: {file_size} bytes")
+                        image_data = resolved_path.read_bytes()
+                        media_type = {
+                            ".png": "image/png",
+                            ".jpg": "image/jpeg",
+                            ".jpeg": "image/jpeg",
+                            ".gif": "image/gif",
+                            ".webp": "image/webp",
+                        }[suffix]
+                        logger.info(f"Read local image artifact: {filename}")
+                        return [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": base64.b64encode(image_data).decode(),
+                                },
+                            }
+                        ]
+
+                    # Text file handling
                     file_size = resolved_path.stat().st_size
-                    if file_size > self.max_image_size:
-                        raise ValueError(f"Image too large: {file_size} bytes")
-                    image_data = resolved_path.read_bytes()
-                    media_type = {
-                        ".png": "image/png",
-                        ".jpg": "image/jpeg",
-                        ".jpeg": "image/jpeg",
-                        ".gif": "image/gif",
-                        ".webp": "image/webp",
-                    }[suffix]
-                    logger.info(f"Read local image artifact: {filename}")
-                    return [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": media_type,
-                                "data": base64.b64encode(image_data).decode(),
-                            },
-                        }
-                    ]
+                    if file_size > self.max_content_length:
+                        content = resolved_path.read_text(encoding="utf-8")[
+                            : self.max_content_length
+                        ]
+                        logger.warning(
+                            f"Local artifact truncated from {file_size} to {self.max_content_length}"
+                        )
+                        return content + "\n\n..._Content truncated_..."
+                    else:
+                        content = resolved_path.read_text(encoding="utf-8")
 
-                # Text file handling
-                file_size = resolved_path.stat().st_size
-                if file_size > self.max_content_length:
-                    content = resolved_path.read_text(encoding="utf-8")[: self.max_content_length]
-                    logger.warning(
-                        f"Local artifact truncated from {file_size} to {self.max_content_length}"
-                    )
-                    return content + "\n\n..._Content truncated_..."
-                else:
-                    content = resolved_path.read_text(encoding="utf-8")
-
-                logger.info(f"Read local artifact: {filename}")
-                return content
-            except Exception as e:
-                logger.error(f"Failed to read local artifact '{filename}': {e}")
-                raise ValueError(f"Failed to read artifact: {e}") from e
+                    logger.info(f"Read local artifact: {filename}")
+                    return content
+                except Exception as e:
+                    logger.error(f"Failed to read local artifact '{filename}': {e}")
+                    raise ValueError(f"Failed to read artifact: {e}") from e
 
         headers = resolve_http_headers(url, self.secrets)
         has_auth_headers = any(key.lower() != "user-agent" for key in headers)
@@ -983,7 +1060,10 @@ exit 0
 
         messages = []
         for artifact_url in input_artifacts:
-            filename = artifact_url.split("/")[-1]
+            filename = _extract_filename_from_url(artifact_url)
+            if filename:
+                filename = Path(filename).name
+
             if not filename:
                 messages.append(f"Error: Invalid artifact URL (no filename): {artifact_url}")
                 continue
@@ -1409,7 +1489,7 @@ class ArtifactStore:
             logger.error(f"Failed to write artifact file: {e}")
             return f"Error: Failed to create artifact file: {e}"
 
-        return f"{self.artifacts_url}/{file_id}{suffix}"
+        return _to_artifact_viewer_url(self.artifacts_url, f"{file_id}{suffix}")
 
     def write_bytes(self, data: bytes | bytearray, suffix: str) -> str:
         """Write binary data to artifact file, return URL."""
@@ -1435,7 +1515,7 @@ class ArtifactStore:
             logger.error(f"Failed to write artifact file: {e}")
             return f"Error: Failed to create artifact file: {e}"
 
-        return f"{self.artifacts_url}/{file_id}{suffix}"
+        return _to_artifact_viewer_url(self.artifacts_url, f"{file_id}{suffix}")
 
 
 class ShareArtifactExecutor:
@@ -1501,8 +1581,8 @@ class EditArtifactExecutor:
         # Perform the replacement
         new_content = content.replace(old_string, new_string, 1)
 
-        # Extract suffix from URL (everything after last / and including .)
-        url_filename = artifact_url.split("/")[-1]
+        # Extract suffix from URL (supports both raw URLs and viewer URLs)
+        url_filename = _extract_filename_from_url(artifact_url) or ""
         suffix = "." + url_filename.split(".", 1)[1] if "." in url_filename else ".txt"
 
         url = self.store.write_text(new_content, suffix)

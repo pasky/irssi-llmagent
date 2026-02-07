@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Artifact Viewer</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f172a;
+      --fg: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #60a5fa;
+      --card: #111827;
+      --border: #334155;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+    }
+
+    .wrap {
+      max-width: 920px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--card);
+      padding: 1rem 1.25rem;
+    }
+
+    h1 {
+      margin: 0 0 0.5rem 0;
+      font-size: 1.3rem;
+    }
+
+    .meta {
+      color: var(--muted);
+      margin-bottom: 0.8rem;
+      word-break: break-all;
+    }
+
+    .actions {
+      margin-bottom: 1rem;
+    }
+
+    a {
+      color: var(--accent);
+    }
+
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      overflow-x: auto;
+      background: #020617;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    img {
+      max-width: 100%;
+      height: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: block;
+    }
+
+    .error {
+      color: #fca5a5;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.75rem 0;
+      border: 1px solid var(--border);
+    }
+
+    th,
+    td {
+      border: 1px solid var(--border);
+      padding: 0.4rem 0.55rem;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #0b1220;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <h1>Artifact Viewer</h1>
+      <div class="meta" id="meta"></div>
+      <div class="actions"><a id="raw-link" href="#" download>Download raw file</a></div>
+      <div id="content"></div>
+    </div>
+  </div>
+  <script>
+    function escapeHtml(text) {
+      return text
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function inlineMd(text) {
+      let out = escapeHtml(text);
+      out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
+      out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+      out = out.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+      out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      return out;
+    }
+
+    function splitTableRow(row) {
+      let value = row.trim();
+      if (value.startsWith("|")) value = value.slice(1);
+      if (value.endsWith("|")) value = value.slice(0, -1);
+      return value.split("|").map((cell) => cell.trim());
+    }
+
+    function renderTable(lines) {
+      if (lines.length < 2) return null;
+      if (!lines[0].includes("|") || !lines[1].includes("|")) return null;
+
+      const headers = splitTableRow(lines[0]);
+      const sep = splitTableRow(lines[1]);
+      if (!headers.length || headers.length !== sep.length) return null;
+      if (!sep.every((cell) => /^:?-{3,}:?$/.test(cell))) return null;
+
+      const aligns = sep.map((cell) => {
+        const left = cell.startsWith(":");
+        const right = cell.endsWith(":");
+        if (left && right) return "center";
+        if (right) return "right";
+        return "left";
+      });
+
+      const rows = lines.slice(2).filter((line) => line.trim());
+      const parsedRows = rows.map(splitTableRow);
+      if (parsedRows.some((cells) => cells.length !== headers.length)) return null;
+
+      const thead = `<thead><tr>${headers
+        .map((cell, i) => `<th style="text-align:${aligns[i]}">${inlineMd(cell)}</th>`)
+        .join("")}</tr></thead>`;
+      const tbody = `<tbody>${parsedRows
+        .map(
+          (cells) =>
+            `<tr>${cells
+              .map((cell, i) => `<td style="text-align:${aligns[i]}">${inlineMd(cell)}</td>`)
+              .join("")}</tr>`,
+        )
+        .join("")}</tbody>`;
+
+      return `<table>${thead}${tbody}</table>`;
+    }
+
+    function renderMarkdown(md) {
+      const blocks = [];
+      let tmp = md.replace(/```([\w-]+)?\n([\s\S]*?)```/g, (_, lang, code) => {
+        const token = `__CODE_${blocks.length}__`;
+        const klass = lang ? ` class="language-${escapeHtml(lang)}"` : "";
+        blocks.push(`<pre><code${klass}>${escapeHtml(code)}</code></pre>`);
+        return token;
+      });
+
+      tmp = tmp.replace(/\r\n/g, "\n");
+      const parts = tmp.split(/\n\s*\n/);
+      const html = parts
+        .map((part) => {
+          const line = part.trim();
+          if (!line) return "";
+          if (line.startsWith("### ")) return `<h3>${inlineMd(line.slice(4))}</h3>`;
+          if (line.startsWith("## ")) return `<h2>${inlineMd(line.slice(3))}</h2>`;
+          if (line.startsWith("# ")) return `<h1>${inlineMd(line.slice(2))}</h1>`;
+
+          const lines = line.split("\n");
+
+          const tableHtml = renderTable(lines);
+          if (tableHtml) return tableHtml;
+
+          if (lines.every((l) => l.trim().startsWith("- "))) {
+            return `<ul>${lines
+              .map((l) => `<li>${inlineMd(l.trim().slice(2))}</li>`)
+              .join("")}</ul>`;
+          }
+
+          return `<p>${inlineMd(line).replace(/\n/g, "<br>")}</p>`;
+        })
+        .join("\n");
+
+      return html.replace(/__CODE_(\d+)__/g, (_, idx) => blocks[Number(idx)] || "");
+    }
+
+    function readFilenameFromQuery() {
+      const raw = window.location.search.startsWith("?")
+        ? window.location.search.slice(1)
+        : "";
+      if (!raw) return "";
+
+      if (raw.includes("=")) {
+        const params = new URLSearchParams(window.location.search);
+        return decodeURIComponent(params.get("file") || params.get("filename") || "").trim();
+      }
+
+      return decodeURIComponent(raw).trim();
+    }
+
+    async function main() {
+      const filename = readFilenameFromQuery();
+      const meta = document.getElementById("meta");
+      const content = document.getElementById("content");
+      const rawLink = document.getElementById("raw-link");
+
+      if (!filename) {
+        meta.textContent = "Missing filename. Open this page as /?myfile.txt";
+        rawLink.style.display = "none";
+        return;
+      }
+
+      const rawHref = encodeURI(filename);
+      meta.textContent = filename;
+      rawLink.href = rawHref;
+      rawLink.download = filename;
+
+      try {
+        const response = await fetch(rawHref, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const contentType = (response.headers.get("content-type") || "").toLowerCase();
+        const lower = filename.toLowerCase();
+        const imageExts = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"];
+        const isImage = contentType.startsWith("image/") || imageExts.some((ext) => lower.endsWith(ext));
+
+        if (isImage) {
+          content.innerHTML = `<img src="${rawHref}" alt="${escapeHtml(filename)}" />`;
+          return;
+        }
+
+        const text = await response.text();
+        content.innerHTML = renderMarkdown(text);
+      } catch (err) {
+        content.innerHTML = `<p class="error">Failed to load ${escapeHtml(filename)}: ${escapeHtml(String(err))}</p>`;
+      }
+    }
+
+    main();
+  </script>
+</body>
+</html>

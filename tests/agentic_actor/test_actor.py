@@ -1214,7 +1214,7 @@ class TestAPIAgent:
         # Mock artifact executor
         mock_artifact_executor = AsyncMock()
         mock_artifact_executor.execute = AsyncMock(
-            return_value="Artifact shared: https://example.com/artifacts/test123.txt"
+            return_value="Artifact shared: https://example.com/artifacts/?test123.txt"
         )
 
         tool_executors = {"share_artifact": mock_artifact_executor}
@@ -1228,7 +1228,7 @@ class TestAPIAgent:
         )
 
         # Verify artifact URL is returned
-        assert result == "https://example.com/artifacts/test123.txt"
+        assert result == "https://example.com/artifacts/?test123.txt"
 
         # Verify artifact executor was called with formatted content
         mock_artifact_executor.execute.assert_called_once()
@@ -1306,7 +1306,7 @@ class TestAPIAgent:
                 "input": {"code": "print('hello')"},
                 "output": "hello",
                 "persist_type": "artifact",
-                "artifact_url": "https://example.com/artifacts/test.txt",
+                "artifact_url": "https://example.com/artifacts/?test.txt",
             },
         ]
 
@@ -1334,7 +1334,7 @@ class TestAPIAgent:
         message_content = messages[0]["content"]
         assert "web_search" in message_content
         assert "execute_code" in message_content
-        assert "https://example.com/artifacts/test.txt" in message_content
+        assert "https://example.com/artifacts/?test.txt" in message_content
 
         # Verify persistence callback was called
         assert len(persistence_calls) == 1

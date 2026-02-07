@@ -648,7 +648,7 @@ class TestToolExecutors:
                 with patch("asyncio.to_thread", side_effect=lambda f, *a, **kw: f(*a, **kw)):
                     result = await executor.execute(
                         "import pandas as pd; df = pd.read_csv('/artifacts/data.csv')",
-                        input_artifacts=["https://example.com/artifacts/data.csv"],
+                        input_artifacts=["https://example.com/artifacts/?data.csv"],
                     )
 
                     assert "**Output:**" in result
@@ -658,7 +658,7 @@ class TestToolExecutors:
 
                     # Verify visitor was called with artifact URL
                     mock_visitor.execute.assert_called_once_with(
-                        "https://example.com/artifacts/data.csv"
+                        "https://example.com/artifacts/?data.csv"
                     )
 
     @pytest.mark.asyncio
@@ -694,7 +694,7 @@ class TestToolExecutors:
             with patch("asyncio.to_thread", side_effect=lambda f, *a, **kw: f(*a, **kw)):
                 result = await executor.execute(
                     "print('test')",
-                    input_artifacts=["https://example.com/artifacts/data.csv"],
+                    input_artifacts=["https://example.com/artifacts/?data.csv"],
                 )
 
                 assert "webpage visitor not configured" in result
@@ -779,7 +779,7 @@ class TestToolExecutors:
                 with patch("asyncio.to_thread", side_effect=lambda f, *a, **kw: f(*a, **kw)):
                     result = await executor.execute(
                         "from PIL import Image; img = Image.open('/artifacts/test.png')",
-                        input_artifacts=["https://example.com/artifacts/test.png"],
+                        input_artifacts=["https://example.com/artifacts/?test.png"],
                     )
 
                     assert "**Uploaded image: /artifacts/test.png**" in result
@@ -808,17 +808,26 @@ class TestToolExecutors:
             result = await executor.execute(content)
 
             # Verify return format
-            assert result.startswith("Artifact shared: https://example.com/artifacts/")
+            assert result.startswith("Artifact shared: https://example.com/artifacts/?")
             assert result.endswith(".txt")
 
-            # Extract filename from result
+            # Extract filename from viewer URL query
+            from urllib.parse import urlparse
+
             url = result.split(": ")[1]
-            filename = url.split("/")[-1]
+            filename = urlparse(url).query
 
             # Verify file was created
             artifacts_dir = Path(artifacts_path)
             artifact_file = artifacts_dir / filename
             assert artifact_file.exists()
+
+            # Viewer index should be installed and non-empty
+            index_file = artifacts_dir / "index.html"
+            assert index_file.exists()
+            index_content = index_file.read_text()
+            assert "Artifact Viewer" in index_content
+            assert "function renderTable" in index_content
 
             # Verify content
             file_content = artifact_file.read_text()
@@ -913,8 +922,10 @@ class TestToolExecutors:
         assert result.endswith(".py")
 
         # Verify content was edited
+        from urllib.parse import urlparse
+
         new_url = result.split(": ")[1]
-        filename = new_url.split("/")[-1]
+        filename = urlparse(new_url).query
         artifact_file = Path(artifact_store.artifacts_path) / filename
         edited_content = artifact_file.read_text()
 
@@ -948,8 +959,10 @@ class TestToolExecutors:
         visitor.execute.assert_called_once_with("https://external.com/script.js")
 
         # Verify content was edited
+        from urllib.parse import urlparse
+
         new_url = result.split(": ")[1]
-        filename = new_url.split("/")[-1]
+        filename = urlparse(new_url).query
         artifact_file = Path(artifact_store.artifacts_path) / filename
         edited_content = artifact_file.read_text()
 
@@ -1065,12 +1078,12 @@ class TestToolRegistry:
     async def test_execute_share_artifact_tool(self, mock_agent):
         """Test executing share_artifact tool."""
         with patch.object(ShareArtifactExecutor, "execute", new_callable=AsyncMock) as mock_execute:
-            mock_execute.return_value = "Artifact shared: https://example.com/artifacts/123.txt"
+            mock_execute.return_value = "Artifact shared: https://example.com/artifacts/?123.txt"
 
             tool_executors = create_tool_executors(agent=mock_agent, arc="test")
             result = await execute_tool("share_artifact", tool_executors, content="test content")
 
-            assert result == "Artifact shared: https://example.com/artifacts/123.txt"
+            assert result == "Artifact shared: https://example.com/artifacts/?123.txt"
             mock_execute.assert_called_once_with(content="test content")
 
     @pytest.mark.asyncio
