@@ -578,73 +578,68 @@ class WebpageVisitorExecutor:
             self.artifact_store
             and self.artifact_store.artifacts_url
             and self.artifact_store.artifacts_path
+            and (filename := _extract_local_artifact_path(url, self.artifact_store.artifacts_url))
         ):
-            filename = _extract_local_artifact_path(url, self.artifact_store.artifacts_url)
-            if filename is None:
-                filename = ""
-            else:
-                # Direct file system access for local artifacts
-                logger.info(f"Using direct filesystem access for local artifact: {url}")
-                filepath = self.artifact_store.artifacts_path / filename
+            # Direct file system access for local artifacts
+            logger.info(f"Using direct filesystem access for local artifact: {url}")
+            filepath = self.artifact_store.artifacts_path / filename
 
-                # Resolve paths and validate no path traversal
-                try:
-                    # Resolve paths (non-strict to catch traversal even if target doesn't exist)
-                    resolved_path = filepath.resolve()
-                    artifacts_base = self.artifact_store.artifacts_path.resolve()
+            # Resolve paths and validate no path traversal
+            try:
+                # Resolve paths (non-strict to catch traversal even if target doesn't exist)
+                resolved_path = filepath.resolve()
+                artifacts_base = self.artifact_store.artifacts_path.resolve()
 
-                    # Validate containment
-                    if not resolved_path.is_relative_to(artifacts_base):
-                        raise ValueError("Path traversal detected")
+                # Validate containment
+                if not resolved_path.is_relative_to(artifacts_base):
+                    raise ValueError("Path traversal detected")
 
-                    # Check existence after validating path
-                    if not resolved_path.exists():
-                        raise ValueError("Artifact file not found")
+                # Check existence after validating path
+                if not resolved_path.exists():
+                    raise ValueError("Artifact file not found")
 
-                    # Check if it's an image file
-                    suffix = resolved_path.suffix.lower()
-                    if suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
-                        file_size = resolved_path.stat().st_size
-                        if file_size > self.max_image_size:
-                            raise ValueError(f"Image too large: {file_size} bytes")
-                        image_data = resolved_path.read_bytes()
-                        media_type = {
-                            ".png": "image/png",
-                            ".jpg": "image/jpeg",
-                            ".jpeg": "image/jpeg",
-                            ".gif": "image/gif",
-                            ".webp": "image/webp",
-                        }[suffix]
-                        logger.info(f"Read local image artifact: {filename}")
-                        return [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": media_type,
-                                    "data": base64.b64encode(image_data).decode(),
-                                },
-                            }
-                        ]
-
-                    # Text file handling
+                # Check if it's an image file
+                suffix = resolved_path.suffix.lower()
+                if suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
                     file_size = resolved_path.stat().st_size
-                    if file_size > self.max_content_length:
-                        content = resolved_path.read_text(encoding="utf-8")[
-                            : self.max_content_length
-                        ]
-                        logger.warning(
-                            f"Local artifact truncated from {file_size} to {self.max_content_length}"
-                        )
-                        return content + "\n\n..._Content truncated_..."
-                    else:
-                        content = resolved_path.read_text(encoding="utf-8")
+                    if file_size > self.max_image_size:
+                        raise ValueError(f"Image too large: {file_size} bytes")
+                    image_data = resolved_path.read_bytes()
+                    media_type = {
+                        ".png": "image/png",
+                        ".jpg": "image/jpeg",
+                        ".jpeg": "image/jpeg",
+                        ".gif": "image/gif",
+                        ".webp": "image/webp",
+                    }[suffix]
+                    logger.info(f"Read local image artifact: {filename}")
+                    return [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": base64.b64encode(image_data).decode(),
+                            },
+                        }
+                    ]
 
-                    logger.info(f"Read local artifact: {filename}")
-                    return content
-                except Exception as e:
-                    logger.error(f"Failed to read local artifact '{filename}': {e}")
-                    raise ValueError(f"Failed to read artifact: {e}") from e
+                # Text file handling
+                file_size = resolved_path.stat().st_size
+                if file_size > self.max_content_length:
+                    content = resolved_path.read_text(encoding="utf-8")[: self.max_content_length]
+                    logger.warning(
+                        f"Local artifact truncated from {file_size} to {self.max_content_length}"
+                    )
+                    return content + "\n\n..._Content truncated_..."
+                else:
+                    content = resolved_path.read_text(encoding="utf-8")
+
+                logger.info(f"Read local artifact: {filename}")
+                return content
+            except Exception as e:
+                logger.error(f"Failed to read local artifact '{filename}': {e}")
+                raise ValueError(f"Failed to read artifact: {e}") from e
 
         headers = resolve_http_headers(url, self.secrets)
         has_auth_headers = any(key.lower() != "user-agent" for key in headers)
