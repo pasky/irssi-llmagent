@@ -182,16 +182,14 @@ class RoomCommandHandler:
         if not item.completion.done():
             item.completion.set_exception(exc)
 
-    async def _enqueue_or_start_runner(
+    async def _enqueue_command_or_start_runner(
         self,
-        *,
-        kind: str,
         msg: RoomMessage,
-        trigger_message_id: int | None,
+        trigger_message_id: int,
         reply_sender: Callable[[str], Awaitable[None]],
     ) -> tuple[bool, SteeringKey, QueuedInboundMessage]:
         item = QueuedInboundMessage(
-            kind=kind,
+            kind="command",
             msg=msg,
             trigger_message_id=trigger_message_id,
             reply_sender=reply_sender,
@@ -205,29 +203,6 @@ class RoomCommandHandler:
                 return True, key, item
             session.queue.append(item)
             return False, key, item
-
-    async def _enqueue_if_session_active(
-        self,
-        *,
-        kind: str,
-        msg: RoomMessage,
-        trigger_message_id: int | None,
-        reply_sender: Callable[[str], Awaitable[None]],
-    ) -> QueuedInboundMessage | None:
-        item = QueuedInboundMessage(
-            kind=kind,
-            msg=msg,
-            trigger_message_id=trigger_message_id,
-            reply_sender=reply_sender,
-            completion=asyncio.get_running_loop().create_future(),
-        )
-        key = self._steering_key(msg)
-        async with self._steering_lock:
-            session = self._steering_sessions.get(key)
-            if session is None:
-                return None
-            session.queue.append(item)
-            return item
 
     async def _drain_steering_context_messages(self, key: SteeringKey) -> list[dict[str, str]]:
         """Drain currently queued inbound items into steering context."""
@@ -243,30 +218,44 @@ class RoomCommandHandler:
 
         return [self._steering_context_message(item.msg) for item in drained]
 
-    async def _take_followup_work(
+    async def _take_next_work_compacted(
         self, key: SteeringKey
-    ) -> tuple[list[QueuedInboundMessage], QueuedInboundMessage | None, bool]:
-        """Take followup work and atomically close session when fully idle.
+    ) -> tuple[
+        list[QueuedInboundMessage], QueuedInboundMessage | None, QueuedInboundMessage | None, bool
+    ]:
+        """Take next work item while compacting passive queue noise.
 
-        Returns: (passives_to_replay, next_command, is_closed)
+        Policy:
+          - If a command exists in queue: drop all passives before first command.
+          - If no command exists: keep only the last passive.
+
+        Returns: (dropped_items, next_command, next_passive, is_closed)
         """
         async with self._steering_lock:
             session = self._steering_sessions.get(key)
             if session is None:
-                return [], None, True
+                return [], None, None, True
 
-            passives: list[QueuedInboundMessage] = []
-            while session.queue and session.queue[0].kind == "passive":
-                passives.append(session.queue.pop(0))
+            if not session.queue:
+                self._steering_sessions.pop(key, None)
+                return [], None, None, True
 
-            if session.queue:
-                return passives, session.queue.pop(0), False
+            queue = session.queue
+            first_command_index = next(
+                (i for i, item in enumerate(queue) if item.kind == "command"),
+                None,
+            )
 
-            if passives:
-                return passives, None, False
+            if first_command_index is not None:
+                dropped = queue[:first_command_index]
+                next_command = queue[first_command_index]
+                session.queue = queue[first_command_index + 1 :]
+                return dropped, next_command, None, False
 
-            self._steering_sessions.pop(key, None)
-            return [], None, True
+            dropped = queue[:-1]
+            next_passive = queue[-1]
+            session.queue = []
+            return dropped, None, next_passive, False
 
     async def _abort_steering_session(
         self, key: SteeringKey, exc: BaseException
@@ -687,12 +676,7 @@ class RoomCommandHandler:
             self._get_proactive_channel_key(msg.server_tag, msg.channel_name)
         )
 
-        await self._run_or_queue_inbound(
-            kind="command",
-            msg=msg,
-            trigger_message_id=trigger_message_id,
-            reply_sender=reply_sender,
-        )
+        await self._run_or_queue_command(msg, trigger_message_id, reply_sender)
 
     async def _handle_command_core(
         self,
@@ -757,61 +741,65 @@ class RoomCommandHandler:
             msg.mynick, msg.server_tag, msg.channel_name, default_size
         )
 
-    async def _run_or_queue_inbound(
+    async def _run_or_queue_command(
         self,
-        *,
-        kind: str,
         msg: RoomMessage,
-        trigger_message_id: int | None,
+        trigger_message_id: int,
         reply_sender: Callable[[str], Awaitable[None]],
     ) -> None:
-        is_runner, steering_key, current_item = await self._enqueue_or_start_runner(
-            kind=kind,
-            msg=msg,
-            trigger_message_id=trigger_message_id,
-            reply_sender=reply_sender,
+        is_runner, steering_key, current_item = await self._enqueue_command_or_start_runner(
+            msg,
+            trigger_message_id,
+            reply_sender,
         )
 
         if not is_runner:
             await current_item.completion
             return
 
+        active_item = current_item
+
         try:
             while True:
-                if current_item.kind == "command":
-                    assert current_item.trigger_message_id is not None
-                    await self._handle_command_core(
-                        current_item.msg,
-                        current_item.trigger_message_id,
-                        current_item.reply_sender,
-                        steering_key,
-                    )
-                elif current_item.kind == "passive":
-                    await self._handle_passive_message_core(
-                        current_item.msg,
-                        current_item.reply_sender,
-                    )
-                else:
-                    raise ValueError(f"Unknown queued message kind {current_item.kind}")
-
-                self._finish_queued_item(current_item)
+                assert active_item.kind == "command"
+                assert active_item.trigger_message_id is not None
+                await self._handle_command_core(
+                    active_item.msg,
+                    active_item.trigger_message_id,
+                    active_item.reply_sender,
+                    steering_key,
+                )
+                self._finish_queued_item(active_item)
 
                 while True:
-                    passives, next_command, is_closed = await self._take_followup_work(steering_key)
+                    (
+                        dropped,
+                        next_command,
+                        next_passive,
+                        is_closed,
+                    ) = await self._take_next_work_compacted(steering_key)
 
-                    for passive in passives:
-                        await self._handle_passive_message_core(passive.msg, passive.reply_sender)
-                        self._finish_queued_item(passive)
+                    for item in dropped:
+                        self._finish_queued_item(item)
 
                     if next_command is not None:
-                        current_item = next_command
+                        active_item = next_command
                         break
+
+                    if next_passive is not None:
+                        active_item = next_passive
+                        await self._handle_passive_message_core(
+                            active_item.msg,
+                            active_item.reply_sender,
+                        )
+                        self._finish_queued_item(active_item)
+                        continue
 
                     if is_closed:
                         return
         except Exception as e:
             await self._abort_steering_session(steering_key, e)
-            self._fail_queued_item(current_item, e)
+            self._fail_queued_item(active_item, e)
             raise
 
     def _parse_prefix(self, message: str) -> ParsedPrefix:
@@ -875,14 +863,23 @@ class RoomCommandHandler:
         msg: RoomMessage,
         reply_sender: Callable[[str], Awaitable[None]],
     ) -> None:
-        queued = await self._enqueue_if_session_active(
-            kind="passive",
-            msg=msg,
-            trigger_message_id=None,
-            reply_sender=reply_sender,
-        )
-        if queued is not None:
-            await queued.completion
+        key = self._steering_key(msg)
+        queued_item: QueuedInboundMessage | None = None
+
+        async with self._steering_lock:
+            session = self._steering_sessions.get(key)
+            if session is not None:
+                queued_item = QueuedInboundMessage(
+                    kind="passive",
+                    msg=msg,
+                    trigger_message_id=None,
+                    reply_sender=reply_sender,
+                    completion=asyncio.get_running_loop().create_future(),
+                )
+                session.queue.append(queued_item)
+
+        if queued_item is not None:
+            await queued_item.completion
             return
 
         await self._handle_passive_message_core(msg, reply_sender)

@@ -383,8 +383,11 @@ async def test_subquest_finish_resumes_parent(shared_agent):
         await chapter_append_paragraph(arc, '<quest id="parent.child">Sub-task</quest>', agent)
 
         # Trigger child via heartbeat - child will finish and update DB
-        await agent.quests._heartbeat_tick()
-        await asyncio.sleep(0.05)
+        for _ in range(50):
+            await agent.quests._heartbeat_tick()
+            if "parent.child" in triggered_quest_ids:
+                break
+            await asyncio.sleep(0.02)
         assert "parent.child" in triggered_quest_ids
 
         # Parent should now be ONGOING again (child finished), heartbeat resumes it
