@@ -741,23 +741,54 @@ class RoomCommandHandler:
             msg.mynick, msg.server_tag, msg.channel_name, default_size
         )
 
+    async def _next_command_after_compaction(
+        self, steering_key: SteeringKey
+    ) -> QueuedInboundMessage | None:
+        """Compact queue noise, process last passive-only tail, return next command if any."""
+        while True:
+            (
+                dropped,
+                next_command,
+                next_passive,
+                is_closed,
+            ) = await self._take_next_work_compacted(steering_key)
+
+            for item in dropped:
+                self._finish_queued_item(item)
+
+            if next_command is not None:
+                return next_command
+
+            if next_passive is not None:
+                try:
+                    await self._handle_passive_message_core(
+                        next_passive.msg,
+                        next_passive.reply_sender,
+                    )
+                except Exception as e:
+                    self._fail_queued_item(next_passive, e)
+                    raise
+                self._finish_queued_item(next_passive)
+                continue
+
+            if is_closed:
+                return None
+
     async def _run_or_queue_command(
         self,
         msg: RoomMessage,
         trigger_message_id: int,
         reply_sender: Callable[[str], Awaitable[None]],
     ) -> None:
-        is_runner, steering_key, current_item = await self._enqueue_command_or_start_runner(
+        is_runner, steering_key, active_item = await self._enqueue_command_or_start_runner(
             msg,
             trigger_message_id,
             reply_sender,
         )
 
         if not is_runner:
-            await current_item.completion
+            await active_item.completion
             return
-
-        active_item = current_item
 
         try:
             while True:
@@ -771,32 +802,10 @@ class RoomCommandHandler:
                 )
                 self._finish_queued_item(active_item)
 
-                while True:
-                    (
-                        dropped,
-                        next_command,
-                        next_passive,
-                        is_closed,
-                    ) = await self._take_next_work_compacted(steering_key)
-
-                    for item in dropped:
-                        self._finish_queued_item(item)
-
-                    if next_command is not None:
-                        active_item = next_command
-                        break
-
-                    if next_passive is not None:
-                        active_item = next_passive
-                        await self._handle_passive_message_core(
-                            active_item.msg,
-                            active_item.reply_sender,
-                        )
-                        self._finish_queued_item(active_item)
-                        continue
-
-                    if is_closed:
-                        return
+                next_command = await self._next_command_after_compaction(steering_key)
+                if next_command is None:
+                    return
+                active_item = next_command
         except Exception as e:
             await self._abort_steering_session(steering_key, e)
             self._fail_queued_item(active_item, e)

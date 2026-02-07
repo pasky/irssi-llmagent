@@ -452,3 +452,137 @@ async def test_passive_without_session_does_not_block_command_runner(temp_config
 
     handler._handle_command_core.assert_awaited_once()
     handler._handle_passive_message_core.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_queue_compaction_drops_passives_before_command_and_keeps_tail_for_steering(
+    temp_config_file,
+):
+    agent = MuaddibAgent(temp_config_file)
+    await agent.history.initialize()
+    await agent.chronicle.initialize()
+
+    handler, sent, reply_sender = build_handler(agent)
+    handler.autochronicler.check_and_chronicle = AsyncMock(return_value=False)
+    handler._handle_passive_message_core = AsyncMock()
+
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    run_calls = {"count": 0}
+    injected_second: list[str] = []
+
+    async def fake_run_actor(*args, **kwargs):
+        run_calls["count"] += 1
+        if run_calls["count"] == 1:
+            first_started.set()
+            await release_first.wait()
+            return AgentResult(
+                text="first response",
+                total_input_tokens=0,
+                total_output_tokens=0,
+                total_cost=0.0,
+                tool_calls_count=0,
+                primary_model=None,
+            )
+
+        injected = await kwargs["steering_message_provider"]()
+        injected_second.extend(m["content"] for m in injected)
+        return AgentResult(
+            text="second response",
+            total_input_tokens=0,
+            total_output_tokens=0,
+            total_cost=0.0,
+            tool_calls_count=0,
+            primary_model=None,
+        )
+
+    handler._run_actor = AsyncMock(side_effect=fake_run_actor)
+
+    msg1 = RoomMessage("test", "#test", "user", "mybot", "!s first")
+    msg2 = RoomMessage("test", "#test", "user", "mybot", "p1")
+    msg3 = RoomMessage("test", "#test", "user", "mybot", "p2")
+    msg4 = RoomMessage("test", "#test", "user", "mybot", "!s second")
+    msg5 = RoomMessage("test", "#test", "user", "mybot", "p3")
+
+    id1 = await agent.history.add_message(msg1)
+    id4 = await agent.history.add_message(msg4)
+
+    t1 = asyncio.create_task(handler.handle_command(msg1, id1, reply_sender))
+    await first_started.wait()
+
+    p1 = asyncio.create_task(handler.handle_passive_message(msg2, reply_sender))
+    p2 = asyncio.create_task(handler.handle_passive_message(msg3, reply_sender))
+    c2 = asyncio.create_task(handler.handle_command(msg4, id4, reply_sender))
+    p3 = asyncio.create_task(handler.handle_passive_message(msg5, reply_sender))
+
+    release_first.set()
+    await asyncio.gather(t1, p1, p2, c2, p3)
+
+    assert run_calls["count"] == 2
+    assert injected_second == ["<user> p3"]
+    handler._handle_passive_message_core.assert_not_awaited()
+    assert sent == ["first response", "second response"]
+
+
+@pytest.mark.asyncio
+async def test_queue_compaction_passive_only_keeps_last(temp_config_file):
+    agent = MuaddibAgent(temp_config_file)
+    await agent.history.initialize()
+    await agent.chronicle.initialize()
+
+    handler, sent, reply_sender = build_handler(agent)
+    handler.autochronicler.check_and_chronicle = AsyncMock(return_value=False)
+
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    run_calls = {"count": 0}
+    seen_passives: list[str] = []
+
+    async def fake_run_actor(*args, **kwargs):
+        run_calls["count"] += 1
+        if run_calls["count"] == 1:
+            first_started.set()
+            await release_first.wait()
+        return AgentResult(
+            text="first response",
+            total_input_tokens=0,
+            total_output_tokens=0,
+            total_cost=0.0,
+            tool_calls_count=0,
+            primary_model=None,
+        )
+
+    async def fake_passive(msg, sender):
+        seen_passives.append(msg.content)
+
+    handler._run_actor = AsyncMock(side_effect=fake_run_actor)
+    handler._handle_passive_message_core = AsyncMock(side_effect=fake_passive)
+
+    msg1 = RoomMessage("test", "#test", "user", "mybot", "!s first")
+    id1 = await agent.history.add_message(msg1)
+
+    t1 = asyncio.create_task(handler.handle_command(msg1, id1, reply_sender))
+    await first_started.wait()
+
+    p1 = asyncio.create_task(
+        handler.handle_passive_message(
+            RoomMessage("test", "#test", "user", "mybot", "p1"), reply_sender
+        )
+    )
+    p2 = asyncio.create_task(
+        handler.handle_passive_message(
+            RoomMessage("test", "#test", "user", "mybot", "p2"), reply_sender
+        )
+    )
+    p3 = asyncio.create_task(
+        handler.handle_passive_message(
+            RoomMessage("test", "#test", "user", "mybot", "p3"), reply_sender
+        )
+    )
+
+    release_first.set()
+    await asyncio.gather(t1, p1, p2, p3)
+
+    assert run_calls["count"] == 1
+    assert seen_passives == ["p3"]
+    assert sent == ["first response"]
