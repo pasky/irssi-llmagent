@@ -206,6 +206,29 @@ class RoomCommandHandler:
             session.queue.append(item)
             return False, key, item
 
+    async def _enqueue_if_session_active(
+        self,
+        *,
+        kind: str,
+        msg: RoomMessage,
+        trigger_message_id: int | None,
+        reply_sender: Callable[[str], Awaitable[None]],
+    ) -> QueuedInboundMessage | None:
+        item = QueuedInboundMessage(
+            kind=kind,
+            msg=msg,
+            trigger_message_id=trigger_message_id,
+            reply_sender=reply_sender,
+            completion=asyncio.get_running_loop().create_future(),
+        )
+        key = self._steering_key(msg)
+        async with self._steering_lock:
+            session = self._steering_sessions.get(key)
+            if session is None:
+                return None
+            session.queue.append(item)
+            return item
+
     async def _drain_steering_context_messages(self, key: SteeringKey) -> list[dict[str, str]]:
         """Drain currently queued inbound items into steering context."""
         async with self._steering_lock:
@@ -659,6 +682,11 @@ class RoomCommandHandler:
         trigger_message_id: int,
         reply_sender: Callable[[str], Awaitable[None]],
     ) -> None:
+        # Cancel pending proactive checks immediately when explicit command arrives.
+        await self.proactive_debouncer.cancel_channel(
+            self._get_proactive_channel_key(msg.server_tag, msg.channel_name)
+        )
+
         await self._run_or_queue_inbound(
             kind="command",
             msg=msg,
@@ -847,12 +875,17 @@ class RoomCommandHandler:
         msg: RoomMessage,
         reply_sender: Callable[[str], Awaitable[None]],
     ) -> None:
-        await self._run_or_queue_inbound(
+        queued = await self._enqueue_if_session_active(
             kind="passive",
             msg=msg,
             trigger_message_id=None,
             reply_sender=reply_sender,
         )
+        if queued is not None:
+            await queued.completion
+            return
+
+        await self._handle_passive_message_core(msg, reply_sender)
 
     async def _handle_passive_message_core(
         self,

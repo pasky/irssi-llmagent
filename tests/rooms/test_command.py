@@ -398,3 +398,57 @@ async def test_steering_disabled_for_sarcastic_and_no_context(temp_config_file, 
 
     assert run_calls["count"] == 2
     assert sent == ["response-1", "response-2"]
+
+
+@pytest.mark.asyncio
+async def test_passive_without_session_does_not_block_command_runner(temp_config_file):
+    agent = MuaddibAgent(temp_config_file)
+    await agent.history.initialize()
+    await agent.chronicle.initialize()
+
+    handler, _, reply_sender = build_handler(agent)
+
+    passive_started = asyncio.Event()
+    release_passive = asyncio.Event()
+    command_started = asyncio.Event()
+
+    async def slow_passive(msg, sender):
+        passive_started.set()
+        await release_passive.wait()
+
+    async def fast_command(msg, trigger_message_id, sender, steering_key):
+        command_started.set()
+
+    handler._handle_passive_message_core = AsyncMock(side_effect=slow_passive)
+    handler._handle_command_core = AsyncMock(side_effect=fast_command)
+
+    passive_msg = RoomMessage(
+        server_tag="test",
+        channel_name="#test",
+        nick="user",
+        mynick="mybot",
+        content="just chatting",
+    )
+    command_msg = RoomMessage(
+        server_tag="test",
+        channel_name="#test",
+        nick="user",
+        mynick="mybot",
+        content="!s now",
+    )
+
+    command_id = await agent.history.add_message(command_msg)
+
+    passive_task = asyncio.create_task(handler.handle_passive_message(passive_msg, reply_sender))
+    await passive_started.wait()
+
+    command_task = asyncio.create_task(
+        handler.handle_command(command_msg, command_id, reply_sender)
+    )
+    await asyncio.wait_for(command_started.wait(), timeout=1.0)
+
+    release_passive.set()
+    await asyncio.gather(passive_task, command_task)
+
+    handler._handle_command_core.assert_awaited_once()
+    handler._handle_passive_message_core.assert_awaited_once()
