@@ -1729,36 +1729,37 @@ class ImageGenExecutor:
                 return url
 
             # Add slop watermark using ImageMagick
-            if self.store.artifacts_path:
-                file_id = url.split("/")[-1].rsplit(".", 1)[0]
-                filepath = self.store.artifacts_path / f"{file_id}{suffix}"
-                try:
-                    import subprocess
+            if self.store.artifacts_path and self.store.artifacts_url:
+                filename = _extract_local_artifact_path(url, self.store.artifacts_url)
+                if filename:
+                    filepath = self.store.artifacts_path / filename
+                    try:
+                        import subprocess
 
-                    subprocess.run(
-                        [
-                            "convert",
-                            str(filepath),
-                            "-gravity",
-                            "SouthEast",
-                            "-pointsize",
-                            "20",
-                            "-fill",
-                            "rgba(255,255,255,0.6)",
-                            "-stroke",
-                            "rgba(0,0,0,0.8)",
-                            "-strokewidth",
-                            "1",
-                            "-annotate",
-                            "+10+10",
-                            "🍌slop",
-                            str(filepath),
-                        ],
-                        check=True,
-                        capture_output=True,
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to add watermark to {filepath}: {e}")
+                        subprocess.run(
+                            [
+                                "convert",
+                                str(filepath),
+                                "-gravity",
+                                "SouthEast",
+                                "-pointsize",
+                                "20",
+                                "-fill",
+                                "rgba(255,255,255,0.6)",
+                                "-stroke",
+                                "rgba(0,0,0,0.8)",
+                                "-strokewidth",
+                                "1",
+                                "-annotate",
+                                "+10+10",
+                                "🍌slop",
+                                str(filepath),
+                            ],
+                            check=True,
+                            capture_output=True,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to add watermark to {filepath}: {e}")
 
             artifact_urls.append(url)
 

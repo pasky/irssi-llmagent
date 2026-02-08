@@ -9,6 +9,7 @@ from muaddib.agentic_actor.actor import AgentResult
 from muaddib.agentic_actor.tools import (
     CodeExecutorSprites,
     EditArtifactExecutor,
+    ImageGenExecutor,
     JinaSearchExecutor,
     OracleExecutor,
     ShareArtifactExecutor,
@@ -918,6 +919,59 @@ class TestToolExecutors:
         result = await executor.execute("test content")
 
         assert result.startswith("Error: Failed to create artifacts directory:")
+
+    @pytest.mark.asyncio
+    async def test_image_gen_watermark_uses_local_filename(self, tmp_path):
+        """Test image watermarking resolves viewer URLs to local filenames."""
+        import base64
+
+        mock_router = MagicMock()
+        mock_router.call_raw_with_model = AsyncMock(
+            return_value=(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "images": [
+                                    {
+                                        "image_url": {
+                                            "url": f"data:image/png;base64,{base64.b64encode(b'fakepng').decode()}"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                None,
+                None,
+                None,
+            )
+        )
+
+        config = {
+            "tools": {
+                "artifacts": {
+                    "path": str(tmp_path / "artifacts"),
+                    "url": "https://example.com/artifacts",
+                }
+            }
+        }
+        executor = ImageGenExecutor(router=mock_router, config=config)
+
+        with patch("subprocess.run") as mock_convert:
+            result = await executor.execute("draw a banana")
+
+        assert isinstance(result, list)
+        artifact_files = list((tmp_path / "artifacts").glob("*.png"))
+        assert len(artifact_files) == 1
+
+        expected_path = str(artifact_files[0])
+        convert_args = mock_convert.call_args.args[0]
+        assert convert_args[0] == "convert"
+        assert convert_args[1] == expected_path
+        assert convert_args[-1] == expected_path
+        assert "?" not in convert_args[1]
 
     @pytest.mark.asyncio
     async def test_webpage_visitor_local_artifact(self, artifact_store, webpage_visitor):
