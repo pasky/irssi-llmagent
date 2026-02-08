@@ -66,6 +66,23 @@ class IRCRoomMonitor:
         pattern = rf"^\s*(<?.*?>\s*)?{re.escape(mynick)}[,:]\s*(.*?)$"
         return re.match(pattern, message, re.IGNORECASE)
 
+    def _normalize_sender_and_message(self, nick: str, message: str) -> tuple[str, str]:
+        lowered = nick.lower()
+        if "bot" not in lowered and "bridge" not in lowered:
+            return nick, message
+
+        match = re.match(r"^\s*<([^>\n]+)>\s*(.*)$", message, re.DOTALL)
+        if not match:
+            return nick, message
+
+        bridged_nick = match.group(1).strip()
+        bridged_content = match.group(2).strip()
+        if not bridged_nick or not bridged_content:
+            return nick, message
+
+        logger.debug("Normalized bridged IRC sender %s -> %s", nick, bridged_nick)
+        return bridged_nick, bridged_content
+
     async def process_message_event(self, event: dict[str, Any]) -> None:
         """Process incoming IRC message events."""
         msg_type = event.get("type")
@@ -92,18 +109,22 @@ class IRCRoomMonitor:
         if not mynick:
             return
 
-        if self.command_handler.should_ignore_user(nick):
-            logger.debug("Ignoring user: %s", nick)
+        normalized_nick, normalized_message = self._normalize_sender_and_message(nick, message)
+
+        if self.command_handler.should_ignore_user(nick) or self.command_handler.should_ignore_user(
+            normalized_nick
+        ):
+            logger.debug("Ignoring user: %s (normalized: %s)", nick, normalized_nick)
             return
 
-        match = self._input_match(mynick, message)
+        match = self._input_match(mynick, normalized_message)
         is_private = subtype != "public"
         is_direct = bool(match) or is_private
 
         if match and match.group(1):
-            nick = match.group(1).strip("<> ")
+            normalized_nick = match.group(1).strip("<> ")
 
-        cleaned_msg = match.group(2) if match else message
+        cleaned_msg = match.group(2) if match else normalized_message
 
         async def reply_sender(text: str) -> None:
             await self.varlink_sender.send_message(chan_name, text, server)
@@ -111,15 +132,15 @@ class IRCRoomMonitor:
         msg = RoomMessage(
             server_tag=server,
             channel_name=chan_name,
-            nick=nick,
+            nick=normalized_nick,
             mynick=mynick,
-            content=cleaned_msg if is_direct else message,
+            content=cleaned_msg if is_direct else normalized_message,
         )
 
         trigger_message_id = await self.agent.history.add_message(msg)
 
         if is_direct:
-            with MessageLoggingContext(msg.arc, nick, message):
+            with MessageLoggingContext(msg.arc, normalized_nick, normalized_message):
                 await self.command_handler.handle_command(msg, trigger_message_id, reply_sender)
             return
 

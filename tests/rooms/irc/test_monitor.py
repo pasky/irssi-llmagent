@@ -99,3 +99,63 @@ class TestIRCMonitor:
 
         agent.irc_monitor.command_handler.handle_command.assert_not_called()
         agent.irc_monitor.command_handler.handle_passive_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_bridged_public_message_normalizes_sender_and_content(self, temp_config_file):
+        agent = MuaddibAgent(temp_config_file)
+        agent.irc_monitor.varlink_sender = AsyncMock()
+
+        await agent.history.initialize()
+        await agent.chronicle.initialize()
+
+        agent.irc_monitor.server_nicks["test"] = "mybot"
+        agent.irc_monitor.command_handler.handle_command = AsyncMock()
+        agent.irc_monitor.command_handler.handle_passive_message = AsyncMock()
+
+        event = {
+            "type": "message",
+            "subtype": "public",
+            "server": "test",
+            "target": "#test",
+            "nick": "telegramBotRelay",
+            "message": "<George> Near future, lidi maj zvlastni schopnosti.",
+        }
+
+        await agent.irc_monitor.process_message_event(event)
+
+        agent.irc_monitor.command_handler.handle_command.assert_not_called()
+        agent.irc_monitor.command_handler.handle_passive_message.assert_awaited_once()
+        passive_call = agent.irc_monitor.command_handler.handle_passive_message.await_args
+        assert passive_call is not None
+        called_msg = passive_call.args[0]
+        assert called_msg.nick == "George"
+        assert called_msg.content == "Near future, lidi maj zvlastni schopnosti."
+
+    @pytest.mark.asyncio
+    async def test_bridged_direct_message_normalizes_before_command_parsing(self, temp_config_file):
+        agent = MuaddibAgent(temp_config_file)
+        agent.irc_monitor.varlink_sender = AsyncMock()
+
+        await agent.history.initialize()
+        await agent.chronicle.initialize()
+
+        agent.irc_monitor.server_nicks["test"] = "mybot"
+        agent.irc_monitor.command_handler.handle_command = AsyncMock()
+
+        event = {
+            "type": "message",
+            "subtype": "public",
+            "server": "test",
+            "target": "#test",
+            "nick": "discord-bridge-helper",
+            "message": "<George> mybot: !s porad",
+        }
+
+        await agent.irc_monitor.process_message_event(event)
+
+        agent.irc_monitor.command_handler.handle_command.assert_awaited_once()
+        command_call = agent.irc_monitor.command_handler.handle_command.await_args
+        assert command_call is not None
+        called_msg = command_call.args[0]
+        assert called_msg.nick == "George"
+        assert called_msg.content == "!s porad"
