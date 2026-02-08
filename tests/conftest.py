@@ -69,7 +69,7 @@ def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict
                         },
                         "serious": {
                             "model": f"{api_type}:dummy-serious",
-                            "prompt": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. Test serious prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}, unsafe={unsafe_model}, thinking={thinking_model}.",
+                            "prompt": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. Test serious prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}, unsafe={unsafe_model}, thinking={!a_model}.",
                             "reasoning_effort": "low",
                             "steering": True,
                             "auto_reduce_context": True,

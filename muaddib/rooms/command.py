@@ -476,15 +476,22 @@ class RoomCommandHandler:
             )
             model_vars[f"{mode_key}_model"] = self._model_str_for_prompt(model_value)
 
-        thinking_trigger = self._trigger_map.get("!a")
-        thinking_model = None
-        if thinking_trigger is not None:
-            thinking_model = thinking_trigger.overrides.get("model")
-        model_vars.setdefault(
-            "thinking_model",
-            self._model_str_for_prompt(thinking_model)
-            if thinking_model
-            else model_vars.get("serious_model", ""),
+        trigger_model_vars: dict[str, str] = {}
+        for trigger, route in self._trigger_map.items():
+            mode_cfg = modes_config[route.mode_key]
+            trigger_model = route.overrides.get("model")
+            if trigger_model is None:
+                trigger_model = (
+                    model_override
+                    if route.mode_key == mode and model_override
+                    else mode_cfg["model"]
+                )
+            trigger_model_vars[trigger] = self._model_str_for_prompt(trigger_model)
+
+        prompt_template = re.sub(
+            r"\{(![A-Za-z][\w-]*)_model\}",
+            lambda match: trigger_model_vars.get(match.group(1), ""),
+            prompt_template,
         )
 
         return prompt_template.format(
