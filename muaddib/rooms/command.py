@@ -40,7 +40,7 @@ class QueuedInboundMessage:
 
 @dataclass
 class SteeringSession:
-    """In-flight steering session for a specific (arc, nick, thread)."""
+    """In-flight steering session for a specific steering key."""
 
     queue: list[QueuedInboundMessage]
 
@@ -139,7 +139,9 @@ class RoomCommandHandler:
         self.proactive_debouncer = ProactiveDebouncer(proactive_config["debounce_seconds"])
         self.autochronicler = AutoChronicler(self.agent.history, self)
 
-        # Active steering sessions keyed by (arc, nick_lower, thread_id)
+        # Active steering sessions keyed by:
+        # - non-threaded: (arc, nick_lower, None)
+        # - threaded: (arc, "*", thread_id)
         self._steering_sessions: dict[SteeringKey, SteeringSession] = {}
         self._steering_lock = asyncio.Lock()
 
@@ -166,7 +168,11 @@ class RoomCommandHandler:
 
     @staticmethod
     def _steering_key(msg: RoomMessage) -> SteeringKey:
-        return (msg.arc, msg.nick.lower(), msg.thread_id)
+        # Non-threaded steering stays scoped to same sender.
+        # In thread, steering is shared by thread participants.
+        if msg.thread_id is not None:
+            return (msg.arc, "*", msg.thread_id)
+        return (msg.arc, msg.nick.lower(), None)
 
     @staticmethod
     def _steering_context_message(msg: RoomMessage) -> dict[str, str]:

@@ -337,6 +337,134 @@ async def test_queued_followup_commands_collapse_to_single_followup_actor(temp_c
     assert sent == ["first response", "second response"]
 
 
+@pytest.mark.asyncio
+async def test_threaded_steering_shared_across_users(temp_config_file):
+    agent = MuaddibAgent(temp_config_file)
+    await agent.history.initialize()
+    await agent.chronicle.initialize()
+
+    handler, sent, reply_sender = build_handler(agent)
+    handler.autochronicler.check_and_chronicle = AsyncMock(return_value=False)
+
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    run_calls = {"count": 0}
+    injected_second: list[str] = []
+
+    async def fake_run_actor(*args, **kwargs):
+        run_calls["count"] += 1
+        if run_calls["count"] == 1:
+            first_started.set()
+            await release_first.wait()
+            return AgentResult(
+                text="first response",
+                total_input_tokens=0,
+                total_output_tokens=0,
+                total_cost=0.0,
+                tool_calls_count=0,
+                primary_model=None,
+            )
+
+        injected = await kwargs["steering_message_provider"]()
+        injected_second.extend(m["content"] for m in injected)
+        return AgentResult(
+            text="second response",
+            total_input_tokens=0,
+            total_output_tokens=0,
+            total_cost=0.0,
+            tool_calls_count=0,
+            primary_model=None,
+        )
+
+    handler._run_actor = AsyncMock(side_effect=fake_run_actor)
+
+    thread_id = "thread-1"
+    msg1 = RoomMessage("test", "#test", "alice", "mybot", "!s first", thread_id=thread_id)
+    msg2 = RoomMessage("test", "#test", "bob", "mybot", "!s second", thread_id=thread_id)
+    msg3 = RoomMessage("test", "#test", "carol", "mybot", "!s third", thread_id=thread_id)
+
+    id1 = await agent.history.add_message(msg1)
+    id2 = await agent.history.add_message(msg2)
+    id3 = await agent.history.add_message(msg3)
+
+    t1 = asyncio.create_task(handler.handle_command(msg1, id1, reply_sender))
+    await first_started.wait()
+
+    t2 = asyncio.create_task(handler.handle_command(msg2, id2, reply_sender))
+    t3 = asyncio.create_task(handler.handle_command(msg3, id3, reply_sender))
+
+    release_first.set()
+    await asyncio.gather(t1, t2, t3)
+
+    assert run_calls["count"] == 2
+    assert injected_second == ["<carol> !s third"]
+    assert sent == ["first response", "second response"]
+
+
+@pytest.mark.asyncio
+async def test_non_threaded_different_users_use_isolated_steering_sessions(temp_config_file):
+    agent = MuaddibAgent(temp_config_file)
+    await agent.history.initialize()
+    await agent.chronicle.initialize()
+
+    handler, _, reply_sender = build_handler(agent)
+    handler.autochronicler.check_and_chronicle = AsyncMock(return_value=False)
+
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    second_started = asyncio.Event()
+    run_calls = {"count": 0}
+    completions: list[str] = []
+
+    async def fake_run_actor(*args, **kwargs):
+        run_calls["count"] += 1
+        if run_calls["count"] == 1:
+            first_started.set()
+            await release_first.wait()
+            completions.append("first")
+            return AgentResult(
+                text="first response",
+                total_input_tokens=0,
+                total_output_tokens=0,
+                total_cost=0.0,
+                tool_calls_count=0,
+                primary_model=None,
+            )
+
+        second_started.set()
+        injected = await kwargs["steering_message_provider"]()
+        assert injected == []
+        completions.append("second")
+        return AgentResult(
+            text="second response",
+            total_input_tokens=0,
+            total_output_tokens=0,
+            total_cost=0.0,
+            tool_calls_count=0,
+            primary_model=None,
+        )
+
+    handler._run_actor = AsyncMock(side_effect=fake_run_actor)
+
+    msg1 = RoomMessage("test", "#test", "alice", "mybot", "!s first")
+    msg2 = RoomMessage("test", "#test", "bob", "mybot", "!s second")
+
+    id1 = await agent.history.add_message(msg1)
+    id2 = await agent.history.add_message(msg2)
+
+    t1 = asyncio.create_task(handler.handle_command(msg1, id1, reply_sender))
+    await first_started.wait()
+
+    t2 = asyncio.create_task(handler.handle_command(msg2, id2, reply_sender))
+    await asyncio.wait_for(second_started.wait(), timeout=1.0)
+
+    release_first.set()
+    await asyncio.gather(t1, t2)
+
+    assert run_calls["count"] == 2
+    assert completions[0] == "second"
+
+
 @pytest.mark.parametrize("command", ["!d be mean", "!c !s be concise"])
 @pytest.mark.asyncio
 async def test_steering_disabled_for_sarcastic_and_no_context(temp_config_file, command):
