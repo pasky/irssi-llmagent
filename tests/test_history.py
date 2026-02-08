@@ -270,18 +270,18 @@ class TestChatHistory:
         # Add user message (no mode)
         await history.add_message(make_msg(server, channel, "Tell me a joke", "user1", mynick))
 
-        # Add assistant responses with different modes
+        # Add assistant responses with different triggers
         await history.add_message(
-            make_msg(server, channel, "Why did the chicken...", mynick, mynick), mode="SARCASTIC"
+            make_msg(server, channel, "Why did the chicken...", mynick, mynick), mode="!d"
         )
         await history.add_message(
-            make_msg(server, channel, "Here's the answer", mynick, mynick), mode="EASY_SERIOUS"
+            make_msg(server, channel, "Here's the answer", mynick, mynick), mode="!s"
         )
         await history.add_message(
-            make_msg(server, channel, "Deep analysis", mynick, mynick), mode="THINKING_SERIOUS"
+            make_msg(server, channel, "Deep analysis", mynick, mynick), mode="!a"
         )
         await history.add_message(
-            make_msg(server, channel, "Unsafe response", mynick, mynick), mode="UNSAFE"
+            make_msg(server, channel, "Unsafe response", mynick, mynick), mode="!u"
         )
         # Assistant message without mode (legacy)
         await history.add_message(make_msg(server, channel, "No mode set", mynick, mynick))
@@ -314,10 +314,10 @@ class TestChatHistory:
     async def test_mode_to_prefix_helper(self):
         """Test the _mode_to_prefix static method."""
         assert ChatHistory._mode_to_prefix(None) == ""
-        assert ChatHistory._mode_to_prefix("SARCASTIC") == "!d "
-        assert ChatHistory._mode_to_prefix("EASY_SERIOUS") == "!s "
-        assert ChatHistory._mode_to_prefix("THINKING_SERIOUS") == "!a "
-        assert ChatHistory._mode_to_prefix("UNSAFE") == "!u "
+        assert ChatHistory._mode_to_prefix("!d") == "!d "
+        assert ChatHistory._mode_to_prefix("!s") == "!s "
+        assert ChatHistory._mode_to_prefix("!a") == "!a "
+        assert ChatHistory._mode_to_prefix("!u") == "!u "
         assert ChatHistory._mode_to_prefix("UNKNOWN") == ""
 
     @pytest.mark.asyncio

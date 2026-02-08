@@ -166,7 +166,7 @@ class MuaddibAgent:
         # Strip IRC-style leading prefixes from context-echoed outputs: [model], mode commands, timestamps, and non-quest tags like <nick>.
         # Never strip <quest> or <quest_finished> because those carry semantics for the chronicler.
         cleaned = re.sub(
-            r"^(?:\s*(?:\[[^\]]+\]\s*)?(?:![dsau]\s+)?(?:\[?\d{1,2}:\d{2}\]?\s*)?(?:<(?!/?quest(?:_finished)?\b)[^>]+>))*\s*",
+            r"^(?:\s*(?:\[[^\]]+\]\s*)?(?:![A-Za-z][\w-]*\s+)?(?:\[?\d{1,2}:\d{2}\]?\s*)?(?:<(?!/?quest(?:_finished)?\b)[^>]+>))*\s*",
             "",
             cleaned,
             flags=re.IGNORECASE,

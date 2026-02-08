@@ -72,7 +72,7 @@ async def test_discord_reply_mentions_author_and_strips_prefix(test_config):
     assert response_msg.channel_name == "pasky_1"
     assert response_msg.nick == "Muaddib"  # Bot is the sender for responses
     assert response_msg.content == "hello there"
-    assert response_call.kwargs["mode"] == "EASY_SERIOUS"
+    assert response_call.kwargs["mode"] == "!s"
 
 
 @pytest.mark.asyncio

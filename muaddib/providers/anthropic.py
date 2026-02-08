@@ -170,10 +170,13 @@ class BaseAnthropicAPIClient(BaseAPIClient):
 
                 self.logger.debug(f"{self.provider_name} response: {json.dumps(data, indent=2)}")
 
-                # Check for refusal and convert to error
+                # Check for refusal and convert to structured error
                 if data.get("stop_reason") == "refusal":
                     self.logger.warning(f"{self.provider_name} refusal detected")
-                    return {"error": "The AI refused to respond to this request (consider !u)"}
+                    return {
+                        "error": "The AI refused to respond to this request",
+                        "is_refusal": True,
+                    }
 
                 return data
 

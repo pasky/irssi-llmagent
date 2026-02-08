@@ -213,11 +213,7 @@ class ModelRouter:
 
     def _is_refusal(self, response: dict) -> bool:
         """Check if response is a content safety refusal."""
-        return (
-            isinstance(response, dict)
-            and "error" in response
-            and "(consider !u)" in response["error"]
-        )
+        return bool(isinstance(response, dict) and response.get("is_refusal"))
 
     async def call_raw_with_model(
         self,

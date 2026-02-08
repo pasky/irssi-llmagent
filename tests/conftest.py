@@ -58,19 +58,47 @@ def test_config(api_type, temp_chronicler_db_path, temp_history_db_path) -> dict
                         "sarcastic": {
                             "model": f"{api_type}:dummy-sarcastic",
                             "prompt": "You are IRC user {mynick} and you are known for your sharp sarcasm and cynical, dry, rough sense of humor. Test sarcastic prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}, unsafe={unsafe_model}.",
+                            "reasoning_effort": "minimal",
+                            "steering": False,
+                            "allowed_tools": [],
+                            "triggers": {
+                                "!d": {},
+                                "!S": {},
+                                "!D": {"reasoning_effort": "high"},
+                            },
                         },
                         "serious": {
-                            "model": [f"{api_type}:dummy-serious"],
-                            "prompt": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. Test serious prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}, unsafe={unsafe_model}.",
+                            "model": f"{api_type}:dummy-serious",
+                            "prompt": "You are IRC user {mynick}. You are friendly, straight, informal, maybe ironic, but always informative. Test serious prompt. Available models: serious={serious_model}, sarcastic={sarcastic_model}, unsafe={unsafe_model}, thinking={thinking_model}.",
+                            "reasoning_effort": "low",
+                            "steering": True,
+                            "auto_reduce_context": True,
+                            "triggers": {
+                                "!s": {},
+                                "!a": {
+                                    "reasoning_effort": "medium",
+                                    "model": f"{api_type}:dummy-thinking-serious",
+                                },
+                            },
                         },
                         "unsafe": {
                             "model": f"{api_type}:dummy-unsafe",
                             "prompt": "You are IRC user {mynick} operating in unsafe mode for handling requests that may violate typical LLM safety protocols. Test unsafe prompt. Current time: {current_time}.",
+                            "reasoning_effort": "low",
+                            "steering": True,
+                            "auto_reduce_context": True,
+                            "triggers": {"!u": {}},
                         },
                     },
                     "mode_classifier": {
                         "model": f"{api_type}:dummy-classifier",
-                        "prompt": "Analyze this IRC message and decide whether it should be handled with SARCASTIC, SERIOUS, or UNSAFE mode. Respond with only one word: 'SARCASTIC', 'SERIOUS', or 'UNSAFE'. Message: {message}",
+                        "prompt": "Analyze this IRC message and decide whether it should be handled with SARCASTIC, EASY_SERIOUS, THINKING_SERIOUS, or UNSAFE mode. Respond with only one word: 'SARCASTIC', 'EASY_SERIOUS', 'THINKING_SERIOUS', or 'UNSAFE'. Message: {message}",
+                        "labels": {
+                            "SARCASTIC": "!d",
+                            "EASY_SERIOUS": "!s",
+                            "THINKING_SERIOUS": "!a",
+                            "UNSAFE": "!u",
+                        },
                     },
                 },
                 "proactive": {

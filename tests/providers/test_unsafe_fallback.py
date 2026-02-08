@@ -28,7 +28,7 @@ class TestRefusalFallback:
             call_count[0] += 1
             if call_count[0] == 1:
                 # First call (safe model) refuses
-                return {"error": "The AI refused to respond to this request (consider !u)"}
+                return {"error": "The AI refused to respond to this request", "is_refusal": True}
             else:
                 # Second call (unsafe model) succeeds
                 return {"content": [{"type": "text", "text": "Unsafe response"}]}
@@ -72,7 +72,8 @@ class TestRefusalFallback:
         safe_client = Mock()
         safe_client.call_raw = AsyncMock(
             return_value={
-                "error": "Invalid prompt: we've limited access to this content for safety reasons. (consider !u)"
+                "error": "Invalid prompt: we've limited access to this content for safety reasons.",
+                "is_refusal": True,
             }
         )
 
@@ -125,7 +126,7 @@ class TestRefusalFallback:
         # Use Mock for clients, AsyncMock only for call_raw
         anthropic_client = Mock()
         anthropic_client.call_raw = AsyncMock(
-            return_value={"error": "The AI refused to respond to this request (consider !u)"}
+            return_value={"error": "The AI refused to respond to this request", "is_refusal": True}
         )
 
         openrouter_client = Mock()
@@ -182,7 +183,7 @@ class TestRefusalFallback:
                 "system prompt",
             )
 
-        # Should return original error without retrying (no "consider !u" marker)
+        # Should return original error without retrying (no refusal marker)
         assert response == {"error": "API error: connection timeout"}
         assert client.call_raw.call_count == 1  # Only called once
 

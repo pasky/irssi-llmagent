@@ -245,7 +245,10 @@ class BaseOpenAIClient(BaseAPIClient):
                         self.logger.warning(
                             f"{self.provider_name} content safety refusal: {error_message}"
                         )
-                        return {"error": f"{error_message} (consider !u)"}
+                        return {
+                            "error": error_message,
+                            "is_refusal": True,
+                        }
 
                 msg = repr(e)
                 self.logger.error(f"{self.provider_name} Chat Completion API error: {msg}")

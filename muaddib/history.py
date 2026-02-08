@@ -240,8 +240,8 @@ class ChatHistory:
     ) -> list[dict[str, str]]:
         """Get recent chat context for inference (limited by inference_limit or provided limit).
 
-        For assistant messages with auto-routed mode, inserts a mode command prefix
-        (e.g. !s for sarcastic) before the timestamp so models can learn/reproduce routing.
+        For assistant messages with stored trigger mode, inserts the command prefix
+        (e.g. !d / !s) before the timestamp so models can learn/reproduce routing.
         """
         inference_limit = limit if limit is not None else self.inference_limit
 
@@ -298,16 +298,12 @@ class ChatHistory:
 
     @staticmethod
     def _mode_to_prefix(mode: str | None) -> str:
-        """Convert internal mode name to IRC command prefix for context."""
+        """Convert stored trigger token to context prefix."""
         if not mode:
             return ""
-        mode_prefixes = {
-            "SARCASTIC": "!d ",
-            "EASY_SERIOUS": "!s ",
-            "THINKING_SERIOUS": "!a ",
-            "UNSAFE": "!u ",
-        }
-        return mode_prefixes.get(mode, "")
+        if mode.startswith("!"):
+            return f"{mode} "
+        return ""
 
     async def get_full_history(
         self, server_tag: str, channel_name: str, limit: int | None = None

@@ -475,7 +475,7 @@ class TestOpenAIContentSafetyRefusal:
             "Invalid prompt: we've limited access to this content for safety reasons."
             in response["error"]
         )
-        assert "(consider !u)" in response["error"]
+        assert response["is_refusal"] is True
 
     @pytest.mark.asyncio
     async def test_openai_other_errors_not_converted(self):
