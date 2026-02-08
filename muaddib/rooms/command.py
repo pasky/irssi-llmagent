@@ -220,25 +220,25 @@ class RoomCommandHandler:
 
     async def _take_next_work_compacted(
         self, key: SteeringKey
-    ) -> tuple[
-        list[QueuedInboundMessage], QueuedInboundMessage | None, QueuedInboundMessage | None, bool
-    ]:
+    ) -> tuple[list[QueuedInboundMessage], QueuedInboundMessage | None]:
         """Take next work item while compacting passive queue noise.
 
         Policy:
           - If a command exists in queue: drop all passives before first command.
           - If no command exists: keep only the last passive.
 
-        Returns: (dropped_items, next_command, next_passive, is_closed)
+        When nothing remains, the session is removed (closed).
+
+        Returns: (dropped_items, next_item_or_None)
         """
         async with self._steering_lock:
             session = self._steering_sessions.get(key)
             if session is None:
-                return [], None, None, True
+                return [], None
 
             if not session.queue:
                 self._steering_sessions.pop(key, None)
-                return [], None, None, True
+                return [], None
 
             queue = session.queue
             first_command_index = next(
@@ -248,14 +248,14 @@ class RoomCommandHandler:
 
             if first_command_index is not None:
                 dropped = queue[:first_command_index]
-                next_command = queue[first_command_index]
+                next_item = queue[first_command_index]
                 session.queue = queue[first_command_index + 1 :]
-                return dropped, next_command, None, False
+                return dropped, next_item
 
             dropped = queue[:-1]
-            next_passive = queue[-1]
+            next_item = queue[-1]
             session.queue = []
-            return dropped, None, next_passive, False
+            return dropped, next_item
 
     async def _abort_steering_session(
         self, key: SteeringKey, exc: BaseException
@@ -765,48 +765,20 @@ class RoomCommandHandler:
             msg.mynick, msg.server_tag, msg.channel_name, default_size
         )
 
-    async def _next_command_after_compaction(
-        self, steering_key: SteeringKey
-    ) -> QueuedInboundMessage | None:
-        """Compact queue noise, process passive tails, and return next command if any.
-
-        Locking model: queue selection/compaction is done under _steering_lock in
-        _take_next_work_compacted(). Long-running handlers are called without lock,
-        so new items may be enqueued while we process a kept passive tail.
-        """
-        while True:
-            dropped, next_command, next_passive, is_closed = await self._take_next_work_compacted(
-                steering_key
-            )
-
-            for item in dropped:
-                self._finish_queued_item(item)
-
-            if next_command is not None:
-                return next_command
-
-            if next_passive is not None:
-                try:
-                    await self._handle_passive_message_core(
-                        next_passive.msg,
-                        next_passive.reply_sender,
-                    )
-                except Exception as e:
-                    self._fail_queued_item(next_passive, e)
-                    raise
-                self._finish_queued_item(next_passive)
-                # Re-check queue because new items may have arrived meanwhile.
-                continue
-
-            if is_closed:
-                return None
-
     async def _run_or_queue_command(
         self,
         msg: RoomMessage,
         trigger_message_id: int,
         reply_sender: Callable[[str], Awaitable[None]],
     ) -> None:
+        """Run a steering-queue command, becoming the session runner if first.
+
+        Single loop processes both commands and compacted passive tails.
+        The lock is held only for brief queue mutation inside
+        _take_next_work_compacted(); long async handling runs unlocked,
+        so new items may arrive while processing. The loop naturally
+        re-checks after each item — no inner loop needed.
+        """
         is_runner, steering_key, active_item = await self._enqueue_command_or_start_runner(
             msg,
             trigger_message_id,
@@ -819,18 +791,24 @@ class RoomCommandHandler:
 
         try:
             while active_item is not None:
-                assert active_item.kind == "command"
-                assert active_item.trigger_message_id is not None
-                await self._handle_command_core(
-                    active_item.msg,
-                    active_item.trigger_message_id,
-                    active_item.reply_sender,
-                    steering_key,
-                )
+                if active_item.kind == "command":
+                    assert active_item.trigger_message_id is not None
+                    await self._handle_command_core(
+                        active_item.msg,
+                        active_item.trigger_message_id,
+                        active_item.reply_sender,
+                        steering_key,
+                    )
+                else:
+                    await self._handle_passive_message_core(
+                        active_item.msg,
+                        active_item.reply_sender,
+                    )
                 self._finish_queued_item(active_item)
 
-                active_item = await self._next_command_after_compaction(steering_key)
-            return
+                dropped, active_item = await self._take_next_work_compacted(steering_key)
+                for item in dropped:
+                    self._finish_queued_item(item)
         except Exception as e:
             await self._abort_steering_session(steering_key, e)
             if active_item is not None:
