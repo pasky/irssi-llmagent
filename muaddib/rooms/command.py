@@ -265,6 +265,61 @@ class RoomCommandHandler:
         except KeyError:
             raise ValueError(f"Channel mode '{mode_key}' has no configured trigger") from None
 
+    def _resolve_deterministic_channel_policy(self, policy: str) -> TriggerRoute | None:
+        if policy in self._trigger_map:
+            return self._resolve_trigger_route(policy)
+        if policy in self.command_config["modes"]:
+            return self._resolve_trigger_route(self._get_default_trigger_for_mode(policy))
+        return None
+
+    async def _resolve_policy_route(
+        self,
+        policy: str,
+        context: list[dict[str, str]],
+        default_size: int,
+    ) -> tuple[TriggerRoute, str]:
+        if policy == "classifier":
+            label = await self.classify_mode(context)
+            route = self._resolve_label_to_route(label)
+            return route, label
+
+        if policy.startswith("classifier:"):
+            constrained_mode = policy.split(":", 1)[1]
+            if constrained_mode not in self.command_config["modes"]:
+                raise ValueError(
+                    f"Unknown channel mode policy '{policy}': mode '{constrained_mode}' missing"
+                )
+            label = await self.classify_mode(context[-default_size:])
+            route = self._resolve_label_to_route(label)
+            if route.mode_key != constrained_mode:
+                route = self._resolve_trigger_route(
+                    self._get_default_trigger_for_mode(constrained_mode)
+                )
+                label = self._primary_label_by_trigger.get(route.trigger, route.trigger)
+            return route, label
+
+        deterministic_route = self._resolve_deterministic_channel_policy(policy)
+        if deterministic_route is not None:
+            label = self._primary_label_by_trigger.get(
+                deterministic_route.trigger, deterministic_route.trigger
+            )
+            return deterministic_route, label
+
+        raise ValueError(f"Unknown channel mode policy '{policy}'")
+
+    def _describe_channel_policy(self, policy: str, classifier_model: str) -> str:
+        if policy == "classifier":
+            return f"automatic mode ({classifier_model} decides)"
+        if policy.startswith("classifier:"):
+            constrained_mode = policy.split(":", 1)[1]
+            return f"automatic mode constrained to {constrained_mode}"
+        if policy in self._trigger_map:
+            route = self._resolve_trigger_route(policy)
+            return f"forced trigger {policy} ({route.mode_key})"
+        if policy in self.command_config["modes"]:
+            return f"{policy} mode"
+        return policy
+
     def _response_max_bytes(self) -> int:
         return int(self.command_config.get("response_max_bytes", 600))
 
@@ -420,11 +475,6 @@ class RoomCommandHandler:
                 model_override if mode_key == mode and model_override else mode_cfg["model"]
             )
             model_vars[f"{mode_key}_model"] = self._model_str_for_prompt(model_value)
-
-        # Compatibility placeholders commonly used by default prompts.
-        model_vars.setdefault("sarcastic_model", model_vars.get("sarcastic_model", ""))
-        model_vars.setdefault("serious_model", model_vars.get("serious_model", ""))
-        model_vars.setdefault("unsafe_model", model_vars.get("unsafe_model", ""))
 
         thinking_trigger = self._trigger_map.get("!a")
         thinking_model = None
@@ -830,12 +880,11 @@ class RoomCommandHandler:
             return not bool(runtime["steering"])
 
         channel_mode = self.get_channel_mode(msg.server_tag, msg.channel_name)
-        if channel_mode in self.command_config["modes"]:
-            default_trigger = self._get_default_trigger_for_mode(channel_mode)
-            route = self._resolve_trigger_route(default_trigger)
-            _, runtime, _ = self._mode_and_trigger_runtime(route)
-            return not bool(runtime["steering"])
-        return False
+        route = self._resolve_deterministic_channel_policy(channel_mode)
+        if route is None:
+            return False
+        _, runtime, _ = self._mode_and_trigger_runtime(route)
+        return not bool(runtime["steering"])
 
     async def _handle_command_core(
         self,
@@ -1086,10 +1135,7 @@ class RoomCommandHandler:
             logger.debug("Sending help message to %s", msg.nick)
             classifier_model = self.command_config["mode_classifier"]["model"]
             channel_mode = self.get_channel_mode(msg.server_tag, msg.channel_name)
-            if channel_mode == "classifier":
-                default_desc = f"automatic mode ({classifier_model} decides)"
-            else:
-                default_desc = f"{channel_mode} mode"
+            default_desc = self._describe_channel_policy(channel_mode, classifier_model)
 
             mode_parts: list[str] = []
             for mode_key, mode_cfg in modes_config.items():
@@ -1126,52 +1172,17 @@ class RoomCommandHandler:
         else:
             logger.debug("Processing automatic mode request from %s: %s", msg.nick, query_text)
             channel_mode = self.get_channel_mode(msg.server_tag, msg.channel_name)
-            if channel_mode == "serious":
-                selected_label = await self.classify_mode(context[-default_size:])
-                selected_route = self._resolve_label_to_route(selected_label)
-                logger.debug(
-                    "Auto-classified message as %s -> %s", selected_label, selected_route.trigger
-                )
-                if selected_route.mode_key == "sarcastic":
-                    selected_route = self._resolve_trigger_route(
-                        self._get_default_trigger_for_mode("serious")
-                    )
-                    selected_label = self._primary_label_by_trigger.get(
-                        selected_route.trigger, selected_route.trigger
-                    )
-                    logger.debug(
-                        "...but forcing channel-configured serious mode for %s", msg.channel_name
-                    )
-            elif channel_mode in {"sarcastic", "unsafe"}:
-                selected_route = self._resolve_trigger_route(
-                    self._get_default_trigger_for_mode(channel_mode)
-                )
-                selected_label = self._primary_label_by_trigger.get(
-                    selected_route.trigger, selected_route.trigger
-                )
-                logger.debug(
-                    "Using channel-configured %s mode for %s",
-                    channel_mode,
-                    msg.channel_name,
-                )
-            elif channel_mode in modes_config:
-                selected_route = self._resolve_trigger_route(
-                    self._get_default_trigger_for_mode(channel_mode)
-                )
-                selected_label = self._primary_label_by_trigger.get(
-                    selected_route.trigger, selected_route.trigger
-                )
-                logger.debug(
-                    "Using channel-configured custom mode %s for %s",
-                    channel_mode,
-                    msg.channel_name,
-                )
-            else:
-                selected_label = await self.classify_mode(context)
-                selected_route = self._resolve_label_to_route(selected_label)
-                logger.debug(
-                    "Auto-classified message as %s -> %s", selected_label, selected_route.trigger
-                )
+            selected_route, selected_label = await self._resolve_policy_route(
+                channel_mode,
+                context,
+                default_size,
+            )
+            logger.debug(
+                "Channel policy %s resolved as %s -> %s",
+                channel_mode,
+                selected_label,
+                selected_route.trigger,
+            )
 
         mode_key, runtime, mode_label = self._mode_and_trigger_runtime(selected_route)
         if selected_label == selected_route.trigger:

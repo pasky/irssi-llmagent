@@ -95,7 +95,7 @@
         "rate_limit": 30,
         "rate_period": 900,
         "debounce": 1.5,
-        "default_mode": "serious",
+        "default_mode": "classifier:serious",
         "modes": {
           "sarcastic": {
             "model": "openrouter:google/gemini-3-flash-preview",
