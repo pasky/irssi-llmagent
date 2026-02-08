@@ -400,6 +400,55 @@ async def test_steering_disabled_for_sarcastic_and_no_context(temp_config_file, 
     assert sent == ["response-1", "response-2"]
 
 
+@pytest.mark.parametrize("command", ["!d be mean", "!c !s no context"])
+@pytest.mark.asyncio
+async def test_sarcastic_and_no_context_bypass_queue_path(temp_config_file, command):
+    agent = MuaddibAgent(temp_config_file)
+    await agent.history.initialize()
+    await agent.chronicle.initialize()
+
+    handler, _, reply_sender = build_handler(agent)
+    handler._run_or_queue_command = AsyncMock()
+    handler._handle_command_core = AsyncMock()
+
+    msg = RoomMessage(
+        server_tag="test",
+        channel_name="#test",
+        nick="user",
+        mynick="mybot",
+        content=command,
+    )
+    trigger_message_id = await agent.history.add_message(msg)
+    await handler.handle_command(msg, trigger_message_id, reply_sender)
+
+    handler._run_or_queue_command.assert_not_awaited()
+    handler._handle_command_core.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_serious_command_uses_queue_path(temp_config_file):
+    agent = MuaddibAgent(temp_config_file)
+    await agent.history.initialize()
+    await agent.chronicle.initialize()
+
+    handler, _, reply_sender = build_handler(agent)
+    handler._run_or_queue_command = AsyncMock()
+    handler._handle_command_core = AsyncMock()
+
+    msg = RoomMessage(
+        server_tag="test",
+        channel_name="#test",
+        nick="user",
+        mynick="mybot",
+        content="!s hello",
+    )
+    trigger_message_id = await agent.history.add_message(msg)
+    await handler.handle_command(msg, trigger_message_id, reply_sender)
+
+    handler._run_or_queue_command.assert_awaited_once()
+    handler._handle_command_core.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_passive_without_session_does_not_block_command_runner(temp_config_file):
     agent = MuaddibAgent(temp_config_file)

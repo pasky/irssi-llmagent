@@ -676,7 +676,31 @@ class RoomCommandHandler:
             self._get_proactive_channel_key(msg.server_tag, msg.channel_name)
         )
 
+        if self._should_bypass_steering_queue(msg):
+            await self._handle_command_core(
+                msg,
+                trigger_message_id,
+                reply_sender,
+                self._steering_key(msg),
+            )
+            return
+
         await self._run_or_queue_command(msg, trigger_message_id, reply_sender)
+
+    def _should_bypass_steering_queue(self, msg: RoomMessage) -> bool:
+        """Return True for commands that should never participate in steering queue.
+
+        This covers explicit no-context and sarcastic command invocations.
+        """
+        parsed = self._parse_prefix(msg.content)
+        if parsed.error or parsed.no_context:
+            return True
+        if parsed.mode_token in {"!S", "!d", "!D", "!h"}:
+            return True
+        return (
+            parsed.mode_token is None
+            and self.get_channel_mode(msg.server_tag, msg.channel_name) == "sarcastic"
+        )
 
     async def _handle_command_core(
         self,
@@ -744,14 +768,16 @@ class RoomCommandHandler:
     async def _next_command_after_compaction(
         self, steering_key: SteeringKey
     ) -> QueuedInboundMessage | None:
-        """Compact queue noise, process last passive-only tail, return next command if any."""
+        """Compact queue noise, process passive tails, and return next command if any.
+
+        Locking model: queue selection/compaction is done under _steering_lock in
+        _take_next_work_compacted(). Long-running handlers are called without lock,
+        so new items may be enqueued while we process a kept passive tail.
+        """
         while True:
-            (
-                dropped,
-                next_command,
-                next_passive,
-                is_closed,
-            ) = await self._take_next_work_compacted(steering_key)
+            dropped, next_command, next_passive, is_closed = await self._take_next_work_compacted(
+                steering_key
+            )
 
             for item in dropped:
                 self._finish_queued_item(item)
@@ -769,6 +795,7 @@ class RoomCommandHandler:
                     self._fail_queued_item(next_passive, e)
                     raise
                 self._finish_queued_item(next_passive)
+                # Re-check queue because new items may have arrived meanwhile.
                 continue
 
             if is_closed:
@@ -791,7 +818,7 @@ class RoomCommandHandler:
             return
 
         try:
-            while True:
+            while active_item is not None:
                 assert active_item.kind == "command"
                 assert active_item.trigger_message_id is not None
                 await self._handle_command_core(
@@ -802,13 +829,12 @@ class RoomCommandHandler:
                 )
                 self._finish_queued_item(active_item)
 
-                next_command = await self._next_command_after_compaction(steering_key)
-                if next_command is None:
-                    return
-                active_item = next_command
+                active_item = await self._next_command_after_compaction(steering_key)
+            return
         except Exception as e:
             await self._abort_steering_session(steering_key, e)
-            self._fail_queued_item(active_item, e)
+            if active_item is not None:
+                self._fail_queued_item(active_item, e)
             raise
 
     def _parse_prefix(self, message: str) -> ParsedPrefix:
@@ -873,11 +899,12 @@ class RoomCommandHandler:
         reply_sender: Callable[[str], Awaitable[None]],
     ) -> None:
         key = self._steering_key(msg)
-        queued_item: QueuedInboundMessage | None = None
 
         async with self._steering_lock:
             session = self._steering_sessions.get(key)
-            if session is not None:
+            if session is None:
+                queued_item = None
+            else:
                 queued_item = QueuedInboundMessage(
                     kind="passive",
                     msg=msg,
@@ -887,11 +914,12 @@ class RoomCommandHandler:
                 )
                 session.queue.append(queued_item)
 
-        if queued_item is not None:
-            await queued_item.completion
+        if session is None:
+            await self._handle_passive_message_core(msg, reply_sender)
             return
 
-        await self._handle_passive_message_core(msg, reply_sender)
+        assert queued_item is not None
+        await queued_item.completion
 
     async def _handle_passive_message_core(
         self,

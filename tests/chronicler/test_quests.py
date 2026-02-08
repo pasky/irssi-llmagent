@@ -375,8 +375,11 @@ async def test_subquest_finish_resumes_parent(shared_agent):
         await chapter_append_paragraph(arc, '<quest id="parent">Main goal</quest>', agent)
 
         # Trigger parent via heartbeat
-        await agent.quests._heartbeat_tick()
-        await asyncio.sleep(0.05)
+        for _ in range(50):
+            await agent.quests._heartbeat_tick()
+            if "parent" in triggered_quest_ids:
+                break
+            await asyncio.sleep(0.02)
         assert "parent" in triggered_quest_ids
 
         # Create sub-quest
