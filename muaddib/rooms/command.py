@@ -469,13 +469,6 @@ class RoomCommandHandler:
         modes_config = self.command_config["modes"]
         prompt_vars = self.room_config.get("prompt_vars", {})
 
-        model_vars: dict[str, str] = {}
-        for mode_key, mode_cfg in modes_config.items():
-            model_value = (
-                model_override if mode_key == mode and model_override else mode_cfg["model"]
-            )
-            model_vars[f"{mode_key}_model"] = self._model_str_for_prompt(model_value)
-
         trigger_model_vars: dict[str, str] = {}
         for trigger, route in self._trigger_map.items():
             mode_cfg = modes_config[route.mode_key]
@@ -488,16 +481,23 @@ class RoomCommandHandler:
                 )
             trigger_model_vars[trigger] = self._model_str_for_prompt(trigger_model)
 
+        def replace_trigger_model(match: re.Match[str]) -> str:
+            trigger = match.group(1)
+            if trigger not in trigger_model_vars:
+                raise ValueError(
+                    f"Prompt placeholder '{{{trigger}_model}}' references unknown trigger"
+                )
+            return trigger_model_vars[trigger]
+
         prompt_template = re.sub(
             r"\{(![A-Za-z][\w-]*)_model\}",
-            lambda match: trigger_model_vars.get(match.group(1), ""),
+            replace_trigger_model,
             prompt_template,
         )
 
         return prompt_template.format(
             mynick=mynick,
             current_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
-            **model_vars,
             **prompt_vars,
         )
 
