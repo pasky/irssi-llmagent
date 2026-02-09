@@ -56,15 +56,6 @@ class ParsedPrefix:
     error: str | None = None
 
 
-@dataclass(frozen=True)
-class TriggerRoute:
-    """Resolved trigger route with mode key and trigger-specific overrides."""
-
-    mode_key: str
-    trigger: str
-    overrides: dict[str, Any]
-
-
 class ResponseCleaner(Protocol):
     """Optional response cleanup hook."""
 
@@ -141,12 +132,39 @@ class RoomCommandHandler:
         command_config = self.room_config["command"]
         proactive_config = self.room_config["proactive"]
 
-        self._trigger_map = self._build_trigger_map(command_config)
-        self._default_trigger_by_mode = self._build_default_trigger_map(command_config)
-        self._classifier_label_to_trigger = self._build_classifier_label_map(command_config)
-        self._primary_label_by_trigger = self._build_primary_label_by_trigger(
-            self._classifier_label_to_trigger
-        )
+        self._trigger_to_mode: dict[str, str] = {}
+        self._trigger_overrides: dict[str, dict[str, Any]] = {}
+        self._default_trigger_by_mode: dict[str, str] = {}
+
+        for mode_key, mode_cfg in command_config.get("modes", {}).items():
+            triggers = mode_cfg.get("triggers", {})
+            if not triggers:
+                raise ValueError(f"Mode '{mode_key}' must define at least one trigger")
+            self._default_trigger_by_mode[mode_key] = next(iter(triggers))
+            for trigger, overrides in triggers.items():
+                if trigger in self._trigger_to_mode:
+                    raise ValueError(f"Duplicate trigger '{trigger}' in command mode config")
+                if not isinstance(trigger, str) or not trigger.startswith("!"):
+                    raise ValueError(f"Invalid trigger '{trigger}' for mode '{mode_key}'")
+                self._trigger_to_mode[trigger] = mode_key
+                self._trigger_overrides[trigger] = overrides or {}
+
+        labels = command_config.get("mode_classifier", {}).get("labels", {})
+        if not labels:
+            raise ValueError("command.mode_classifier.labels must not be empty")
+        for label, trigger in labels.items():
+            if trigger not in self._trigger_to_mode:
+                raise ValueError(
+                    f"Classifier label '{label}' points to unknown trigger '{trigger}'"
+                )
+        self._classifier_label_to_trigger = labels
+        self._fallback_classifier_label = command_config.get("mode_classifier", {}).get(
+            "fallback_label"
+        ) or next(iter(labels))
+        if self._fallback_classifier_label not in labels:
+            raise ValueError(
+                f"Classifier fallback label '{self._fallback_classifier_label}' is not defined"
+            )
 
         self.rate_limiter = RateLimiter(command_config["rate_limit"], command_config["rate_period"])
         self.proactive_rate_limiter = RateLimiter(
@@ -169,156 +187,34 @@ class RoomCommandHandler:
     def proactive_config(self) -> dict[str, Any]:
         return self.room_config["proactive"]
 
-    @staticmethod
-    def _build_trigger_map(command_config: dict[str, Any]) -> dict[str, TriggerRoute]:
-        trigger_map: dict[str, TriggerRoute] = {}
-        modes = command_config.get("modes", {})
-        for mode_key, mode_cfg in modes.items():
-            triggers = mode_cfg.get("triggers", {})
-            if not triggers:
-                raise ValueError(f"Mode '{mode_key}' must define at least one trigger")
-            for trigger, overrides in triggers.items():
-                if trigger in trigger_map:
-                    raise ValueError(f"Duplicate trigger '{trigger}' in command mode config")
-                if not isinstance(trigger, str) or not trigger.startswith("!"):
-                    raise ValueError(f"Invalid trigger '{trigger}' for mode '{mode_key}'")
-                trigger_map[trigger] = TriggerRoute(
-                    mode_key=mode_key,
-                    trigger=trigger,
-                    overrides=overrides or {},
-                )
-        return trigger_map
+    def _runtime_for_trigger(self, trigger: str) -> tuple[str, dict[str, Any]]:
+        mode_key = self._trigger_to_mode.get(trigger)
+        if mode_key is None:
+            raise ValueError(f"Unknown trigger '{trigger}'")
 
-    @staticmethod
-    def _build_default_trigger_map(command_config: dict[str, Any]) -> dict[str, str]:
-        defaults: dict[str, str] = {}
-        modes = command_config.get("modes", {})
-        for mode_key, mode_cfg in modes.items():
-            triggers = mode_cfg.get("triggers", {})
-            defaults[mode_key] = next(iter(triggers))
-        return defaults
-
-    def _build_classifier_label_map(self, command_config: dict[str, Any]) -> dict[str, str]:
-        labels = command_config.get("mode_classifier", {}).get("labels", {})
-        if not labels:
-            raise ValueError("command.mode_classifier.labels must not be empty")
-        for label, trigger in labels.items():
-            if trigger not in self._trigger_map:
-                raise ValueError(
-                    f"Classifier label '{label}' points to unknown trigger '{trigger}'"
-                )
-        return labels
-
-    @staticmethod
-    def _build_primary_label_by_trigger(label_map: dict[str, str]) -> dict[str, str]:
-        primary: dict[str, str] = {}
-        for label, trigger in label_map.items():
-            primary.setdefault(trigger, label)
-        return primary
-
-    def _classifier_fallback_label(self) -> str:
-        configured = self.command_config.get("mode_classifier", {}).get("fallback_label")
-        if configured:
-            return configured
-        return next(iter(self._classifier_label_to_trigger))
-
-    def _resolve_trigger_route(self, trigger: str) -> TriggerRoute:
-        try:
-            return self._trigger_map[trigger]
-        except KeyError:
-            raise ValueError(f"Unknown trigger '{trigger}'") from None
-
-    def _resolve_label_to_route(self, label: str) -> TriggerRoute:
-        trigger = self._classifier_label_to_trigger.get(label)
-        if trigger is None:
-            fallback = self._classifier_fallback_label()
-            logger.warning("Unknown classifier label '%s', using fallback '%s'", label, fallback)
-            trigger = self._classifier_label_to_trigger[fallback]
-        return self._resolve_trigger_route(trigger)
-
-    def _mode_and_trigger_runtime(self, route: TriggerRoute) -> tuple[str, dict[str, Any], str]:
-        mode_cfg = self.command_config["modes"][route.mode_key]
-        reasoning_effort = route.overrides.get(
-            "reasoning_effort", mode_cfg.get("reasoning_effort", "minimal")
-        )
+        mode_cfg = self.command_config["modes"][mode_key]
+        overrides = self._trigger_overrides[trigger]
         runtime = {
-            "reasoning_effort": reasoning_effort,
-            "allowed_tools": route.overrides.get("allowed_tools", mode_cfg.get("allowed_tools")),
-            "steering": route.overrides.get("steering", mode_cfg.get("steering", True)),
-            "model": route.overrides.get("model"),
+            "reasoning_effort": overrides.get(
+                "reasoning_effort", mode_cfg.get("reasoning_effort", "minimal")
+            ),
+            "allowed_tools": overrides.get("allowed_tools", mode_cfg.get("allowed_tools")),
+            "steering": overrides.get("steering", mode_cfg.get("steering", True)),
+            "model": overrides.get("model"),
             "history_size": int(mode_cfg.get("history_size", self.command_config["history_size"])),
         }
-        mode_label = self._primary_label_by_trigger.get(route.trigger, route.trigger)
-        return route.mode_key, runtime, mode_label
+        return mode_key, runtime
 
-    @staticmethod
-    def _model_str_for_prompt(model: Any) -> str:
-        if isinstance(model, list):
-            if not model:
-                return ""
-            return model_str_core(model[0])
-        return model_str_core(model)
-
-    def _get_default_trigger_for_mode(self, mode_key: str) -> str:
-        try:
-            return self._default_trigger_by_mode[mode_key]
-        except KeyError:
-            raise ValueError(f"Channel mode '{mode_key}' has no configured trigger") from None
-
-    def _resolve_deterministic_channel_policy(self, policy: str) -> TriggerRoute | None:
-        if policy in self._trigger_map:
-            return self._resolve_trigger_route(policy)
-        if policy in self.command_config["modes"]:
-            return self._resolve_trigger_route(self._get_default_trigger_for_mode(policy))
-        return None
-
-    async def _resolve_policy_route(
-        self,
-        policy: str,
-        context: list[dict[str, str]],
-        default_size: int,
-    ) -> tuple[TriggerRoute, str]:
-        if policy == "classifier":
-            label = await self.classify_mode(context)
-            route = self._resolve_label_to_route(label)
-            return route, label
-
-        if policy.startswith("classifier:"):
-            constrained_mode = policy.split(":", 1)[1]
-            if constrained_mode not in self.command_config["modes"]:
-                raise ValueError(
-                    f"Unknown channel mode policy '{policy}': mode '{constrained_mode}' missing"
-                )
-            label = await self.classify_mode(context[-default_size:])
-            route = self._resolve_label_to_route(label)
-            if route.mode_key != constrained_mode:
-                route = self._resolve_trigger_route(
-                    self._get_default_trigger_for_mode(constrained_mode)
-                )
-                label = self._primary_label_by_trigger.get(route.trigger, route.trigger)
-            return route, label
-
-        deterministic_route = self._resolve_deterministic_channel_policy(policy)
-        if deterministic_route is not None:
-            label = self._primary_label_by_trigger.get(
-                deterministic_route.trigger, deterministic_route.trigger
+    def _trigger_for_label(self, label: str) -> str:
+        trigger = self._classifier_label_to_trigger.get(label)
+        if trigger is None:
+            logger.warning(
+                "Unknown classifier label '%s', using fallback '%s'",
+                label,
+                self._fallback_classifier_label,
             )
-            return deterministic_route, label
-
-        raise ValueError(f"Unknown channel mode policy '{policy}'")
-
-    def _describe_channel_policy(self, policy: str, classifier_model: str) -> str:
-        if policy == "classifier":
-            return f"automatic mode ({classifier_model} decides)"
-        if policy.startswith("classifier:"):
-            constrained_mode = policy.split(":", 1)[1]
-            return f"automatic mode constrained to {constrained_mode}"
-        if policy in self._trigger_map:
-            route = self._resolve_trigger_route(policy)
-            return f"forced trigger {policy} ({route.mode_key})"
-        if policy in self.command_config["modes"]:
-            return f"{policy} mode"
-        return policy
+            return self._classifier_label_to_trigger[self._fallback_classifier_label]
+        return trigger
 
     def _response_max_bytes(self) -> int:
         return int(self.command_config.get("response_max_bytes", 600))
@@ -469,17 +365,20 @@ class RoomCommandHandler:
         modes_config = self.command_config["modes"]
         prompt_vars = self.room_config.get("prompt_vars", {})
 
+        def model_var(value: Any) -> str:
+            if isinstance(value, list):
+                return model_str_core(value[0]) if value else ""
+            return model_str_core(value)
+
         trigger_model_vars: dict[str, str] = {}
-        for trigger, route in self._trigger_map.items():
-            mode_cfg = modes_config[route.mode_key]
-            trigger_model = route.overrides.get("model")
+        for trigger, mode_key in self._trigger_to_mode.items():
+            mode_cfg = modes_config[mode_key]
+            trigger_model = self._trigger_overrides[trigger].get("model")
             if trigger_model is None:
                 trigger_model = (
-                    model_override
-                    if route.mode_key == mode and model_override
-                    else mode_cfg["model"]
+                    model_override if mode_key == mode and model_override else mode_cfg["model"]
                 )
-            trigger_model_vars[trigger] = self._model_str_for_prompt(trigger_model)
+            trigger_model_vars[trigger] = model_var(trigger_model)
 
         def replace_trigger_model(match: re.Match[str]) -> str:
             trigger = match.group(1)
@@ -540,13 +439,12 @@ class RoomCommandHandler:
             }
             best_label, best_count = max(counts.items(), key=lambda item: item[1])
             if best_count == 0:
-                fallback = self._classifier_fallback_label()
                 logger.warning("Invalid mode classification response: %s", response)
-                return fallback
+                return self._fallback_classifier_label
             return best_label
         except Exception as e:
             logger.error("Error classifying mode: %s", e)
-            return self._classifier_fallback_label()
+            return self._fallback_classifier_label
 
     async def should_interject_proactively(
         self, context: list[dict[str, str]]
@@ -677,10 +575,8 @@ class RoomCommandHandler:
 
             channel_key = self._get_proactive_channel_key(msg.server_tag, msg.channel_name)
             classified_label = await self.classify_mode(context)
-            classified_route = self._resolve_label_to_route(classified_label)
-            classified_mode_key, classified_runtime, _ = self._mode_and_trigger_runtime(
-                classified_route
-            )
+            classified_trigger = self._trigger_for_label(classified_label)
+            classified_mode_key, classified_runtime = self._runtime_for_trigger(classified_trigger)
             if classified_mode_key != "serious":
                 test_channels = self.agent.config.get("behavior", {}).get(
                     "proactive_interjecting_test", []
@@ -691,7 +587,7 @@ class RoomCommandHandler:
                     "%sProactive interjection suggested but not serious mode: %s (%s). Reason: %s",
                     mode_desc,
                     classified_label,
-                    classified_route.trigger,
+                    classified_trigger,
                     reason,
                 )
                 return
@@ -742,13 +638,13 @@ class RoomCommandHandler:
                 logger.info(
                     "Sending proactive agent (%s/%s) response to %s: %s",
                     classified_label,
-                    classified_route.trigger,
+                    classified_trigger,
                     msg.channel_name,
                     response_text,
                 )
                 await reply_sender(response_text)
                 response_msg = dataclasses.replace(msg, nick=msg.mynick, content=response_text)
-                await self.agent.history.add_message(response_msg, mode=classified_route.trigger)
+                await self.agent.history.add_message(response_msg, mode=classified_trigger)
                 await self.autochronicler.check_and_chronicle(
                     msg.mynick,
                     msg.server_tag,
@@ -882,16 +778,18 @@ class RoomCommandHandler:
         if parsed.mode_token == HELP_TOKEN:
             return True
         if parsed.mode_token is not None:
-            route = self._resolve_trigger_route(parsed.mode_token)
-            _, runtime, _ = self._mode_and_trigger_runtime(route)
+            _, runtime = self._runtime_for_trigger(parsed.mode_token)
             return not bool(runtime["steering"])
 
         channel_mode = self.get_channel_mode(msg.server_tag, msg.channel_name)
-        route = self._resolve_deterministic_channel_policy(channel_mode)
-        if route is None:
-            return False
-        _, runtime, _ = self._mode_and_trigger_runtime(route)
-        return not bool(runtime["steering"])
+        if channel_mode in self._trigger_to_mode:
+            _, runtime = self._runtime_for_trigger(channel_mode)
+            return not bool(runtime["steering"])
+        if channel_mode in self.command_config["modes"]:
+            default_trigger = self._default_trigger_by_mode[channel_mode]
+            _, runtime = self._runtime_for_trigger(default_trigger)
+            return not bool(runtime["steering"])
+        return False
 
     async def _handle_command_core(
         self,
@@ -1033,7 +931,7 @@ class RoomCommandHandler:
                 consumed = i + 1
                 continue
 
-            if tok in self._trigger_map or tok == HELP_TOKEN:
+            if tok in self._trigger_to_mode or tok == HELP_TOKEN:
                 if mode_token is not None:
                     error = "Only one mode command allowed."
                     break
@@ -1142,14 +1040,26 @@ class RoomCommandHandler:
             logger.debug("Sending help message to %s", msg.nick)
             classifier_model = self.command_config["mode_classifier"]["model"]
             channel_mode = self.get_channel_mode(msg.server_tag, msg.channel_name)
-            default_desc = self._describe_channel_policy(channel_mode, classifier_model)
+            if channel_mode == "classifier":
+                default_desc = f"automatic mode ({classifier_model} decides)"
+            elif channel_mode.startswith("classifier:"):
+                default_desc = f"automatic mode constrained to {channel_mode.split(':', 1)[1]}"
+            elif channel_mode in self._trigger_to_mode:
+                default_desc = (
+                    f"forced trigger {channel_mode} ({self._trigger_to_mode[channel_mode]})"
+                )
+            else:
+                default_desc = f"{channel_mode} mode"
 
             mode_parts: list[str] = []
             for mode_key, mode_cfg in modes_config.items():
                 trigger_list = list(mode_cfg.get("triggers", {}).keys())
                 if not trigger_list:
                     continue
-                model_desc = self._model_str_for_prompt(mode_cfg.get("model"))
+                model_value = mode_cfg.get("model")
+                if isinstance(model_value, list):
+                    model_value = model_value[0] if model_value else ""
+                model_desc = model_str_core(model_value) if model_value else ""
                 mode_parts.append(f"{'/'.join(trigger_list)} = {mode_key} ({model_desc})")
 
             help_msg = (
@@ -1161,39 +1071,55 @@ class RoomCommandHandler:
             await self.agent.history.add_message(response_msg)
             return
 
-        selected_route: TriggerRoute
+        selected_trigger: str
         selected_label: str
 
         if parsed.mode_token:
-            selected_route = self._resolve_trigger_route(parsed.mode_token)
-            selected_label = self._primary_label_by_trigger.get(
-                selected_route.trigger, selected_route.trigger
-            )
+            selected_trigger = parsed.mode_token
+            mode_key, _ = self._runtime_for_trigger(selected_trigger)
+            selected_label = selected_trigger
             logger.debug(
                 "Processing explicit trigger %s (%s) from %s: %s",
-                selected_route.trigger,
-                selected_route.mode_key,
+                selected_trigger,
+                mode_key,
                 msg.nick,
                 query_text,
             )
         else:
             logger.debug("Processing automatic mode request from %s: %s", msg.nick, query_text)
             channel_mode = self.get_channel_mode(msg.server_tag, msg.channel_name)
-            selected_route, selected_label = await self._resolve_policy_route(
-                channel_mode,
-                context,
-                default_size,
-            )
+            if channel_mode == "classifier":
+                selected_label = await self.classify_mode(context)
+                selected_trigger = self._trigger_for_label(selected_label)
+            elif channel_mode.startswith("classifier:"):
+                constrained_mode = channel_mode.split(":", 1)[1]
+                if constrained_mode not in modes_config:
+                    raise ValueError(
+                        f"Unknown channel mode policy '{channel_mode}': mode '{constrained_mode}' missing"
+                    )
+                selected_label = await self.classify_mode(context[-default_size:])
+                selected_trigger = self._trigger_for_label(selected_label)
+                selected_mode_key, _ = self._runtime_for_trigger(selected_trigger)
+                if selected_mode_key != constrained_mode:
+                    selected_trigger = self._default_trigger_by_mode[constrained_mode]
+                    selected_label = selected_trigger
+            elif channel_mode in self._trigger_to_mode:
+                selected_trigger = channel_mode
+                selected_label = selected_trigger
+            elif channel_mode in modes_config:
+                selected_trigger = self._default_trigger_by_mode[channel_mode]
+                selected_label = selected_trigger
+            else:
+                raise ValueError(f"Unknown channel mode policy '{channel_mode}'")
+
             logger.debug(
                 "Channel policy %s resolved as %s -> %s",
                 channel_mode,
                 selected_label,
-                selected_route.trigger,
+                selected_trigger,
             )
 
-        mode_key, runtime, mode_label = self._mode_and_trigger_runtime(selected_route)
-        if selected_label == selected_route.trigger:
-            selected_label = mode_label
+        mode_key, runtime = self._runtime_for_trigger(selected_trigger)
 
         steering_enabled = bool(runtime["steering"]) and not no_context
 
@@ -1239,7 +1165,7 @@ class RoomCommandHandler:
             logger.info(
                 "Sending %s/%s response (%s) to %s: %s",
                 selected_label,
-                selected_route.trigger,
+                selected_trigger,
                 cost_str,
                 msg.channel_name,
                 response_text,
@@ -1266,7 +1192,7 @@ class RoomCommandHandler:
             response_msg = dataclasses.replace(msg, nick=msg.mynick, content=response_text)
             response_message_id = await self.agent.history.add_message(
                 response_msg,
-                mode=selected_route.trigger,
+                mode=selected_trigger,
                 llm_call_id=llm_call_id,
             )
             if llm_call_id:
@@ -1301,6 +1227,6 @@ class RoomCommandHandler:
             logger.info(
                 "Agent in %s/%s mode chose not to answer for %s",
                 selected_label,
-                selected_route.trigger,
+                selected_trigger,
                 msg.channel_name,
             )
