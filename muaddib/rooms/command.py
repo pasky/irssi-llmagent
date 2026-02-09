@@ -782,12 +782,11 @@ class RoomCommandHandler:
             return not bool(runtime["steering"])
 
         channel_mode = self.get_channel_mode(msg.server_tag, msg.channel_name)
-        if channel_mode in self._trigger_to_mode:
-            _, runtime = self._runtime_for_trigger(channel_mode)
-            return not bool(runtime["steering"])
-        if channel_mode in self.command_config["modes"]:
-            default_trigger = self._default_trigger_by_mode[channel_mode]
-            _, runtime = self._runtime_for_trigger(default_trigger)
+        trigger = channel_mode
+        if trigger not in self._trigger_to_mode and trigger in self.command_config["modes"]:
+            trigger = self._default_trigger_by_mode[trigger]
+        if trigger in self._trigger_to_mode:
+            _, runtime = self._runtime_for_trigger(trigger)
             return not bool(runtime["steering"])
         return False
 
